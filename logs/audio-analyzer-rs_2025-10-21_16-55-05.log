@@ -1,0 +1,6 @@
+[2025-10-21 16:55:05.086842 -07:00] INFO [src\audio_io\mod.rs:369] [CALLBACK DEBUG] 0 callbacks processed, last interval=316136ms
+[2025-10-21 16:55:15.086699 -07:00] INFO [src\audio_io\mod.rs:369] [CALLBACK DEBUG] 1000 callbacks processed, last interval=9999883ms
+[2025-10-21 16:55:25.086792 -07:00] INFO [src\audio_io\mod.rs:369] [CALLBACK DEBUG] 2000 callbacks processed, last interval=10000091ms
+[2025-10-21 16:55:35.086777 -07:00] INFO [src\audio_io\mod.rs:369] [CALLBACK DEBUG] 3000 callbacks processed, last interval=9999986ms
+[2025-10-21 16:55:45.086808 -07:00] INFO [src\audio_io\mod.rs:369] [CALLBACK DEBUG] 4000 callbacks processed, last interval=10000028ms
+[2025-10-21 16:55:55.086800 -07:00] INFO [src\audio_io\mod.rs:369] [CALLBACK DEBUG] 5000 callbacks processed, last interval=9999983ms

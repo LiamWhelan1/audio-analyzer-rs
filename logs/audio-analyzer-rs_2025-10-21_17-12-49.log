@@ -1,0 +1,1441 @@
+[2025-10-21 17:12:49.644091 -07:00] INFO [src\audio_io\mod.rs:369] [CALLBACK DEBUG] 0 callbacks processed, last interval=285355ms
+[2025-10-21 17:12:49.655137 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 0 for 1 consumers
+[2025-10-21 17:12:49.655387 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 0 ref 1
+[2025-10-21 17:12:49.655541 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 0 to consumer
+[2025-10-21 17:12:49.658636 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 0
+[2025-10-21 17:12:49.660718 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 0 fully released
+[2025-10-21 17:12:49.660850 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 0
+[2025-10-21 17:12:49.665045 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 1 for 1 consumers
+[2025-10-21 17:12:49.665226 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 1 ref 1
+[2025-10-21 17:12:49.665332 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 1 to consumer
+[2025-10-21 17:12:49.666054 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 1
+[2025-10-21 17:12:49.666377 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 1 fully released
+[2025-10-21 17:12:49.666483 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 1
+[2025-10-21 17:12:49.675613 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 2 for 1 consumers
+[2025-10-21 17:12:49.675807 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 2 ref 1
+[2025-10-21 17:12:49.675905 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 2 to consumer
+[2025-10-21 17:12:49.677611 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 2
+[2025-10-21 17:12:49.677867 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 2 fully released
+[2025-10-21 17:12:49.677940 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 2
+[2025-10-21 17:12:49.685733 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 3 for 1 consumers
+[2025-10-21 17:12:49.685886 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 3 ref 1
+[2025-10-21 17:12:49.686013 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 3 to consumer
+[2025-10-21 17:12:49.690692 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 3
+[2025-10-21 17:12:49.691215 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 3 fully released
+[2025-10-21 17:12:49.691359 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 3
+[2025-10-21 17:12:49.695495 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 4 for 1 consumers
+[2025-10-21 17:12:49.695771 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 4 ref 1
+[2025-10-21 17:12:49.695920 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 4 to consumer
+[2025-10-21 17:12:49.696997 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 4
+[2025-10-21 17:12:49.697238 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 4 fully released
+[2025-10-21 17:12:49.697348 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 4
+[2025-10-21 17:12:49.704159 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 5 for 1 consumers
+[2025-10-21 17:12:49.705232 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 5 ref 1
+[2025-10-21 17:12:49.705637 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 5 to consumer
+[2025-10-21 17:12:49.708061 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 5
+[2025-10-21 17:12:49.708369 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 5 fully released
+[2025-10-21 17:12:49.708521 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 5
+[2025-10-21 17:12:49.715574 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 6 for 1 consumers
+[2025-10-21 17:12:49.715866 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 6 ref 1
+[2025-10-21 17:12:49.716015 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 6 to consumer
+[2025-10-21 17:12:49.719697 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 6
+[2025-10-21 17:12:49.720484 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 6 fully released
+[2025-10-21 17:12:49.720598 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 6
+[2025-10-21 17:12:49.725324 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 7 for 1 consumers
+[2025-10-21 17:12:49.725580 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 7 ref 1
+[2025-10-21 17:12:49.725733 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 7 to consumer
+[2025-10-21 17:12:49.726278 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 7
+[2025-10-21 17:12:49.726628 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 7 fully released
+[2025-10-21 17:12:49.726717 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 7
+[2025-10-21 17:12:49.735435 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 8 for 1 consumers
+[2025-10-21 17:12:49.735740 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 8 ref 1
+[2025-10-21 17:12:49.735888 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 8 to consumer
+[2025-10-21 17:12:49.737402 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 8
+[2025-10-21 17:12:49.737716 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 8 fully released
+[2025-10-21 17:12:49.737837 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 8
+[2025-10-21 17:12:49.746107 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 9 for 1 consumers
+[2025-10-21 17:12:49.746303 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 9 ref 1
+[2025-10-21 17:12:49.746428 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 9 to consumer
+[2025-10-21 17:12:49.749077 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 9
+[2025-10-21 17:12:49.749319 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 9 fully released
+[2025-10-21 17:12:49.749396 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 9
+[2025-10-21 17:12:49.756420 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 10 for 1 consumers
+[2025-10-21 17:12:49.756637 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 10 ref 1
+[2025-10-21 17:12:49.756715 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 10 to consumer
+[2025-10-21 17:12:49.759916 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 10
+[2025-10-21 17:12:49.760160 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 10 fully released
+[2025-10-21 17:12:49.760269 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 10
+[2025-10-21 17:12:49.764272 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 11 for 1 consumers
+[2025-10-21 17:12:49.764501 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 11 ref 1
+[2025-10-21 17:12:49.764604 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 11 to consumer
+[2025-10-21 17:12:49.765818 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 11
+[2025-10-21 17:12:49.766080 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 11 fully released
+[2025-10-21 17:12:49.766154 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 11
+[2025-10-21 17:12:49.776037 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 12 for 1 consumers
+[2025-10-21 17:12:49.776339 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 12 ref 1
+[2025-10-21 17:12:49.776484 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 12 to consumer
+[2025-10-21 17:12:49.776510 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 12
+[2025-10-21 17:12:49.776748 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 12 fully released
+[2025-10-21 17:12:49.776841 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 12
+[2025-10-21 17:12:49.784081 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 13 for 1 consumers
+[2025-10-21 17:12:49.784221 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 13 ref 1
+[2025-10-21 17:12:49.784344 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 13 to consumer
+[2025-10-21 17:12:49.787163 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 13
+[2025-10-21 17:12:49.787375 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 13 fully released
+[2025-10-21 17:12:49.787497 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 13
+[2025-10-21 17:12:49.794425 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 14 for 1 consumers
+[2025-10-21 17:12:49.794565 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 14 ref 1
+[2025-10-21 17:12:49.794678 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 14 to consumer
+[2025-10-21 17:12:49.797835 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 14
+[2025-10-21 17:12:49.798060 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 14 fully released
+[2025-10-21 17:12:49.798140 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 14
+[2025-10-21 17:12:49.814194 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 15 for 1 consumers
+[2025-10-21 17:12:49.814381 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 15 ref 1
+[2025-10-21 17:12:49.814532 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 15 to consumer
+[2025-10-21 17:12:49.819228 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 15
+[2025-10-21 17:12:49.819497 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 15 fully released
+[2025-10-21 17:12:49.819612 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 15
+[2025-10-21 17:12:49.824230 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 16 for 1 consumers
+[2025-10-21 17:12:49.824397 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 16 ref 1
+[2025-10-21 17:12:49.824492 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 16 to consumer
+[2025-10-21 17:12:49.825316 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 16
+[2025-10-21 17:12:49.825552 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 16 fully released
+[2025-10-21 17:12:49.825686 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 16
+[2025-10-21 17:12:49.834137 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 17 for 1 consumers
+[2025-10-21 17:12:49.834314 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 17 ref 1
+[2025-10-21 17:12:49.834461 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 17 to consumer
+[2025-10-21 17:12:49.836160 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 17
+[2025-10-21 17:12:49.836390 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 17 fully released
+[2025-10-21 17:12:49.836530 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 17
+[2025-10-21 17:12:49.846254 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 18 for 1 consumers
+[2025-10-21 17:12:49.846477 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 18 ref 1
+[2025-10-21 17:12:49.846572 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 18 to consumer
+[2025-10-21 17:12:49.847789 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 18
+[2025-10-21 17:12:49.847997 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 18 fully released
+[2025-10-21 17:12:49.848101 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 18
+[2025-10-21 17:12:49.856363 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 19 for 1 consumers
+[2025-10-21 17:12:49.856565 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 19 ref 1
+[2025-10-21 17:12:49.856691 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 19 to consumer
+[2025-10-21 17:12:49.858804 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 19
+[2025-10-21 17:12:49.859041 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 19 fully released
+[2025-10-21 17:12:49.859125 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 19
+[2025-10-21 17:12:49.864346 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 20 for 1 consumers
+[2025-10-21 17:12:49.864530 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 20 ref 1
+[2025-10-21 17:12:49.864612 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 20 to consumer
+[2025-10-21 17:12:49.869951 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 20
+[2025-10-21 17:12:49.870247 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 20 fully released
+[2025-10-21 17:12:49.870398 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 20
+[2025-10-21 17:12:49.874220 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 21 for 1 consumers
+[2025-10-21 17:12:49.874392 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 21 ref 1
+[2025-10-21 17:12:49.874481 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 21 to consumer
+[2025-10-21 17:12:49.875833 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 21
+[2025-10-21 17:12:49.876027 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 21 fully released
+[2025-10-21 17:12:49.876152 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 21
+[2025-10-21 17:12:49.886396 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 22 for 1 consumers
+[2025-10-21 17:12:49.886606 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 22 ref 1
+[2025-10-21 17:12:49.886736 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 22 to consumer
+[2025-10-21 17:12:49.887476 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 22
+[2025-10-21 17:12:49.887675 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 22 fully released
+[2025-10-21 17:12:49.887789 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 22
+[2025-10-21 17:12:49.894011 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 23 for 1 consumers
+[2025-10-21 17:12:49.894125 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 23 ref 1
+[2025-10-21 17:12:49.894225 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 23 to consumer
+[2025-10-21 17:12:49.898124 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 23
+[2025-10-21 17:12:49.898386 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 23 fully released
+[2025-10-21 17:12:49.898517 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 23
+[2025-10-21 17:12:49.905422 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 24 for 1 consumers
+[2025-10-21 17:12:49.905696 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 24 ref 1
+[2025-10-21 17:12:49.905790 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 24 to consumer
+[2025-10-21 17:12:49.909665 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 24
+[2025-10-21 17:12:49.909881 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 24 fully released
+[2025-10-21 17:12:49.910000 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 24
+[2025-10-21 17:12:49.915530 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 25 for 1 consumers
+[2025-10-21 17:12:49.915665 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 25 ref 1
+[2025-10-21 17:12:49.915771 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 25 to consumer
+[2025-10-21 17:12:49.921092 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 25
+[2025-10-21 17:12:49.921332 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 25 fully released
+[2025-10-21 17:12:49.921461 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 25
+[2025-10-21 17:12:49.925606 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 26 for 1 consumers
+[2025-10-21 17:12:49.925743 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 26 ref 1
+[2025-10-21 17:12:49.925835 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 26 to consumer
+[2025-10-21 17:12:49.927108 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 26
+[2025-10-21 17:12:49.927342 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 26 fully released
+[2025-10-21 17:12:49.927456 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 26
+[2025-10-21 17:12:49.935948 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 27 for 1 consumers
+[2025-10-21 17:12:49.936164 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 27 ref 1
+[2025-10-21 17:12:49.936317 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 27 to consumer
+[2025-10-21 17:12:49.937962 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 27
+[2025-10-21 17:12:49.938180 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 27 fully released
+[2025-10-21 17:12:49.938263 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 27
+[2025-10-21 17:12:49.945753 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 28 for 1 consumers
+[2025-10-21 17:12:49.945897 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 28 ref 1
+[2025-10-21 17:12:49.945978 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 28 to consumer
+[2025-10-21 17:12:49.948853 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 28
+[2025-10-21 17:12:49.949116 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 28 fully released
+[2025-10-21 17:12:49.949199 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 28
+[2025-10-21 17:12:49.955184 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 29 for 1 consumers
+[2025-10-21 17:12:49.955424 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 29 ref 1
+[2025-10-21 17:12:49.955519 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 29 to consumer
+[2025-10-21 17:12:49.960146 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 29
+[2025-10-21 17:12:49.960334 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 29 fully released
+[2025-10-21 17:12:49.960428 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 29
+[2025-10-21 17:12:49.974642 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 30 for 1 consumers
+[2025-10-21 17:12:49.974930 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 30 ref 1
+[2025-10-21 17:12:49.975029 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 30 to consumer
+[2025-10-21 17:12:49.976748 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 30
+[2025-10-21 17:12:49.976993 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 30 fully released
+[2025-10-21 17:12:49.977147 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 30
+[2025-10-21 17:12:49.984740 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 31 for 1 consumers
+[2025-10-21 17:12:49.984875 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 31 ref 1
+[2025-10-21 17:12:49.984971 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 31 to consumer
+[2025-10-21 17:12:49.988295 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 31
+[2025-10-21 17:12:49.988560 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 31 fully released
+[2025-10-21 17:12:49.988649 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 31
+[2025-10-21 17:12:49.995045 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 0 for 1 consumers
+[2025-10-21 17:12:49.995191 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 0 ref 1
+[2025-10-21 17:12:49.995308 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 0 to consumer
+[2025-10-21 17:12:49.999211 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 0
+[2025-10-21 17:12:49.999448 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 0 fully released
+[2025-10-21 17:12:49.999554 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 0
+[2025-10-21 17:12:50.004876 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 1 for 1 consumers
+[2025-10-21 17:12:50.005103 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 1 ref 1
+[2025-10-21 17:12:50.005180 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 1 to consumer
+[2025-10-21 17:12:50.010089 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 1
+[2025-10-21 17:12:50.010321 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 1 fully released
+[2025-10-21 17:12:50.010442 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 1
+[2025-10-21 17:12:50.015163 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 2 for 1 consumers
+[2025-10-21 17:12:50.015319 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 2 ref 1
+[2025-10-21 17:12:50.015450 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 2 to consumer
+[2025-10-21 17:12:50.015620 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 2
+[2025-10-21 17:12:50.015785 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 2 fully released
+[2025-10-21 17:12:50.015879 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 2
+[2025-10-21 17:12:50.025642 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 3 for 1 consumers
+[2025-10-21 17:12:50.025810 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 3 ref 1
+[2025-10-21 17:12:50.025889 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 3 to consumer
+[2025-10-21 17:12:50.026636 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 3
+[2025-10-21 17:12:50.026884 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 3 fully released
+[2025-10-21 17:12:50.026978 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 3
+[2025-10-21 17:12:50.035353 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 4 for 1 consumers
+[2025-10-21 17:12:50.035549 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 4 ref 1
+[2025-10-21 17:12:50.035687 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 4 to consumer
+[2025-10-21 17:12:50.037840 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 4
+[2025-10-21 17:12:50.038111 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 4 fully released
+[2025-10-21 17:12:50.038220 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 4
+[2025-10-21 17:12:50.045410 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 5 for 1 consumers
+[2025-10-21 17:12:50.045573 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 5 ref 1
+[2025-10-21 17:12:50.045724 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 5 to consumer
+[2025-10-21 17:12:50.048523 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 5
+[2025-10-21 17:12:50.048760 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 5 fully released
+[2025-10-21 17:12:50.048874 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 5
+[2025-10-21 17:12:50.055195 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 6 for 1 consumers
+[2025-10-21 17:12:50.055472 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 6 ref 1
+[2025-10-21 17:12:50.055560 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 6 to consumer
+[2025-10-21 17:12:50.059718 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 6
+[2025-10-21 17:12:50.059964 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 6 fully released
+[2025-10-21 17:12:50.060065 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 6
+[2025-10-21 17:12:50.065231 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 7 for 1 consumers
+[2025-10-21 17:12:50.065379 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 7 ref 1
+[2025-10-21 17:12:50.065498 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 7 to consumer
+[2025-10-21 17:12:50.070263 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 7
+[2025-10-21 17:12:50.070589 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 7 fully released
+[2025-10-21 17:12:50.070706 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 7
+[2025-10-21 17:12:50.074420 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 8 for 1 consumers
+[2025-10-21 17:12:50.074578 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 8 ref 1
+[2025-10-21 17:12:50.074675 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 8 to consumer
+[2025-10-21 17:12:50.076098 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 8
+[2025-10-21 17:12:50.076316 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 8 fully released
+[2025-10-21 17:12:50.076415 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 8
+[2025-10-21 17:12:50.084191 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 9 for 1 consumers
+[2025-10-21 17:12:50.084339 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 9 ref 1
+[2025-10-21 17:12:50.084472 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 9 to consumer
+[2025-10-21 17:12:50.087234 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 9
+[2025-10-21 17:12:50.087412 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 9 fully released
+[2025-10-21 17:12:50.087503 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 9
+[2025-10-21 17:12:50.096378 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 10 for 1 consumers
+[2025-10-21 17:12:50.096525 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 10 ref 1
+[2025-10-21 17:12:50.096594 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 10 to consumer
+[2025-10-21 17:12:50.098003 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 10
+[2025-10-21 17:12:50.098278 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 10 fully released
+[2025-10-21 17:12:50.098376 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 10
+[2025-10-21 17:12:50.105999 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 11 for 1 consumers
+[2025-10-21 17:12:50.106270 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 11 ref 1
+[2025-10-21 17:12:50.106439 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 11 to consumer
+[2025-10-21 17:12:50.109189 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 11
+[2025-10-21 17:12:50.109408 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 11 fully released
+[2025-10-21 17:12:50.109490 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 11
+[2025-10-21 17:12:50.115737 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 12 for 1 consumers
+[2025-10-21 17:12:50.115875 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 12 ref 1
+[2025-10-21 17:12:50.115955 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 12 to consumer
+[2025-10-21 17:12:50.119812 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 12
+[2025-10-21 17:12:50.120000 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 12 fully released
+[2025-10-21 17:12:50.120092 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 12
+[2025-10-21 17:12:50.134702 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 13 for 1 consumers
+[2025-10-21 17:12:50.134938 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 13 ref 1
+[2025-10-21 17:12:50.135118 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 13 to consumer
+[2025-10-21 17:12:50.136329 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 13
+[2025-10-21 17:12:50.136571 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 13 fully released
+[2025-10-21 17:12:50.136722 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 13
+[2025-10-21 17:12:50.146030 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 14 for 1 consumers
+[2025-10-21 17:12:50.146194 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 14 ref 1
+[2025-10-21 17:12:50.146393 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 14 to consumer
+[2025-10-21 17:12:50.147040 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 14
+[2025-10-21 17:12:50.147224 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 14 fully released
+[2025-10-21 17:12:50.147309 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 14
+[2025-10-21 17:12:50.156000 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 15 for 1 consumers
+[2025-10-21 17:12:50.156233 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 15 ref 1
+[2025-10-21 17:12:50.156372 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 15 to consumer
+[2025-10-21 17:12:50.157988 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 15
+[2025-10-21 17:12:50.158236 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 15 fully released
+[2025-10-21 17:12:50.158333 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 15
+[2025-10-21 17:12:50.164084 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 16 for 1 consumers
+[2025-10-21 17:12:50.164224 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 16 ref 1
+[2025-10-21 17:12:50.164359 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 16 to consumer
+[2025-10-21 17:12:50.168741 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 16
+[2025-10-21 17:12:50.168996 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 16 fully released
+[2025-10-21 17:12:50.169098 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 16
+[2025-10-21 17:12:50.175616 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 17 for 1 consumers
+[2025-10-21 17:12:50.175813 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 17 ref 1
+[2025-10-21 17:12:50.175966 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 17 to consumer
+[2025-10-21 17:12:50.179795 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 17
+[2025-10-21 17:12:50.180051 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 17 fully released
+[2025-10-21 17:12:50.180154 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 17
+[2025-10-21 17:12:50.185509 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 18 for 1 consumers
+[2025-10-21 17:12:50.185665 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 18 ref 1
+[2025-10-21 17:12:50.185757 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 18 to consumer
+[2025-10-21 17:12:50.190623 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 18
+[2025-10-21 17:12:50.190933 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 18 fully released
+[2025-10-21 17:12:50.191109 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 18
+[2025-10-21 17:12:50.194696 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 19 for 1 consumers
+[2025-10-21 17:12:50.194861 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 19 ref 1
+[2025-10-21 17:12:50.194984 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 19 to consumer
+[2025-10-21 17:12:50.196292 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 19
+[2025-10-21 17:12:50.196540 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 19 fully released
+[2025-10-21 17:12:50.196689 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 19
+[2025-10-21 17:12:50.204186 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 20 for 1 consumers
+[2025-10-21 17:12:50.204396 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 20 ref 1
+[2025-10-21 17:12:50.204506 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 20 to consumer
+[2025-10-21 17:12:50.207265 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 20
+[2025-10-21 17:12:50.207520 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 20 fully released
+[2025-10-21 17:12:50.207593 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 20
+[2025-10-21 17:12:50.214264 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 21 for 1 consumers
+[2025-10-21 17:12:50.214464 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 21 ref 1
+[2025-10-21 17:12:50.214553 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 21 to consumer
+[2025-10-21 17:12:50.218741 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 21
+[2025-10-21 17:12:50.219000 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 21 fully released
+[2025-10-21 17:12:50.219154 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 21
+[2025-10-21 17:12:50.224270 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 22 for 1 consumers
+[2025-10-21 17:12:50.224425 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 22 ref 1
+[2025-10-21 17:12:50.224561 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 22 to consumer
+[2025-10-21 17:12:50.224776 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 22
+[2025-10-21 17:12:50.225015 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 22 fully released
+[2025-10-21 17:12:50.225108 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 22
+[2025-10-21 17:12:50.234406 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 23 for 1 consumers
+[2025-10-21 17:12:50.234627 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 23 ref 1
+[2025-10-21 17:12:50.234766 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 23 to consumer
+[2025-10-21 17:12:50.235400 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 23
+[2025-10-21 17:12:50.235624 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 23 fully released
+[2025-10-21 17:12:50.235710 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 23
+[2025-10-21 17:12:50.244452 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 24 for 1 consumers
+[2025-10-21 17:12:50.244645 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 24 ref 1
+[2025-10-21 17:12:50.244762 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 24 to consumer
+[2025-10-21 17:12:50.246473 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 24
+[2025-10-21 17:12:50.246727 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 24 fully released
+[2025-10-21 17:12:50.246807 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 24
+[2025-10-21 17:12:50.254409 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 25 for 1 consumers
+[2025-10-21 17:12:50.254632 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 25 ref 1
+[2025-10-21 17:12:50.254711 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 25 to consumer
+[2025-10-21 17:12:50.257466 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 25
+[2025-10-21 17:12:50.257687 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 25 fully released
+[2025-10-21 17:12:50.257768 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 25
+[2025-10-21 17:12:50.264031 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 26 for 1 consumers
+[2025-10-21 17:12:50.264172 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 26 ref 1
+[2025-10-21 17:12:50.264274 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 26 to consumer
+[2025-10-21 17:12:50.268152 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 26
+[2025-10-21 17:12:50.268391 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 26 fully released
+[2025-10-21 17:12:50.268519 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 26
+[2025-10-21 17:12:50.276059 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 27 for 1 consumers
+[2025-10-21 17:12:50.276334 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 27 ref 1
+[2025-10-21 17:12:50.276451 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 27 to consumer
+[2025-10-21 17:12:50.279191 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 27
+[2025-10-21 17:12:50.279396 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 27 fully released
+[2025-10-21 17:12:50.279503 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 27
+[2025-10-21 17:12:50.295579 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 28 for 1 consumers
+[2025-10-21 17:12:50.295776 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 28 ref 1
+[2025-10-21 17:12:50.295867 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 28 to consumer
+[2025-10-21 17:12:50.300664 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 28
+[2025-10-21 17:12:50.300982 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 28 fully released
+[2025-10-21 17:12:50.301173 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 28
+[2025-10-21 17:12:50.304684 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 29 for 1 consumers
+[2025-10-21 17:12:50.304869 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 29 ref 1
+[2025-10-21 17:12:50.304957 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 29 to consumer
+[2025-10-21 17:12:50.306826 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 29
+[2025-10-21 17:12:50.307040 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 29 fully released
+[2025-10-21 17:12:50.307135 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 29
+[2025-10-21 17:12:50.314763 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 30 for 1 consumers
+[2025-10-21 17:12:50.314916 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 30 ref 1
+[2025-10-21 17:12:50.314990 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 30 to consumer
+[2025-10-21 17:12:50.318138 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 30
+[2025-10-21 17:12:50.318348 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 30 fully released
+[2025-10-21 17:12:50.318450 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 30
+[2025-10-21 17:12:50.326540 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 31 for 1 consumers
+[2025-10-21 17:12:50.326735 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 31 ref 1
+[2025-10-21 17:12:50.326821 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 31 to consumer
+[2025-10-21 17:12:50.329151 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 31
+[2025-10-21 17:12:50.329340 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 31 fully released
+[2025-10-21 17:12:50.329473 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 31
+[2025-10-21 17:12:50.334281 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 0 for 1 consumers
+[2025-10-21 17:12:50.334493 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 0 ref 1
+[2025-10-21 17:12:50.334596 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 0 to consumer
+[2025-10-21 17:12:50.335284 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 0
+[2025-10-21 17:12:50.335498 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 0 fully released
+[2025-10-21 17:12:50.335614 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 0
+[2025-10-21 17:12:50.344254 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 1 for 1 consumers
+[2025-10-21 17:12:50.344460 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 1 ref 1
+[2025-10-21 17:12:50.344563 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 1 to consumer
+[2025-10-21 17:12:50.346133 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 1
+[2025-10-21 17:12:50.346331 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 1 fully released
+[2025-10-21 17:12:50.346437 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 1
+[2025-10-21 17:12:50.356105 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 2 for 1 consumers
+[2025-10-21 17:12:50.356343 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 2 ref 1
+[2025-10-21 17:12:50.356453 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 2 to consumer
+[2025-10-21 17:12:50.357233 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 2
+[2025-10-21 17:12:50.357461 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 2 fully released
+[2025-10-21 17:12:50.357561 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 2
+[2025-10-21 17:12:50.366112 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 3 for 1 consumers
+[2025-10-21 17:12:50.366297 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 3 ref 1
+[2025-10-21 17:12:50.366402 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 3 to consumer
+[2025-10-21 17:12:50.368624 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 3
+[2025-10-21 17:12:50.368833 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 3 fully released
+[2025-10-21 17:12:50.368948 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 3
+[2025-10-21 17:12:50.376205 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 4 for 1 consumers
+[2025-10-21 17:12:50.376376 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 4 ref 1
+[2025-10-21 17:12:50.376445 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 4 to consumer
+[2025-10-21 17:12:50.379499 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 4
+[2025-10-21 17:12:50.379683 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 4 fully released
+[2025-10-21 17:12:50.379767 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 4
+[2025-10-21 17:12:50.386171 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 5 for 1 consumers
+[2025-10-21 17:12:50.386393 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 5 ref 1
+[2025-10-21 17:12:50.386491 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 5 to consumer
+[2025-10-21 17:12:50.391226 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 5
+[2025-10-21 17:12:50.391442 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 5 fully released
+[2025-10-21 17:12:50.391533 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 5
+[2025-10-21 17:12:50.396246 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 6 for 1 consumers
+[2025-10-21 17:12:50.396380 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 6 ref 1
+[2025-10-21 17:12:50.396469 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 6 to consumer
+[2025-10-21 17:12:50.396739 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 6
+[2025-10-21 17:12:50.396908 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 6 fully released
+[2025-10-21 17:12:50.397006 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 6
+[2025-10-21 17:12:50.405978 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 7 for 1 consumers
+[2025-10-21 17:12:50.406141 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 7 ref 1
+[2025-10-21 17:12:50.406260 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 7 to consumer
+[2025-10-21 17:12:50.407985 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 7
+[2025-10-21 17:12:50.408198 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 7 fully released
+[2025-10-21 17:12:50.408286 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 7
+[2025-10-21 17:12:50.416144 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 8 for 1 consumers
+[2025-10-21 17:12:50.416267 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 8 ref 1
+[2025-10-21 17:12:50.416387 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 8 to consumer
+[2025-10-21 17:12:50.419046 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 8
+[2025-10-21 17:12:50.419238 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 8 fully released
+[2025-10-21 17:12:50.419346 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 8
+[2025-10-21 17:12:50.424070 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 9 for 1 consumers
+[2025-10-21 17:12:50.424240 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 9 ref 1
+[2025-10-21 17:12:50.424316 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 9 to consumer
+[2025-10-21 17:12:50.424579 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 9
+[2025-10-21 17:12:50.424741 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 9 fully released
+[2025-10-21 17:12:50.424839 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 9
+[2025-10-21 17:12:50.434518 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 10 for 1 consumers
+[2025-10-21 17:12:50.434699 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 10 ref 1
+[2025-10-21 17:12:50.434807 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 10 to consumer
+[2025-10-21 17:12:50.435502 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 10
+[2025-10-21 17:12:50.435696 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 10 fully released
+[2025-10-21 17:12:50.435801 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 10
+[2025-10-21 17:12:50.454163 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 11 for 1 consumers
+[2025-10-21 17:12:50.454362 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 11 ref 1
+[2025-10-21 17:12:50.454458 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 11 to consumer
+[2025-10-21 17:12:50.456708 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 11
+[2025-10-21 17:12:50.456910 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 11 fully released
+[2025-10-21 17:12:50.457018 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 11
+[2025-10-21 17:12:50.464237 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 12 for 1 consumers
+[2025-10-21 17:12:50.464379 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 12 ref 1
+[2025-10-21 17:12:50.464478 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 12 to consumer
+[2025-10-21 17:12:50.467636 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 12
+[2025-10-21 17:12:50.467851 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 12 fully released
+[2025-10-21 17:12:50.467946 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 12
+[2025-10-21 17:12:50.474767 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 13 for 1 consumers
+[2025-10-21 17:12:50.474954 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 13 ref 1
+[2025-10-21 17:12:50.475051 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 13 to consumer
+[2025-10-21 17:12:50.478285 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 13
+[2025-10-21 17:12:50.478530 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 13 fully released
+[2025-10-21 17:12:50.478635 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 13
+[2025-10-21 17:12:50.485066 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 14 for 1 consumers
+[2025-10-21 17:12:50.485235 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 14 ref 1
+[2025-10-21 17:12:50.485391 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 14 to consumer
+[2025-10-21 17:12:50.489136 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 14
+[2025-10-21 17:12:50.489380 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 14 fully released
+[2025-10-21 17:12:50.489475 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 14
+[2025-10-21 17:12:50.494180 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 15 for 1 consumers
+[2025-10-21 17:12:50.494293 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 15 ref 1
+[2025-10-21 17:12:50.494368 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 15 to consumer
+[2025-10-21 17:12:50.494742 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 15
+[2025-10-21 17:12:50.494921 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 15 fully released
+[2025-10-21 17:12:50.495024 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 15
+[2025-10-21 17:12:50.506248 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 16 for 1 consumers
+[2025-10-21 17:12:50.506412 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 16 ref 1
+[2025-10-21 17:12:50.506522 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 16 to consumer
+[2025-10-21 17:12:50.511297 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 16
+[2025-10-21 17:12:50.511530 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 16 fully released
+[2025-10-21 17:12:50.511706 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 16
+[2025-10-21 17:12:50.516331 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 17 for 1 consumers
+[2025-10-21 17:12:50.516592 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 17 ref 1
+[2025-10-21 17:12:50.516691 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 17 to consumer
+[2025-10-21 17:12:50.517309 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 17
+[2025-10-21 17:12:50.517567 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 17 fully released
+[2025-10-21 17:12:50.517727 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 17
+[2025-10-21 17:12:50.526115 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 18 for 1 consumers
+[2025-10-21 17:12:50.526274 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 18 ref 1
+[2025-10-21 17:12:50.526340 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 18 to consumer
+[2025-10-21 17:12:50.528255 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 18
+[2025-10-21 17:12:50.528515 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 18 fully released
+[2025-10-21 17:12:50.528607 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 18
+[2025-10-21 17:12:50.536081 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 19 for 1 consumers
+[2025-10-21 17:12:50.536241 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 19 ref 1
+[2025-10-21 17:12:50.536345 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 19 to consumer
+[2025-10-21 17:12:50.538894 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 19
+[2025-10-21 17:12:50.539132 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 19 fully released
+[2025-10-21 17:12:50.539236 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 19
+[2025-10-21 17:12:50.545976 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 20 for 1 consumers
+[2025-10-21 17:12:50.546251 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 20 ref 1
+[2025-10-21 17:12:50.546419 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 20 to consumer
+[2025-10-21 17:12:50.549736 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 20
+[2025-10-21 17:12:50.549995 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 20 fully released
+[2025-10-21 17:12:50.550091 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 20
+[2025-10-21 17:12:50.555070 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 21 for 1 consumers
+[2025-10-21 17:12:50.555263 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 21 ref 1
+[2025-10-21 17:12:50.555350 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 21 to consumer
+[2025-10-21 17:12:50.555549 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 21
+[2025-10-21 17:12:50.555712 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 21 fully released
+[2025-10-21 17:12:50.555815 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 21
+[2025-10-21 17:12:50.565454 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 22 for 1 consumers
+[2025-10-21 17:12:50.565660 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 22 ref 1
+[2025-10-21 17:12:50.565748 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 22 to consumer
+[2025-10-21 17:12:50.566488 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 22
+[2025-10-21 17:12:50.566691 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 22 fully released
+[2025-10-21 17:12:50.566800 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 22
+[2025-10-21 17:12:50.575413 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 23 for 1 consumers
+[2025-10-21 17:12:50.575631 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 23 ref 1
+[2025-10-21 17:12:50.575718 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 23 to consumer
+[2025-10-21 17:12:50.577865 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 23
+[2025-10-21 17:12:50.578051 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 23 fully released
+[2025-10-21 17:12:50.578148 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 23
+[2025-10-21 17:12:50.584930 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 24 for 1 consumers
+[2025-10-21 17:12:50.585072 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 24 ref 1
+[2025-10-21 17:12:50.585201 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 24 to consumer
+[2025-10-21 17:12:50.588494 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 24
+[2025-10-21 17:12:50.588751 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 24 fully released
+[2025-10-21 17:12:50.588826 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 24
+[2025-10-21 17:12:50.595044 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 25 for 1 consumers
+[2025-10-21 17:12:50.595238 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 25 ref 1
+[2025-10-21 17:12:50.595325 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 25 to consumer
+[2025-10-21 17:12:50.599100 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 25
+[2025-10-21 17:12:50.599352 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 25 fully released
+[2025-10-21 17:12:50.599514 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 25
+[2025-10-21 17:12:50.614299 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 26 for 1 consumers
+[2025-10-21 17:12:50.614570 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 26 ref 1
+[2025-10-21 17:12:50.614677 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 26 to consumer
+[2025-10-21 17:12:50.615307 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 26
+[2025-10-21 17:12:50.615569 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 26 fully released
+[2025-10-21 17:12:50.615671 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 26
+[2025-10-21 17:12:50.624977 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 27 for 1 consumers
+[2025-10-21 17:12:50.625205 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 27 ref 1
+[2025-10-21 17:12:50.625311 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 27 to consumer
+[2025-10-21 17:12:50.625984 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 27
+[2025-10-21 17:12:50.626269 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 27 fully released
+[2025-10-21 17:12:50.626382 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 27
+[2025-10-21 17:12:50.635537 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 28 for 1 consumers
+[2025-10-21 17:12:50.635754 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 28 ref 1
+[2025-10-21 17:12:50.635856 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 28 to consumer
+[2025-10-21 17:12:50.637070 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 28
+[2025-10-21 17:12:50.637310 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 28 fully released
+[2025-10-21 17:12:50.637406 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 28
+[2025-10-21 17:12:50.645550 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 29 for 1 consumers
+[2025-10-21 17:12:50.645758 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 29 ref 1
+[2025-10-21 17:12:50.645941 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 29 to consumer
+[2025-10-21 17:12:50.648092 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 29
+[2025-10-21 17:12:50.648303 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 29 fully released
+[2025-10-21 17:12:50.648400 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 29
+[2025-10-21 17:12:50.655636 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 30 for 1 consumers
+[2025-10-21 17:12:50.655853 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 30 ref 1
+[2025-10-21 17:12:50.655938 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 30 to consumer
+[2025-10-21 17:12:50.659120 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 30
+[2025-10-21 17:12:50.659452 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 30 fully released
+[2025-10-21 17:12:50.659565 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 30
+[2025-10-21 17:12:50.665757 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 31 for 1 consumers
+[2025-10-21 17:12:50.665887 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 31 ref 1
+[2025-10-21 17:12:50.665985 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 31 to consumer
+[2025-10-21 17:12:50.670397 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 31
+[2025-10-21 17:12:50.670718 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 31 fully released
+[2025-10-21 17:12:50.670891 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 31
+[2025-10-21 17:12:50.675931 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 0 for 1 consumers
+[2025-10-21 17:12:50.676177 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 0 ref 1
+[2025-10-21 17:12:50.676269 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 0 to consumer
+[2025-10-21 17:12:50.676423 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 0
+[2025-10-21 17:12:50.676572 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 0 fully released
+[2025-10-21 17:12:50.676692 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 0
+[2025-10-21 17:12:50.685125 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 1 for 1 consumers
+[2025-10-21 17:12:50.685376 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 1 ref 1
+[2025-10-21 17:12:50.685533 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 1 to consumer
+[2025-10-21 17:12:50.687420 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 1
+[2025-10-21 17:12:50.687682 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 1 fully released
+[2025-10-21 17:12:50.687807 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 1
+[2025-10-21 17:12:50.695607 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 2 for 1 consumers
+[2025-10-21 17:12:50.695722 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 2 ref 1
+[2025-10-21 17:12:50.695857 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 2 to consumer
+[2025-10-21 17:12:50.698004 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 2
+[2025-10-21 17:12:50.698192 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 2 fully released
+[2025-10-21 17:12:50.698289 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 2
+[2025-10-21 17:12:50.705062 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 3 for 1 consumers
+[2025-10-21 17:12:50.705282 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 3 ref 1
+[2025-10-21 17:12:50.705402 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 3 to consumer
+[2025-10-21 17:12:50.709147 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 3
+[2025-10-21 17:12:50.709330 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 3 fully released
+[2025-10-21 17:12:50.709398 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 3
+[2025-10-21 17:12:50.714711 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 4 for 1 consumers
+[2025-10-21 17:12:50.714855 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 4 ref 1
+[2025-10-21 17:12:50.714938 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 4 to consumer
+[2025-10-21 17:12:50.720216 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 4
+[2025-10-21 17:12:50.720455 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 4 fully released
+[2025-10-21 17:12:50.720560 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 4
+[2025-10-21 17:12:50.724371 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 5 for 1 consumers
+[2025-10-21 17:12:50.724555 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 5 ref 1
+[2025-10-21 17:12:50.724668 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 5 to consumer
+[2025-10-21 17:12:50.726271 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 5
+[2025-10-21 17:12:50.726566 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 5 fully released
+[2025-10-21 17:12:50.726699 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 5
+[2025-10-21 17:12:50.734329 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 6 for 1 consumers
+[2025-10-21 17:12:50.734547 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 6 ref 1
+[2025-10-21 17:12:50.734646 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 6 to consumer
+[2025-10-21 17:12:50.737346 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 6
+[2025-10-21 17:12:50.737582 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 6 fully released
+[2025-10-21 17:12:50.737751 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 6
+[2025-10-21 17:12:50.744342 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 7 for 1 consumers
+[2025-10-21 17:12:50.744572 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 7 ref 1
+[2025-10-21 17:12:50.744661 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 7 to consumer
+[2025-10-21 17:12:50.748696 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 7
+[2025-10-21 17:12:50.748871 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 7 fully released
+[2025-10-21 17:12:50.748997 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 7
+[2025-10-21 17:12:50.756312 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 8 for 1 consumers
+[2025-10-21 17:12:50.756521 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 8 ref 1
+[2025-10-21 17:12:50.756655 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 8 to consumer
+[2025-10-21 17:12:50.759494 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 8
+[2025-10-21 17:12:50.759684 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 8 fully released
+[2025-10-21 17:12:50.759819 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 8
+[2025-10-21 17:12:50.775060 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 9 for 1 consumers
+[2025-10-21 17:12:50.775275 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 9 ref 1
+[2025-10-21 17:12:50.775391 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 9 to consumer
+[2025-10-21 17:12:50.776097 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 9
+[2025-10-21 17:12:50.776299 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 9 fully released
+[2025-10-21 17:12:50.776388 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 9
+[2025-10-21 17:12:50.785008 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 10 for 1 consumers
+[2025-10-21 17:12:50.785200 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 10 ref 1
+[2025-10-21 17:12:50.785373 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 10 to consumer
+[2025-10-21 17:12:50.787029 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 10
+[2025-10-21 17:12:50.787253 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 10 fully released
+[2025-10-21 17:12:50.787365 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 10
+[2025-10-21 17:12:50.795532 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 11 for 1 consumers
+[2025-10-21 17:12:50.795691 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 11 ref 1
+[2025-10-21 17:12:50.795790 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 11 to consumer
+[2025-10-21 17:12:50.797960 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 11
+[2025-10-21 17:12:50.798167 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 11 fully released
+[2025-10-21 17:12:50.798244 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 11
+[2025-10-21 17:12:50.806001 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 12 for 1 consumers
+[2025-10-21 17:12:50.806208 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 12 ref 1
+[2025-10-21 17:12:50.806351 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 12 to consumer
+[2025-10-21 17:12:50.808981 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 12
+[2025-10-21 17:12:50.809197 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 12 fully released
+[2025-10-21 17:12:50.809276 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 12
+[2025-10-21 17:12:50.815268 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 13 for 1 consumers
+[2025-10-21 17:12:50.815444 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 13 ref 1
+[2025-10-21 17:12:50.815650 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 13 to consumer
+[2025-10-21 17:12:50.819956 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 13
+[2025-10-21 17:12:50.820139 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 13 fully released
+[2025-10-21 17:12:50.820209 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 13
+[2025-10-21 17:12:50.825525 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 14 for 1 consumers
+[2025-10-21 17:12:50.825651 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 14 ref 1
+[2025-10-21 17:12:50.825757 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 14 to consumer
+[2025-10-21 17:12:50.830620 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 14
+[2025-10-21 17:12:50.830897 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 14 fully released
+[2025-10-21 17:12:50.831087 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 14
+[2025-10-21 17:12:50.834811 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 15 for 1 consumers
+[2025-10-21 17:12:50.835017 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 15 ref 1
+[2025-10-21 17:12:50.835167 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 15 to consumer
+[2025-10-21 17:12:50.836359 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 15
+[2025-10-21 17:12:50.836600 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 15 fully released
+[2025-10-21 17:12:50.836763 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 15
+[2025-10-21 17:12:50.846021 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 16 for 1 consumers
+[2025-10-21 17:12:50.846194 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 16 ref 1
+[2025-10-21 17:12:50.846301 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 16 to consumer
+[2025-10-21 17:12:50.848045 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 16
+[2025-10-21 17:12:50.848270 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 16 fully released
+[2025-10-21 17:12:50.848360 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 16
+[2025-10-21 17:12:50.855858 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 17 for 1 consumers
+[2025-10-21 17:12:50.856082 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 17 ref 1
+[2025-10-21 17:12:50.856160 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 17 to consumer
+[2025-10-21 17:12:50.858921 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 17
+[2025-10-21 17:12:50.859174 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 17 fully released
+[2025-10-21 17:12:50.859284 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 17
+[2025-10-21 17:12:50.865558 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 18 for 1 consumers
+[2025-10-21 17:12:50.865719 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 18 ref 1
+[2025-10-21 17:12:50.865845 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 18 to consumer
+[2025-10-21 17:12:50.870131 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 18
+[2025-10-21 17:12:50.870361 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 18 fully released
+[2025-10-21 17:12:50.870453 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 18
+[2025-10-21 17:12:50.874536 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 19 for 1 consumers
+[2025-10-21 17:12:50.874711 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 19 ref 1
+[2025-10-21 17:12:50.874798 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 19 to consumer
+[2025-10-21 17:12:50.876072 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 19
+[2025-10-21 17:12:50.876295 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 19 fully released
+[2025-10-21 17:12:50.876408 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 19
+[2025-10-21 17:12:50.884147 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 20 for 1 consumers
+[2025-10-21 17:12:50.884282 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 20 ref 1
+[2025-10-21 17:12:50.884410 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 20 to consumer
+[2025-10-21 17:12:50.887174 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 20
+[2025-10-21 17:12:50.887390 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 20 fully released
+[2025-10-21 17:12:50.887550 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 20
+[2025-10-21 17:12:50.896344 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 21 for 1 consumers
+[2025-10-21 17:12:50.896516 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 21 ref 1
+[2025-10-21 17:12:50.896635 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 21 to consumer
+[2025-10-21 17:12:50.898016 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 21
+[2025-10-21 17:12:50.898296 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 21 fully released
+[2025-10-21 17:12:50.898380 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 21
+[2025-10-21 17:12:50.905681 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 22 for 1 consumers
+[2025-10-21 17:12:50.905883 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 22 ref 1
+[2025-10-21 17:12:50.905969 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 22 to consumer
+[2025-10-21 17:12:50.908790 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 22
+[2025-10-21 17:12:50.909014 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 22 fully released
+[2025-10-21 17:12:50.909117 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 22
+[2025-10-21 17:12:50.915328 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 23 for 1 consumers
+[2025-10-21 17:12:50.915483 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 23 ref 1
+[2025-10-21 17:12:50.915562 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 23 to consumer
+[2025-10-21 17:12:50.919560 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 23
+[2025-10-21 17:12:50.919719 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 23 fully released
+[2025-10-21 17:12:50.919864 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 23
+[2025-10-21 17:12:50.935705 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 24 for 1 consumers
+[2025-10-21 17:12:50.935946 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 24 ref 1
+[2025-10-21 17:12:50.936084 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 24 to consumer
+[2025-10-21 17:12:50.941089 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 24
+[2025-10-21 17:12:50.941300 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 24 fully released
+[2025-10-21 17:12:50.941396 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 24
+[2025-10-21 17:12:50.945048 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 25 for 1 consumers
+[2025-10-21 17:12:50.945235 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 25 ref 1
+[2025-10-21 17:12:50.945340 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 25 to consumer
+[2025-10-21 17:12:50.947035 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 25
+[2025-10-21 17:12:50.947218 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 25 fully released
+[2025-10-21 17:12:50.947307 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 25
+[2025-10-21 17:12:50.954559 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 26 for 1 consumers
+[2025-10-21 17:12:50.954724 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 26 ref 1
+[2025-10-21 17:12:50.954836 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 26 to consumer
+[2025-10-21 17:12:50.958083 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 26
+[2025-10-21 17:12:50.958274 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 26 fully released
+[2025-10-21 17:12:50.958360 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 26
+[2025-10-21 17:12:50.965095 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 27 for 1 consumers
+[2025-10-21 17:12:50.965288 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 27 ref 1
+[2025-10-21 17:12:50.965370 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 27 to consumer
+[2025-10-21 17:12:50.969259 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 27
+[2025-10-21 17:12:50.969573 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 27 fully released
+[2025-10-21 17:12:50.969733 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 27
+[2025-10-21 17:12:50.974762 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 28 for 1 consumers
+[2025-10-21 17:12:50.974919 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 28 ref 1
+[2025-10-21 17:12:50.975003 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 28 to consumer
+[2025-10-21 17:12:50.975245 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 28
+[2025-10-21 17:12:50.975409 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 28 fully released
+[2025-10-21 17:12:50.975488 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 28
+[2025-10-21 17:12:50.984638 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 29 for 1 consumers
+[2025-10-21 17:12:50.984762 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 29 ref 1
+[2025-10-21 17:12:50.984906 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 29 to consumer
+[2025-10-21 17:12:50.986191 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 29
+[2025-10-21 17:12:50.986433 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 29 fully released
+[2025-10-21 17:12:50.986581 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 29
+[2025-10-21 17:12:50.994230 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 30 for 1 consumers
+[2025-10-21 17:12:50.994431 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 30 ref 1
+[2025-10-21 17:12:50.994572 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 30 to consumer
+[2025-10-21 17:12:50.997408 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 30
+[2025-10-21 17:12:50.997642 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 30 fully released
+[2025-10-21 17:12:50.997744 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 30
+[2025-10-21 17:12:51.006155 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 31 for 1 consumers
+[2025-10-21 17:12:51.006366 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 31 ref 1
+[2025-10-21 17:12:51.006488 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 31 to consumer
+[2025-10-21 17:12:51.008670 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 31
+[2025-10-21 17:12:51.008871 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 31 fully released
+[2025-10-21 17:12:51.008960 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 31
+[2025-10-21 17:12:51.014195 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 0 for 1 consumers
+[2025-10-21 17:12:51.014314 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 0 ref 1
+[2025-10-21 17:12:51.014425 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 0 to consumer
+[2025-10-21 17:12:51.014699 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 0
+[2025-10-21 17:12:51.014869 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 0 fully released
+[2025-10-21 17:12:51.014963 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 0
+[2025-10-21 17:12:51.024715 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 1 for 1 consumers
+[2025-10-21 17:12:51.024901 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 1 ref 1
+[2025-10-21 17:12:51.024989 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 1 to consumer
+[2025-10-21 17:12:51.025715 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 1
+[2025-10-21 17:12:51.025985 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 1 fully released
+[2025-10-21 17:12:51.026083 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 1
+[2025-10-21 17:12:51.034468 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 2 for 1 consumers
+[2025-10-21 17:12:51.034633 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 2 ref 1
+[2025-10-21 17:12:51.034778 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 2 to consumer
+[2025-10-21 17:12:51.036512 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 2
+[2025-10-21 17:12:51.036736 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 2 fully released
+[2025-10-21 17:12:51.036835 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 2
+[2025-10-21 17:12:51.044562 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 3 for 1 consumers
+[2025-10-21 17:12:51.044768 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 3 ref 1
+[2025-10-21 17:12:51.044878 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 3 to consumer
+[2025-10-21 17:12:51.047084 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 3
+[2025-10-21 17:12:51.047328 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 3 fully released
+[2025-10-21 17:12:51.047415 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 3
+[2025-10-21 17:12:51.054262 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 4 for 1 consumers
+[2025-10-21 17:12:51.054484 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 4 ref 1
+[2025-10-21 17:12:51.054585 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 4 to consumer
+[2025-10-21 17:12:51.057807 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 4
+[2025-10-21 17:12:51.058070 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 4 fully released
+[2025-10-21 17:12:51.058180 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 4
+[2025-10-21 17:12:51.064500 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 5 for 1 consumers
+[2025-10-21 17:12:51.064664 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 5 ref 1
+[2025-10-21 17:12:51.064777 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 5 to consumer
+[2025-10-21 17:12:51.068523 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 5
+[2025-10-21 17:12:51.068814 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 5 fully released
+[2025-10-21 17:12:51.068943 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 5
+[2025-10-21 17:12:51.074090 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 6 for 1 consumers
+[2025-10-21 17:12:51.074250 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 6 ref 1
+[2025-10-21 17:12:51.074380 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 6 to consumer
+[2025-10-21 17:12:51.079175 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 6
+[2025-10-21 17:12:51.079356 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 6 fully released
+[2025-10-21 17:12:51.079580 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 6
+[2025-10-21 17:12:51.094856 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 7 for 1 consumers
+[2025-10-21 17:12:51.095095 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 7 ref 1
+[2025-10-21 17:12:51.095219 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 7 to consumer
+[2025-10-21 17:12:51.095980 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 7
+[2025-10-21 17:12:51.096235 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 7 fully released
+[2025-10-21 17:12:51.096360 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 7
+[2025-10-21 17:12:51.105067 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 8 for 1 consumers
+[2025-10-21 17:12:51.105275 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 8 ref 1
+[2025-10-21 17:12:51.105361 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 8 to consumer
+[2025-10-21 17:12:51.107161 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 8
+[2025-10-21 17:12:51.107444 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 8 fully released
+[2025-10-21 17:12:51.107535 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 8
+[2025-10-21 17:12:51.115575 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 9 for 1 consumers
+[2025-10-21 17:12:51.115722 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 9 ref 1
+[2025-10-21 17:12:51.115806 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 9 to consumer
+[2025-10-21 17:12:51.118026 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 9
+[2025-10-21 17:12:51.118209 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 9 fully released
+[2025-10-21 17:12:51.118342 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 9
+[2025-10-21 17:12:51.125093 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 10 for 1 consumers
+[2025-10-21 17:12:51.125260 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 10 ref 1
+[2025-10-21 17:12:51.125345 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 10 to consumer
+[2025-10-21 17:12:51.128647 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 10
+[2025-10-21 17:12:51.128899 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 10 fully released
+[2025-10-21 17:12:51.128974 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 10
+[2025-10-21 17:12:51.135274 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 11 for 1 consumers
+[2025-10-21 17:12:51.135480 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 11 ref 1
+[2025-10-21 17:12:51.135567 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 11 to consumer
+[2025-10-21 17:12:51.139768 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 11
+[2025-10-21 17:12:51.140009 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 11 fully released
+[2025-10-21 17:12:51.140094 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 11
+[2025-10-21 17:12:51.145563 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 12 for 1 consumers
+[2025-10-21 17:12:51.145755 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 12 ref 1
+[2025-10-21 17:12:51.145875 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 12 to consumer
+[2025-10-21 17:12:51.150678 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 12
+[2025-10-21 17:12:51.150911 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 12 fully released
+[2025-10-21 17:12:51.151061 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 12
+[2025-10-21 17:12:51.155778 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 13 for 1 consumers
+[2025-10-21 17:12:51.155970 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 13 ref 1
+[2025-10-21 17:12:51.156098 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 13 to consumer
+[2025-10-21 17:12:51.156255 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 13
+[2025-10-21 17:12:51.156398 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 13 fully released
+[2025-10-21 17:12:51.156514 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 13
+[2025-10-21 17:12:51.165575 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 14 for 1 consumers
+[2025-10-21 17:12:51.165753 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 14 ref 1
+[2025-10-21 17:12:51.165838 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 14 to consumer
+[2025-10-21 17:12:51.167739 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 14
+[2025-10-21 17:12:51.167973 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 14 fully released
+[2025-10-21 17:12:51.168102 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 14
+[2025-10-21 17:12:51.175886 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 15 for 1 consumers
+[2025-10-21 17:12:51.176057 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 15 ref 1
+[2025-10-21 17:12:51.176151 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 15 to consumer
+[2025-10-21 17:12:51.178842 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 15
+[2025-10-21 17:12:51.179101 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 15 fully released
+[2025-10-21 17:12:51.179279 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 15
+[2025-10-21 17:12:51.185015 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 16 for 1 consumers
+[2025-10-21 17:12:51.185181 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 16 ref 1
+[2025-10-21 17:12:51.185320 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 16 to consumer
+[2025-10-21 17:12:51.190191 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 16
+[2025-10-21 17:12:51.190452 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 16 fully released
+[2025-10-21 17:12:51.190548 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 16
+[2025-10-21 17:12:51.194287 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 17 for 1 consumers
+[2025-10-21 17:12:51.194430 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 17 ref 1
+[2025-10-21 17:12:51.194528 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 17 to consumer
+[2025-10-21 17:12:51.195898 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 17
+[2025-10-21 17:12:51.196074 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 17 fully released
+[2025-10-21 17:12:51.196185 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 17
+[2025-10-21 17:12:51.204466 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 18 for 1 consumers
+[2025-10-21 17:12:51.204659 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 18 ref 1
+[2025-10-21 17:12:51.204792 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 18 to consumer
+[2025-10-21 17:12:51.206994 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 18
+[2025-10-21 17:12:51.207283 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 18 fully released
+[2025-10-21 17:12:51.207367 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 18
+[2025-10-21 17:12:51.214525 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 19 for 1 consumers
+[2025-10-21 17:12:51.214729 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 19 ref 1
+[2025-10-21 17:12:51.214824 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 19 to consumer
+[2025-10-21 17:12:51.218100 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 19
+[2025-10-21 17:12:51.218384 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 19 fully released
+[2025-10-21 17:12:51.218533 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 19
+[2025-10-21 17:12:51.225619 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 20 for 1 consumers
+[2025-10-21 17:12:51.225748 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 20 ref 1
+[2025-10-21 17:12:51.225830 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 20 to consumer
+[2025-10-21 17:12:51.229125 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 20
+[2025-10-21 17:12:51.229360 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 20 fully released
+[2025-10-21 17:12:51.229440 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 20
+[2025-10-21 17:12:51.235193 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 21 for 1 consumers
+[2025-10-21 17:12:51.235388 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 21 ref 1
+[2025-10-21 17:12:51.235488 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 21 to consumer
+[2025-10-21 17:12:51.239691 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 21
+[2025-10-21 17:12:51.239895 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 21 fully released
+[2025-10-21 17:12:51.240002 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 21
+[2025-10-21 17:12:51.254574 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 22 for 1 consumers
+[2025-10-21 17:12:51.254753 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 22 ref 1
+[2025-10-21 17:12:51.254833 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 22 to consumer
+[2025-10-21 17:12:51.256123 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 22
+[2025-10-21 17:12:51.256330 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 22 fully released
+[2025-10-21 17:12:51.256422 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 22
+[2025-10-21 17:12:51.265967 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 23 for 1 consumers
+[2025-10-21 17:12:51.266181 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 23 ref 1
+[2025-10-21 17:12:51.266253 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 23 to consumer
+[2025-10-21 17:12:51.267057 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 23
+[2025-10-21 17:12:51.267351 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 23 fully released
+[2025-10-21 17:12:51.267535 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 23
+[2025-10-21 17:12:51.276347 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 24 for 1 consumers
+[2025-10-21 17:12:51.276541 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 24 ref 1
+[2025-10-21 17:12:51.276637 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 24 to consumer
+[2025-10-21 17:12:51.278850 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 24
+[2025-10-21 17:12:51.279039 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 24 fully released
+[2025-10-21 17:12:51.279139 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 24
+[2025-10-21 17:12:51.285982 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 25 for 1 consumers
+[2025-10-21 17:12:51.286158 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 25 ref 1
+[2025-10-21 17:12:51.286234 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 25 to consumer
+[2025-10-21 17:12:51.289512 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 25
+[2025-10-21 17:12:51.289708 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 25 fully released
+[2025-10-21 17:12:51.289841 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 25
+[2025-10-21 17:12:51.296235 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 26 for 1 consumers
+[2025-10-21 17:12:51.296373 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 26 ref 1
+[2025-10-21 17:12:51.296533 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 26 to consumer
+[2025-10-21 17:12:51.300941 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 26
+[2025-10-21 17:12:51.301218 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 26 fully released
+[2025-10-21 17:12:51.301372 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 26
+[2025-10-21 17:12:51.305960 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 27 for 1 consumers
+[2025-10-21 17:12:51.306162 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 27 ref 1
+[2025-10-21 17:12:51.306217 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 27 to consumer
+[2025-10-21 17:12:51.306936 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 27
+[2025-10-21 17:12:51.307165 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 27 fully released
+[2025-10-21 17:12:51.307323 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 27
+[2025-10-21 17:12:51.316015 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 28 for 1 consumers
+[2025-10-21 17:12:51.316192 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 28 ref 1
+[2025-10-21 17:12:51.316333 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 28 to consumer
+[2025-10-21 17:12:51.317618 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 28
+[2025-10-21 17:12:51.317879 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 28 fully released
+[2025-10-21 17:12:51.318001 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 28
+[2025-10-21 17:12:51.325524 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 29 for 1 consumers
+[2025-10-21 17:12:51.325669 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 29 ref 1
+[2025-10-21 17:12:51.325776 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 29 to consumer
+[2025-10-21 17:12:51.328551 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 29
+[2025-10-21 17:12:51.328775 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 29 fully released
+[2025-10-21 17:12:51.328894 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 29
+[2025-10-21 17:12:51.334796 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 30 for 1 consumers
+[2025-10-21 17:12:51.334943 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 30 ref 1
+[2025-10-21 17:12:51.335067 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 30 to consumer
+[2025-10-21 17:12:51.339325 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 30
+[2025-10-21 17:12:51.339599 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 30 fully released
+[2025-10-21 17:12:51.339705 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 30
+[2025-10-21 17:12:51.345004 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 31 for 1 consumers
+[2025-10-21 17:12:51.345127 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 31 ref 1
+[2025-10-21 17:12:51.345206 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 31 to consumer
+[2025-10-21 17:12:51.350562 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 31
+[2025-10-21 17:12:51.350951 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 31 fully released
+[2025-10-21 17:12:51.351146 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 31
+[2025-10-21 17:12:51.354572 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 0 for 1 consumers
+[2025-10-21 17:12:51.354738 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 0 ref 1
+[2025-10-21 17:12:51.354847 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 0 to consumer
+[2025-10-21 17:12:51.356613 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 0
+[2025-10-21 17:12:51.356823 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 0 fully released
+[2025-10-21 17:12:51.356926 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 0
+[2025-10-21 17:12:51.364547 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 1 for 1 consumers
+[2025-10-21 17:12:51.364691 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 1 ref 1
+[2025-10-21 17:12:51.364778 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 1 to consumer
+[2025-10-21 17:12:51.367459 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 1
+[2025-10-21 17:12:51.367643 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 1 fully released
+[2025-10-21 17:12:51.367741 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 1
+[2025-10-21 17:12:51.374196 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 2 for 1 consumers
+[2025-10-21 17:12:51.374372 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 2 ref 1
+[2025-10-21 17:12:51.374452 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 2 to consumer
+[2025-10-21 17:12:51.378387 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 2
+[2025-10-21 17:12:51.378598 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 2 fully released
+[2025-10-21 17:12:51.378699 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 2
+[2025-10-21 17:12:51.385842 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 3 for 1 consumers
+[2025-10-21 17:12:51.386044 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 3 ref 1
+[2025-10-21 17:12:51.386233 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 3 to consumer
+[2025-10-21 17:12:51.389345 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 3
+[2025-10-21 17:12:51.389609 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 3 fully released
+[2025-10-21 17:12:51.389715 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 3
+[2025-10-21 17:12:51.396168 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 4 for 1 consumers
+[2025-10-21 17:12:51.396430 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 4 ref 1
+[2025-10-21 17:12:51.396541 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 4 to consumer
+[2025-10-21 17:12:51.401201 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 4
+[2025-10-21 17:12:51.401420 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 4 fully released
+[2025-10-21 17:12:51.401546 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 4
+[2025-10-21 17:12:51.416549 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 5 for 1 consumers
+[2025-10-21 17:12:51.416742 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 5 ref 1
+[2025-10-21 17:12:51.416829 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 5 to consumer
+[2025-10-21 17:12:51.417513 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 5
+[2025-10-21 17:12:51.417710 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 5 fully released
+[2025-10-21 17:12:51.417812 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 5
+[2025-10-21 17:12:51.424177 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 6 for 1 consumers
+[2025-10-21 17:12:51.424432 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 6 ref 1
+[2025-10-21 17:12:51.424572 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 6 to consumer
+[2025-10-21 17:12:51.428132 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 6
+[2025-10-21 17:12:51.428381 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 6 fully released
+[2025-10-21 17:12:51.428462 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 6
+[2025-10-21 17:12:51.434697 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 7 for 1 consumers
+[2025-10-21 17:12:51.434871 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 7 ref 1
+[2025-10-21 17:12:51.434986 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 7 to consumer
+[2025-10-21 17:12:51.439169 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 7
+[2025-10-21 17:12:51.439431 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 7 fully released
+[2025-10-21 17:12:51.439594 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 7
+[2025-10-21 17:12:51.444754 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 8 for 1 consumers
+[2025-10-21 17:12:51.444915 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 8 ref 1
+[2025-10-21 17:12:51.445017 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 8 to consumer
+[2025-10-21 17:12:51.445250 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 8
+[2025-10-21 17:12:51.445523 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 8 fully released
+[2025-10-21 17:12:51.445625 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 8
+[2025-10-21 17:12:51.454421 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 9 for 1 consumers
+[2025-10-21 17:12:51.454646 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 9 ref 1
+[2025-10-21 17:12:51.454775 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 9 to consumer
+[2025-10-21 17:12:51.456155 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 9
+[2025-10-21 17:12:51.456373 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 9 fully released
+[2025-10-21 17:12:51.456455 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 9
+[2025-10-21 17:12:51.466058 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 10 for 1 consumers
+[2025-10-21 17:12:51.466233 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 10 ref 1
+[2025-10-21 17:12:51.466320 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 10 to consumer
+[2025-10-21 17:12:51.467149 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 10
+[2025-10-21 17:12:51.467453 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 10 fully released
+[2025-10-21 17:12:51.467642 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 10
+[2025-10-21 17:12:51.476252 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 11 for 1 consumers
+[2025-10-21 17:12:51.476454 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 11 ref 1
+[2025-10-21 17:12:51.476576 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 11 to consumer
+[2025-10-21 17:12:51.478757 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 11
+[2025-10-21 17:12:51.479056 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 11 fully released
+[2025-10-21 17:12:51.479167 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 11
+[2025-10-21 17:12:51.484288 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 12 for 1 consumers
+[2025-10-21 17:12:51.484474 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 12 ref 1
+[2025-10-21 17:12:51.484651 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 12 to consumer
+[2025-10-21 17:12:51.484809 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 12
+[2025-10-21 17:12:51.485041 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 12 fully released
+[2025-10-21 17:12:51.485170 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 12
+[2025-10-21 17:12:51.494879 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 13 for 1 consumers
+[2025-10-21 17:12:51.495034 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 13 ref 1
+[2025-10-21 17:12:51.495144 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 13 to consumer
+[2025-10-21 17:12:51.495987 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 13
+[2025-10-21 17:12:51.496248 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 13 fully released
+[2025-10-21 17:12:51.496347 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 13
+[2025-10-21 17:12:51.505573 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 14 for 1 consumers
+[2025-10-21 17:12:51.505750 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 14 ref 1
+[2025-10-21 17:12:51.505860 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 14 to consumer
+[2025-10-21 17:12:51.507072 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 14
+[2025-10-21 17:12:51.507373 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 14 fully released
+[2025-10-21 17:12:51.507550 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 14
+[2025-10-21 17:12:51.514767 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 15 for 1 consumers
+[2025-10-21 17:12:51.514949 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 15 ref 1
+[2025-10-21 17:12:51.515054 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 15 to consumer
+[2025-10-21 17:12:51.518799 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 15
+[2025-10-21 17:12:51.519154 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 15 fully released
+[2025-10-21 17:12:51.519287 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 15
+[2025-10-21 17:12:51.524565 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 16 for 1 consumers
+[2025-10-21 17:12:51.524705 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 16 ref 1
+[2025-10-21 17:12:51.524803 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 16 to consumer
+[2025-10-21 17:12:51.529925 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 16
+[2025-10-21 17:12:51.530225 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 16 fully released
+[2025-10-21 17:12:51.530392 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 16
+[2025-10-21 17:12:51.534657 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 17 for 1 consumers
+[2025-10-21 17:12:51.534852 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 17 ref 1
+[2025-10-21 17:12:51.535019 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 17 to consumer
+[2025-10-21 17:12:51.535868 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 17
+[2025-10-21 17:12:51.536126 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 17 fully released
+[2025-10-21 17:12:51.536272 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 17
+[2025-10-21 17:12:51.545555 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 18 for 1 consumers
+[2025-10-21 17:12:51.545718 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 18 ref 1
+[2025-10-21 17:12:51.545808 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 18 to consumer
+[2025-10-21 17:12:51.547045 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 18
+[2025-10-21 17:12:51.547251 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 18 fully released
+[2025-10-21 17:12:51.547354 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 18
+[2025-10-21 17:12:51.555576 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 19 for 1 consumers
+[2025-10-21 17:12:51.555782 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 19 ref 1
+[2025-10-21 17:12:51.555898 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 19 to consumer
+[2025-10-21 17:12:51.558232 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 19
+[2025-10-21 17:12:51.558449 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 19 fully released
+[2025-10-21 17:12:51.558533 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 19
+[2025-10-21 17:12:51.574921 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 20 for 1 consumers
+[2025-10-21 17:12:51.575145 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 20 ref 1
+[2025-10-21 17:12:51.575235 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 20 to consumer
+[2025-10-21 17:12:51.579970 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 20
+[2025-10-21 17:12:51.580189 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 20 fully released
+[2025-10-21 17:12:51.580289 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 20
+[2025-10-21 17:12:51.584605 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 21 for 1 consumers
+[2025-10-21 17:12:51.584772 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 21 ref 1
+[2025-10-21 17:12:51.584916 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 21 to consumer
+[2025-10-21 17:12:51.585623 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 21
+[2025-10-21 17:12:51.585819 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 21 fully released
+[2025-10-21 17:12:51.585949 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 21
+[2025-10-21 17:12:51.594493 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 22 for 1 consumers
+[2025-10-21 17:12:51.594687 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 22 ref 1
+[2025-10-21 17:12:51.594793 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 22 to consumer
+[2025-10-21 17:12:51.596592 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 22
+[2025-10-21 17:12:51.596840 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 22 fully released
+[2025-10-21 17:12:51.596936 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 22
+[2025-10-21 17:12:51.604652 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 23 for 1 consumers
+[2025-10-21 17:12:51.604846 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 23 ref 1
+[2025-10-21 17:12:51.604965 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 23 to consumer
+[2025-10-21 17:12:51.607214 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 23
+[2025-10-21 17:12:51.607439 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 23 fully released
+[2025-10-21 17:12:51.607522 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 23
+[2025-10-21 17:12:51.614361 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 24 for 1 consumers
+[2025-10-21 17:12:51.614546 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 24 ref 1
+[2025-10-21 17:12:51.614670 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 24 to consumer
+[2025-10-21 17:12:51.617843 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 24
+[2025-10-21 17:12:51.618100 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 24 fully released
+[2025-10-21 17:12:51.618284 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 24
+[2025-10-21 17:12:51.624521 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 25 for 1 consumers
+[2025-10-21 17:12:51.624688 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 25 ref 1
+[2025-10-21 17:12:51.624771 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 25 to consumer
+[2025-10-21 17:12:51.629444 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 25
+[2025-10-21 17:12:51.629637 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 25 fully released
+[2025-10-21 17:12:51.629728 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 25
+[2025-10-21 17:12:51.634500 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 26 for 1 consumers
+[2025-10-21 17:12:51.634646 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 26 ref 1
+[2025-10-21 17:12:51.634766 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 26 to consumer
+[2025-10-21 17:12:51.634987 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 26
+[2025-10-21 17:12:51.635201 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 26 fully released
+[2025-10-21 17:12:51.635325 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 26
+[2025-10-21 17:12:51.646163 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 27 for 1 consumers
+[2025-10-21 17:12:51.646370 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 27 ref 1
+[2025-10-21 17:12:51.646467 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 27 to consumer
+[2025-10-21 17:12:51.650810 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 27
+[2025-10-21 17:12:51.651088 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 27 fully released
+[2025-10-21 17:12:51.651210 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 27
+[2025-10-21 17:12:51.655891 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 28 for 1 consumers
+[2025-10-21 17:12:51.656068 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 28 ref 1
+[2025-10-21 17:12:51.656220 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 28 to consumer
+[2025-10-21 17:12:51.656895 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 28
+[2025-10-21 17:12:51.657120 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 28 fully released
+[2025-10-21 17:12:51.657194 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 28
+[2025-10-21 17:12:51.665583 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 29 for 1 consumers
+[2025-10-21 17:12:51.665746 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 29 ref 1
+[2025-10-21 17:12:51.665834 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 29 to consumer
+[2025-10-21 17:12:51.667564 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 29
+[2025-10-21 17:12:51.667876 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 29 fully released
+[2025-10-21 17:12:51.668028 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 29
+[2025-10-21 17:12:51.675561 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 30 for 1 consumers
+[2025-10-21 17:12:51.675723 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 30 ref 1
+[2025-10-21 17:12:51.675826 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 30 to consumer
+[2025-10-21 17:12:51.678615 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 30
+[2025-10-21 17:12:51.678859 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 30 fully released
+[2025-10-21 17:12:51.679021 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 30
+[2025-10-21 17:12:51.684873 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 31 for 1 consumers
+[2025-10-21 17:12:51.685040 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 31 ref 1
+[2025-10-21 17:12:51.685183 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 31 to consumer
+[2025-10-21 17:12:51.689510 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 31
+[2025-10-21 17:12:51.689707 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 31 fully released
+[2025-10-21 17:12:51.689802 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 31
+[2025-10-21 17:12:51.696151 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 0 for 1 consumers
+[2025-10-21 17:12:51.696321 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 0 ref 1
+[2025-10-21 17:12:51.696402 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 0 to consumer
+[2025-10-21 17:12:51.700795 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 0
+[2025-10-21 17:12:51.701038 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 0 fully released
+[2025-10-21 17:12:51.701203 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 0
+[2025-10-21 17:12:51.705827 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 1 for 1 consumers
+[2025-10-21 17:12:51.705978 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 1 ref 1
+[2025-10-21 17:12:51.706089 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 1 to consumer
+[2025-10-21 17:12:51.706818 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 1
+[2025-10-21 17:12:51.707001 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 1 fully released
+[2025-10-21 17:12:51.707114 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 1
+[2025-10-21 17:12:51.715401 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 2 for 1 consumers
+[2025-10-21 17:12:51.715547 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 2 ref 1
+[2025-10-21 17:12:51.715644 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 2 to consumer
+[2025-10-21 17:12:51.717412 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 2
+[2025-10-21 17:12:51.717703 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 2 fully released
+[2025-10-21 17:12:51.717832 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 2
+[2025-10-21 17:12:51.736014 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 3 for 1 consumers
+[2025-10-21 17:12:51.736620 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 3 ref 1
+[2025-10-21 17:12:51.736898 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 3 to consumer
+[2025-10-21 17:12:51.741633 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 3
+[2025-10-21 17:12:51.741999 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 3 fully released
+[2025-10-21 17:12:51.742154 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 3
+[2025-10-21 17:12:51.744240 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 4 for 1 consumers
+[2025-10-21 17:12:51.745050 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 4 ref 1
+[2025-10-21 17:12:51.745202 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 4 to consumer
+[2025-10-21 17:12:51.747662 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 4
+[2025-10-21 17:12:51.748053 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 4 fully released
+[2025-10-21 17:12:51.748221 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 4
+[2025-10-21 17:12:51.755889 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 5 for 1 consumers
+[2025-10-21 17:12:51.756254 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 5 ref 1
+[2025-10-21 17:12:51.756482 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 5 to consumer
+[2025-10-21 17:12:51.758708 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 5
+[2025-10-21 17:12:51.758993 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 5 fully released
+[2025-10-21 17:12:51.759105 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 5
+[2025-10-21 17:12:51.764252 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 6 for 1 consumers
+[2025-10-21 17:12:51.764454 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 6 ref 1
+[2025-10-21 17:12:51.764552 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 6 to consumer
+[2025-10-21 17:12:51.764757 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 6
+[2025-10-21 17:12:51.764930 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 6 fully released
+[2025-10-21 17:12:51.765029 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 6
+[2025-10-21 17:12:51.774327 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 7 for 1 consumers
+[2025-10-21 17:12:51.774620 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 7 ref 1
+[2025-10-21 17:12:51.774784 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 7 to consumer
+[2025-10-21 17:12:51.775353 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 7
+[2025-10-21 17:12:51.775542 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 7 fully released
+[2025-10-21 17:12:51.775639 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 7
+[2025-10-21 17:12:51.785883 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 8 for 1 consumers
+[2025-10-21 17:12:51.786077 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 8 ref 1
+[2025-10-21 17:12:51.786192 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 8 to consumer
+[2025-10-21 17:12:51.786388 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 8
+[2025-10-21 17:12:51.786597 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 8 fully released
+[2025-10-21 17:12:51.786703 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 8
+[2025-10-21 17:12:51.795530 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 9 for 1 consumers
+[2025-10-21 17:12:51.795695 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 9 ref 1
+[2025-10-21 17:12:51.795780 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 9 to consumer
+[2025-10-21 17:12:51.797662 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 9
+[2025-10-21 17:12:51.797872 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 9 fully released
+[2025-10-21 17:12:51.798018 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 9
+[2025-10-21 17:12:51.805660 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 10 for 1 consumers
+[2025-10-21 17:12:51.805829 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 10 ref 1
+[2025-10-21 17:12:51.805912 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 10 to consumer
+[2025-10-21 17:12:51.808810 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 10
+[2025-10-21 17:12:51.809037 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 10 fully released
+[2025-10-21 17:12:51.809108 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 10
+[2025-10-21 17:12:51.815169 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 11 for 1 consumers
+[2025-10-21 17:12:51.815305 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 11 ref 1
+[2025-10-21 17:12:51.815391 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 11 to consumer
+[2025-10-21 17:12:51.820039 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 11
+[2025-10-21 17:12:51.820295 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 11 fully released
+[2025-10-21 17:12:51.820411 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 11
+[2025-10-21 17:12:51.825578 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 12 for 1 consumers
+[2025-10-21 17:12:51.825756 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 12 ref 1
+[2025-10-21 17:12:51.825894 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 12 to consumer
+[2025-10-21 17:12:51.826085 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 12
+[2025-10-21 17:12:51.826295 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 12 fully released
+[2025-10-21 17:12:51.826408 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 12
+[2025-10-21 17:12:51.835343 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 13 for 1 consumers
+[2025-10-21 17:12:51.835533 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 13 ref 1
+[2025-10-21 17:12:51.835684 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 13 to consumer
+[2025-10-21 17:12:51.836910 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 13
+[2025-10-21 17:12:51.837146 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 13 fully released
+[2025-10-21 17:12:51.837258 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 13
+[2025-10-21 17:12:51.844554 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 14 for 1 consumers
+[2025-10-21 17:12:51.844724 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 14 ref 1
+[2025-10-21 17:12:51.844832 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 14 to consumer
+[2025-10-21 17:12:51.848621 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 14
+[2025-10-21 17:12:51.848838 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 14 fully released
+[2025-10-21 17:12:51.849001 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 14
+[2025-10-21 17:12:51.856230 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 15 for 1 consumers
+[2025-10-21 17:12:51.856431 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 15 ref 1
+[2025-10-21 17:12:51.856519 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 15 to consumer
+[2025-10-21 17:12:51.859405 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 15
+[2025-10-21 17:12:51.859616 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 15 fully released
+[2025-10-21 17:12:51.859699 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 15
+[2025-10-21 17:12:51.866049 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 16 for 1 consumers
+[2025-10-21 17:12:51.866313 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 16 ref 1
+[2025-10-21 17:12:51.866558 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 16 to consumer
+[2025-10-21 17:12:51.870776 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 16
+[2025-10-21 17:12:51.871007 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 16 fully released
+[2025-10-21 17:12:51.871110 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 16
+[2025-10-21 17:12:51.875076 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 17 for 1 consumers
+[2025-10-21 17:12:51.875228 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 17 ref 1
+[2025-10-21 17:12:51.875332 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 17 to consumer
+[2025-10-21 17:12:51.876695 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 17
+[2025-10-21 17:12:51.876858 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 17 fully released
+[2025-10-21 17:12:51.876970 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 17
+[2025-10-21 17:12:51.896428 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 18 for 1 consumers
+[2025-10-21 17:12:51.896677 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 18 ref 1
+[2025-10-21 17:12:51.896773 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 18 to consumer
+[2025-10-21 17:12:51.898907 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 18
+[2025-10-21 17:12:51.899176 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 18 fully released
+[2025-10-21 17:12:51.899255 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 18
+[2025-10-21 17:12:51.904579 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 19 for 1 consumers
+[2025-10-21 17:12:51.904771 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 19 ref 1
+[2025-10-21 17:12:51.904893 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 19 to consumer
+[2025-10-21 17:12:51.910069 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 19
+[2025-10-21 17:12:51.910306 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 19 fully released
+[2025-10-21 17:12:51.910454 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 19
+[2025-10-21 17:12:51.914105 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 20 for 1 consumers
+[2025-10-21 17:12:51.914234 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 20 ref 1
+[2025-10-21 17:12:51.914307 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 20 to consumer
+[2025-10-21 17:12:51.916047 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 20
+[2025-10-21 17:12:51.916247 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 20 fully released
+[2025-10-21 17:12:51.916347 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 20
+[2025-10-21 17:12:51.925804 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 21 for 1 consumers
+[2025-10-21 17:12:51.926013 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 21 ref 1
+[2025-10-21 17:12:51.926097 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 21 to consumer
+[2025-10-21 17:12:51.927310 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 21
+[2025-10-21 17:12:51.927611 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 21 fully released
+[2025-10-21 17:12:51.927727 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 21
+[2025-10-21 17:12:51.935104 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 22 for 1 consumers
+[2025-10-21 17:12:51.935263 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 22 ref 1
+[2025-10-21 17:12:51.935362 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 22 to consumer
+[2025-10-21 17:12:51.938045 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 22
+[2025-10-21 17:12:51.938247 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 22 fully released
+[2025-10-21 17:12:51.938337 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 22
+[2025-10-21 17:12:51.944634 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 23 for 1 consumers
+[2025-10-21 17:12:51.944816 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 23 ref 1
+[2025-10-21 17:12:51.944947 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 23 to consumer
+[2025-10-21 17:12:51.948733 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 23
+[2025-10-21 17:12:51.948905 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 23 fully released
+[2025-10-21 17:12:51.948983 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 23
+[2025-10-21 17:12:51.954328 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 24 for 1 consumers
+[2025-10-21 17:12:51.954485 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 24 ref 1
+[2025-10-21 17:12:51.954557 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 24 to consumer
+[2025-10-21 17:12:51.959829 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 24
+[2025-10-21 17:12:51.960061 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 24 fully released
+[2025-10-21 17:12:51.960279 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 24
+[2025-10-21 17:12:51.966006 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 25 for 1 consumers
+[2025-10-21 17:12:51.966185 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 25 ref 1
+[2025-10-21 17:12:51.966281 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 25 to consumer
+[2025-10-21 17:12:51.970560 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 25
+[2025-10-21 17:12:51.970788 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 25 fully released
+[2025-10-21 17:12:51.970945 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 25
+[2025-10-21 17:12:51.976117 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 26 for 1 consumers
+[2025-10-21 17:12:51.976236 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 26 ref 1
+[2025-10-21 17:12:51.976328 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 26 to consumer
+[2025-10-21 17:12:51.976622 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 26
+[2025-10-21 17:12:51.976783 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 26 fully released
+[2025-10-21 17:12:51.976871 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 26
+[2025-10-21 17:12:51.985859 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 27 for 1 consumers
+[2025-10-21 17:12:51.986065 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 27 ref 1
+[2025-10-21 17:12:51.986256 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 27 to consumer
+[2025-10-21 17:12:51.987852 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 27
+[2025-10-21 17:12:51.988049 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 27 fully released
+[2025-10-21 17:12:51.988209 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 27
+[2025-10-21 17:12:51.996086 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 28 for 1 consumers
+[2025-10-21 17:12:51.996259 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 28 ref 1
+[2025-10-21 17:12:51.996342 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 28 to consumer
+[2025-10-21 17:12:51.999223 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 28
+[2025-10-21 17:12:51.999407 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 28 fully released
+[2025-10-21 17:12:51.999529 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 28
+[2025-10-21 17:12:52.005815 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 29 for 1 consumers
+[2025-10-21 17:12:52.006038 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 29 ref 1
+[2025-10-21 17:12:52.006127 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 29 to consumer
+[2025-10-21 17:12:52.010002 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 29
+[2025-10-21 17:12:52.010197 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 29 fully released
+[2025-10-21 17:12:52.010286 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 29
+[2025-10-21 17:12:52.015411 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 30 for 1 consumers
+[2025-10-21 17:12:52.015573 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 30 ref 1
+[2025-10-21 17:12:52.015733 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 30 to consumer
+[2025-10-21 17:12:52.015880 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 30
+[2025-10-21 17:12:52.016158 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 30 fully released
+[2025-10-21 17:12:52.016285 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 30
+[2025-10-21 17:12:52.025612 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 31 for 1 consumers
+[2025-10-21 17:12:52.025843 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 31 ref 1
+[2025-10-21 17:12:52.025931 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 31 to consumer
+[2025-10-21 17:12:52.027152 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 31
+[2025-10-21 17:12:52.027341 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 31 fully released
+[2025-10-21 17:12:52.027437 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 31
+[2025-10-21 17:12:52.035707 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 0 for 1 consumers
+[2025-10-21 17:12:52.035857 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 0 ref 1
+[2025-10-21 17:12:52.035940 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 0 to consumer
+[2025-10-21 17:12:52.037714 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 0
+[2025-10-21 17:12:52.037887 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 0 fully released
+[2025-10-21 17:12:52.037971 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 0
+[2025-10-21 17:12:52.055415 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 1 for 1 consumers
+[2025-10-21 17:12:52.055650 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 1 ref 1
+[2025-10-21 17:12:52.055741 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 1 to consumer
+[2025-10-21 17:12:52.059403 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 1
+[2025-10-21 17:12:52.059639 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 1 fully released
+[2025-10-21 17:12:52.059738 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 1
+[2025-10-21 17:12:52.064524 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 2 for 1 consumers
+[2025-10-21 17:12:52.064671 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 2 ref 1
+[2025-10-21 17:12:52.064753 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 2 to consumer
+[2025-10-21 17:12:52.065000 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 2
+[2025-10-21 17:12:52.065201 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 2 fully released
+[2025-10-21 17:12:52.065309 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 2
+[2025-10-21 17:12:52.074235 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 3 for 1 consumers
+[2025-10-21 17:12:52.074407 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 3 ref 1
+[2025-10-21 17:12:52.074493 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 3 to consumer
+[2025-10-21 17:12:52.075793 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 3
+[2025-10-21 17:12:52.075969 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 3 fully released
+[2025-10-21 17:12:52.076042 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 3
+[2025-10-21 17:12:52.084248 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 4 for 1 consumers
+[2025-10-21 17:12:52.084394 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 4 ref 1
+[2025-10-21 17:12:52.084565 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 4 to consumer
+[2025-10-21 17:12:52.086780 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 4
+[2025-10-21 17:12:52.087027 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 4 fully released
+[2025-10-21 17:12:52.087168 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 4
+[2025-10-21 17:12:52.094388 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 5 for 1 consumers
+[2025-10-21 17:12:52.094547 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 5 ref 1
+[2025-10-21 17:12:52.094694 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 5 to consumer
+[2025-10-21 17:12:52.097949 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 5
+[2025-10-21 17:12:52.098174 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 5 fully released
+[2025-10-21 17:12:52.098277 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 5
+[2025-10-21 17:12:52.104685 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 6 for 1 consumers
+[2025-10-21 17:12:52.104901 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 6 ref 1
+[2025-10-21 17:12:52.105022 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 6 to consumer
+[2025-10-21 17:12:52.109032 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 6
+[2025-10-21 17:12:52.109272 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 6 fully released
+[2025-10-21 17:12:52.109366 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 6
+[2025-10-21 17:12:52.114578 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 7 for 1 consumers
+[2025-10-21 17:12:52.114720 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 7 ref 1
+[2025-10-21 17:12:52.114811 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 7 to consumer
+[2025-10-21 17:12:52.120213 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 7
+[2025-10-21 17:12:52.120456 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 7 fully released
+[2025-10-21 17:12:52.120581 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 7
+[2025-10-21 17:12:52.124706 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 8 for 1 consumers
+[2025-10-21 17:12:52.124849 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 8 ref 1
+[2025-10-21 17:12:52.124921 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 8 to consumer
+[2025-10-21 17:12:52.126323 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 8
+[2025-10-21 17:12:52.126553 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 8 fully released
+[2025-10-21 17:12:52.126625 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 8
+[2025-10-21 17:12:52.134021 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 9 for 1 consumers
+[2025-10-21 17:12:52.134189 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 9 ref 1
+[2025-10-21 17:12:52.134340 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 9 to consumer
+[2025-10-21 17:12:52.137464 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 9
+[2025-10-21 17:12:52.137674 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 9 fully released
+[2025-10-21 17:12:52.137794 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 9
+[2025-10-21 17:12:52.146114 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 10 for 1 consumers
+[2025-10-21 17:12:52.146371 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 10 ref 1
+[2025-10-21 17:12:52.146510 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 10 to consumer
+[2025-10-21 17:12:52.148109 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 10
+[2025-10-21 17:12:52.148336 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 10 fully released
+[2025-10-21 17:12:52.148427 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 10
+[2025-10-21 17:12:52.156085 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 11 for 1 consumers
+[2025-10-21 17:12:52.156321 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 11 ref 1
+[2025-10-21 17:12:52.156406 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 11 to consumer
+[2025-10-21 17:12:52.159213 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 11
+[2025-10-21 17:12:52.159402 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 11 fully released
+[2025-10-21 17:12:52.159479 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 11
+[2025-10-21 17:12:52.165991 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 12 for 1 consumers
+[2025-10-21 17:12:52.166140 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 12 ref 1
+[2025-10-21 17:12:52.166260 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 12 to consumer
+[2025-10-21 17:12:52.170025 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 12
+[2025-10-21 17:12:52.170233 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 12 fully released
+[2025-10-21 17:12:52.170309 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 12
+[2025-10-21 17:12:52.176112 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 13 for 1 consumers
+[2025-10-21 17:12:52.176330 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 13 ref 1
+[2025-10-21 17:12:52.176418 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 13 to consumer
+[2025-10-21 17:12:52.180625 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 13
+[2025-10-21 17:12:52.180815 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 13 fully released
+[2025-10-21 17:12:52.180895 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 13
+[2025-10-21 17:12:52.186170 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 14 for 1 consumers
+[2025-10-21 17:12:52.186403 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 14 ref 1
+[2025-10-21 17:12:52.186524 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 14 to consumer
+[2025-10-21 17:12:52.191244 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 14
+[2025-10-21 17:12:52.191485 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 14 fully released
+[2025-10-21 17:12:52.191617 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 14
+[2025-10-21 17:12:52.196258 -07:00] TRACE [src\audio_io\mod.rs:228] [REDUCER DEBUG] acquired slot 15 for 1 consumers
+[2025-10-21 17:12:52.196419 -07:00] TRACE [src\audio_io\mod.rs:43] [SLOT DEBUG] acquire(): slot 15 ref 1
+[2025-10-21 17:12:52.196538 -07:00] TRACE [src\audio_io\mod.rs:265] [REDUCER DEBUG] pushed slot 15 to consumer
+[2025-10-21 17:12:52.196771 -07:00] TRACE [src\audio_io\mod.rs:491] [CONSUMER DEBUG] consumer 254 popping slot 15
+[2025-10-21 17:12:52.196949 -07:00] TRACE [src\audio_io\mod.rs:57] [SLOT DEBUG] release(): slot 15 fully released
+[2025-10-21 17:12:52.197079 -07:00] TRACE [src\audio_io\mod.rs:505] [CONSUMER DEBUG] consumer 254 released slot 15
