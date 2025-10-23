@@ -407,8 +407,6 @@ impl AudioPipeline {
     {
         let start_time = Instant::now();
         let mut state = (None::<usize>, 0usize);
-        let offset = Arc::new(AtomicUsize::new(0));
-        let offset_clone = offset.clone();
         LAST_CALLBACK_TS.store(0, Ordering::Relaxed);
         let stream = device.build_input_stream(
             config,
@@ -416,28 +414,9 @@ impl AudioPipeline {
                 if !running.load(Ordering::Relaxed) {
                     return;
                 }
-                let count = CALLBACK_COUNT.fetch_add(1, Ordering::Relaxed);
-                if count % 200 == 0 {
-                    let total = start_time.elapsed().as_nanos() as u64;
-                    let diff = total - LAST_CALLBACK_TS.swap(total, Ordering::Relaxed);
-                    log::info!(
-                        "[CALLBACK DEBUG] {} callbacks processed, last interval={}µs",
-                        count,
-                        diff / 1000
-                    );
-                    let samples: Vec<f32> = data.iter().map(|x| x.to_sample::<f32>()).collect();
-                    super::analysis::handle_audio_input(&samples, 4);
-                    let min = data
-                        .iter()
-                        .fold(f32::INFINITY, |a, &s| a.min(s.to_sample::<f32>()));
-                    let max = data
-                        .iter()
-                        .fold(f32::NEG_INFINITY, |a, &s| a.max(s.to_sample::<f32>()));
-                    log::debug!("Amplitude range = {min:.3}..{max:.3}, channels={in_channels}");
-                }
 
                 let (ref mut current_idx, ref mut write_pos) = state;
-                let mut frame_offset = offset_clone.load(Ordering::SeqCst);
+                let mut frame_offset = 0usize;
                 // Downmix inline
                 while frame_offset < data.len() {
                     if current_idx.is_none() {
@@ -451,7 +430,6 @@ impl AudioPipeline {
                     }
 
                     let idx = current_idx.unwrap();
-                    log::debug!("offset: {frame_offset}, idx: {idx}");
                     unsafe {
                         let slot_slice: &mut [f32] = &mut *slots.slots[idx].get();
                         let can_write = slot_len - *write_pos;
@@ -472,7 +450,6 @@ impl AudioPipeline {
                         }
 
                         frame_offset += frames_to_write * in_channels;
-                        offset_clone.store(frame_offset, Ordering::SeqCst);
                         *write_pos += frames_to_write;
 
                         if *write_pos >= slot_len {
@@ -652,15 +629,15 @@ impl Recorder {
                             debug_assert!(idx < slots.slots.len());
                             unsafe {
                                 let slot_slice: &mut [f32] = &mut *slots.slots[idx].get();
-                                let count = CALLBACK_COUNT.load(Ordering::Relaxed);
-                                if count % 200 == 0 {
-                                    super::analysis::handle_audio_input(&slot_slice, 1);
-                                    let min =
-                                        slot_slice.iter().fold(f32::INFINITY, |a, &s| a.min(s));
-                                    let max =
-                                        slot_slice.iter().fold(f32::NEG_INFINITY, |a, &s| a.max(s));
-                                    log::debug!("Amplitude range = {min:.3}..{max:.3}, channels=1");
-                                }
+                                // let count = CALLBACK_COUNT.load(Ordering::Relaxed);
+                                // if count % 200 == 0 {
+                                //     super::analysis::handle_audio_input(&slot_slice, 1);
+                                //     let min =
+                                //         slot_slice.iter().fold(f32::INFINITY, |a, &s| a.min(s));
+                                //     let max =
+                                //         slot_slice.iter().fold(f32::NEG_INFINITY, |a, &s| a.max(s));
+                                //     log::debug!("Amplitude range = {min:.3}..{max:.3}, channels=1");
+                                // }
                                 for &s in slot_slice.iter() {
                                     let s_i16 = (s.max(-1.0).min(1.0) * i16::MAX as f32) as i16;
                                     writer.write_sample(s_i16).ok();
