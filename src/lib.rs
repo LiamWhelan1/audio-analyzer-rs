@@ -6,14 +6,14 @@ pub mod generators;
 pub mod resample;
 pub mod testing;
 pub mod traits;
-pub mod types;
 
 use anyhow::Result;
 use crossbeam_channel::{Receiver, Sender, bounded};
-use std::thread::{self, JoinHandle};
+use std::thread;
 use std::time::Duration;
 
 use crate::audio_io::AudioPipeline;
+use crate::audio_io::stft::STFT;
 use crate::generators::Note;
 use crate::traits::Worker;
 
@@ -42,17 +42,14 @@ pub fn pause_worker(worker: &mut Box<dyn Worker>) {
     worker.pause();
 }
 
-pub fn record(builder: &mut AudioPipeline, path: &str) -> Result<audio_io::Recorder> {
+pub fn record(builder: &mut AudioPipeline, path: &str) -> Result<audio_io::recorder::Recorder> {
     println!("🎙️  Record command received.");
     builder.start_input()?;
     let rec = builder.spawn_recorder(path);
     Ok(rec)
 }
 
-pub fn tune(
-    mode: analysis::TuningSystem,
-    builder: &mut AudioPipeline,
-) -> Result<Receiver<(Note, i16)>> {
+pub fn tune(mode: analysis::TuningSystem, builder: &mut AudioPipeline) -> Result<STFT> {
     println!("🎵  Tune command received.");
     let (s, r) = bounded(1);
     // TODO: Implement tuning (pitch analysis, reference tone, etc.)
@@ -60,12 +57,22 @@ pub fn tune(
     // Regular notes, chord, orchestra, ...?
     // Different tuning systems: equal temperament, just intonation, ...?
     builder.start_input()?;
+    let tuner = builder.spawn_transformer(s, None);
     thread::spawn(move || {
+        let mut prev_note = Note::new("C0");
         loop {
-            thread::sleep(Duration::from_secs_f32(0.5));
+            let note = if let Ok(n) = r.recv() {
+                n
+            } else {
+                break;
+            };
+            if note.to_freq(None) != prev_note.to_freq(None) {
+                println!("{note}")
+            }
+            prev_note = note;
         }
     });
-    Ok(r)
+    Ok(tuner)
 }
 
 pub fn metronome(

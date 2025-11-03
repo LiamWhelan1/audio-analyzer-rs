@@ -1,8 +1,6 @@
 pub mod drone;
 pub mod metronome;
-use std::fmt;
-
-use crate::types::{AudioChunk, Sample};
+use std::fmt::{self, write};
 
 #[derive(Clone, Copy)]
 pub enum Waveform {
@@ -12,7 +10,59 @@ pub enum Waveform {
     Triangle,
 }
 
-#[derive(Debug)]
+pub struct MidiNote {
+    midi: u8,
+    cents: f32,
+}
+
+impl MidiNote {
+    pub fn new(midi: u8, cents: f32) -> Self {
+        Self { midi, cents }
+    }
+
+    pub fn from_freq(freq: f32, base_freq: Option<f32>) -> Self {
+        let base = base_freq.unwrap_or(440.0);
+        let base = base * 2.0_f32.powf(-4.75);
+        let log = (freq / base).log2() * 1200.0;
+        let mut cents = log % 100.0;
+        cents = if cents < 50.0 {
+            cents
+        } else {
+            -(100.0 - cents)
+        };
+        let midi = (log / 100.0).round() as u8 + 12;
+        Self { midi, cents }
+    }
+
+    pub fn from_note(note: &Note) -> Self {
+        let freq = note.to_freq(None);
+        Self::from_freq(freq, None)
+    }
+
+    pub fn from_note_name(name: &str) -> Self {
+        let note = Note::new(name);
+        Self::from_note(&note)
+    }
+
+    pub fn to_freq(&self, base_freq: Option<f32>) -> f32 {
+        let base = base_freq.unwrap_or(440.0);
+        base * 2.0_f32.powf((self.midi as f32 - 69.0 + (self.cents / 100.0)) / 12.0)
+    }
+}
+
+impl std::fmt::Display for MidiNote {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "{} {}{:.4}",
+            self.midi,
+            if self.cents >= 0.0 { "+" } else { "" },
+            self.cents
+        )
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
 pub enum Name {
     C,
     D,
@@ -23,6 +73,7 @@ pub enum Name {
     B,
 }
 
+#[derive(Clone, Copy)]
 pub enum Accidental {
     Sharp,
     Flat,
@@ -31,10 +82,96 @@ pub enum Accidental {
     Natural,
 }
 
+pub enum Quality {
+    Major,
+    HarmonicMinor,
+    MelodicMinor,
+    NaturalMinor,
+    Ionian,
+    Dorian,
+    Phrygian,
+    Lydian,
+    Mixolydian,
+    Aeolian,
+    Locrain,
+}
+
+pub struct Key {
+    pub name: Name,
+    pub accidental: Option<Accidental>,
+    pub quality: Quality,
+    pub semis_map: [u8; 7],
+}
+
+impl Key {
+    pub fn new(key: &str) -> Self {
+        let key = key.to_owned();
+        let mut split = key.split_whitespace();
+        let first = split.next().expect("invalid format");
+        let name = match first.chars().next().expect("invalid format") {
+            'C' => Name::C,
+            'D' => Name::D,
+            'E' => Name::E,
+            'F' => Name::F,
+            'G' => Name::G,
+            'A' => Name::A,
+            'B' => Name::B,
+            _ => panic!("Invalid note name"),
+        };
+        let accidental = if let Some(a) = first.chars().next() {
+            match a {
+                '#' => Some(Accidental::Sharp),
+                'x' => Some(Accidental::DoubleSharp),
+                'b' => Some(Accidental::Flat),
+                'n' => Some(Accidental::Natural),
+                'B' => Some(Accidental::DoubleFlat),
+                _ => panic!("Invalid note name"),
+            }
+        } else {
+            None
+        };
+        let second = split.next().unwrap_or("Major");
+        let quality = match second {
+            "Major" => Quality::Major,
+            "Minor" => Quality::NaturalMinor,
+            "Harmonic" => Quality::HarmonicMinor,
+            "Melodic" => Quality::MelodicMinor,
+            "Ionian" => Quality::Ionian,
+            "Dorian" => Quality::Dorian,
+            "Phrygian" => Quality::Phrygian,
+            "Lydian" => Quality::Lydian,
+            "Mixolydian" => Quality::Mixolydian,
+            "Aeolian" => Quality::Aeolian,
+            "Locrian" => Quality::Locrain,
+            _ => panic!("Invalid key"),
+        };
+        let semis_map = match quality {
+            Quality::Major => [2, 2, 1, 2, 2, 2, 1],
+            Quality::NaturalMinor => [2, 1, 2, 2, 1, 2, 2],
+            Quality::HarmonicMinor => [2, 1, 2, 2, 1, 3, 1],
+            Quality::MelodicMinor => [2, 1, 2, 2, 2, 2, 1],
+            Quality::Ionian => [2, 2, 1, 2, 2, 2, 1],
+            Quality::Dorian => [2, 1, 2, 2, 2, 1, 2],
+            Quality::Phrygian => [1, 2, 2, 2, 1, 2, 2],
+            Quality::Lydian => [2, 2, 2, 1, 2, 2, 1],
+            Quality::Mixolydian => [2, 2, 1, 2, 2, 1, 2],
+            Quality::Aeolian => [2, 1, 2, 2, 1, 2, 2],
+            Quality::Locrain => [1, 2, 2, 1, 2, 2, 2],
+        };
+        Self {
+            name,
+            accidental,
+            quality,
+            semis_map,
+        }
+    }
+}
+
 pub struct Note {
     name: Name,
     accidental: Option<Accidental>,
     octave: u8,
+    cents: f32,
 }
 
 impl Note {
@@ -44,6 +181,7 @@ impl Note {
             name,
             accidental,
             octave,
+            cents: 0.0,
         }
     }
 
@@ -87,7 +225,7 @@ impl Note {
         (name, accidental, octave)
     }
 
-    pub fn get_frequency(&self, base_freq: Option<f32>) -> f32 {
+    pub fn to_freq(&self, base_freq: Option<f32>) -> f32 {
         let mut num_semis = match self.name {
             Name::C => -9,
             Name::D => -7,
@@ -110,7 +248,42 @@ impl Note {
         };
         num_semis += (self.octave as i32 - 4) * 12;
         let base = base_freq.unwrap_or(440.0);
-        base * 2.0_f32.powf(num_semis as f32 / 12.0)
+        base * 2.0_f32.powf((num_semis as f32 + (self.cents / 100.0)) / 12.0)
+    }
+
+    pub fn from_freq(freq: f32, base_freq: Option<f32>) -> Self {
+        let base = base_freq.unwrap_or(440.0);
+        let base = base * 2.0_f32.powf(-4.75);
+        let log = (freq / base).log2() * 1200.0;
+        let octave = ((log + 100.0) / 1200.0) as u8;
+        let semis = ((log / 100.0).round() % 12.0) as usize;
+        let mut cents = log % 100.0;
+        cents = if cents < 50.0 {
+            cents
+        } else {
+            -(100.0 - cents)
+        };
+        let notes = [
+            (Name::C, None),
+            (Name::C, Some(Accidental::Sharp)),
+            (Name::D, None),
+            (Name::D, Some(Accidental::Sharp)),
+            (Name::E, None),
+            (Name::F, None),
+            (Name::F, Some(Accidental::Sharp)),
+            (Name::G, None),
+            (Name::G, Some(Accidental::Sharp)),
+            (Name::A, None),
+            (Name::A, Some(Accidental::Sharp)),
+            (Name::B, None),
+        ];
+        let (name, accidental) = notes[semis];
+        Self {
+            name,
+            accidental,
+            octave,
+            cents,
+        }
     }
 }
 
@@ -127,7 +300,15 @@ impl fmt::Display for Note {
         } else {
             ""
         };
-        write!(f, "{:?}{}{}", self.name, accidental, self.octave)
+        write!(
+            f,
+            "{:?}{}{} {}{:.3}",
+            self.name,
+            accidental,
+            self.octave,
+            if self.cents >= 0.0 { "+" } else { "" },
+            self.cents
+        )
     }
 }
 
@@ -201,7 +382,7 @@ pub fn create_wave(
     channels: u16,
     adsr: Option<&ADSR>,
     harmonics: usize, // used for non-sine waves
-) -> AudioChunk {
+) {
     let total_frames = (duration_secs * sample_rate as f32).round() as usize;
     let mut samples = Vec::with_capacity(total_frames * channels as usize);
 
@@ -226,11 +407,5 @@ pub fn create_wave(
         for _ in 0..channels {
             samples.push(sample);
         }
-    }
-
-    AudioChunk {
-        samples,
-        sample_rate,
-        channels: channels.into(),
     }
 }

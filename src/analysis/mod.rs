@@ -1,8 +1,6 @@
 pub mod chroma;
 pub mod onset;
 pub mod pitch;
-use dasp_frame::Frame;
-use dasp_signal::Signal;
 use std::sync::{Arc, Mutex};
 
 pub enum TuningSystem {

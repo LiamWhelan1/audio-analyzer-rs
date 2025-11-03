@@ -1,10 +1,9 @@
-use crate::audio_io::{AudioPipeline, Recorder};
+use crate::audio_io::AudioPipeline;
 use crate::generators::metronome::BeatStrength;
 use crate::traits::Worker;
 use crate::{
     drone, metronome, pause, pause_worker, play, record, start_worker, stop_worker, tune, upload,
 };
-use crossbeam_channel::Sender;
 use std::collections::HashMap;
 use std::io::{self, Write};
 pub fn run_cli_simulation() {
@@ -61,12 +60,18 @@ pub fn run_cli_simulation() {
                 n += 1;
             }
             "tune" => {
-                // let tune = tune(crate::analysis::TuningSystem::EqualTemperament);
-                // if let Err(e) = tune {
-                //     eprintln!("Error: {}", e);
-                // } else {
-                //     workers.push(tune.unwrap());
-                // }
+                let b = if let Some(b) = builder.as_mut() {
+                    b
+                } else {
+                    builder = Some(AudioPipeline::new().unwrap());
+                    builder.as_mut().unwrap()
+                };
+                let tuner = tune(crate::analysis::TuningSystem::EqualTemperament, b);
+                if let Err(e) = tuner {
+                    eprintln!("Error: {}", e);
+                } else {
+                    workers.insert("tune".to_string(), Box::new(tuner.unwrap()));
+                }
             }
             "metronome" => {
                 let metronome = metronome(
@@ -144,6 +149,34 @@ pub fn run_cli_simulation() {
                         continue;
                     };
                 }
+            }
+            "stop tune" => {
+                let b = if let Some(b) = builder.as_mut() {
+                    b
+                } else {
+                    builder = Some(AudioPipeline::new().unwrap());
+                    builder.as_mut().unwrap()
+                };
+                if let Some(r) = workers.get_mut("tune") {
+                    stop_worker(r, b);
+                    workers.remove("tune")
+                } else {
+                    continue;
+                };
+            }
+            "pause tune" => {
+                if let Some(r) = workers.get_mut("tune") {
+                    pause_worker(r);
+                } else {
+                    continue;
+                };
+            }
+            "start tune" => {
+                if let Some(r) = workers.get_mut("tune") {
+                    start_worker(r);
+                } else {
+                    continue;
+                };
             }
             "exit" => {
                 println!("👋  Exiting simulation.");

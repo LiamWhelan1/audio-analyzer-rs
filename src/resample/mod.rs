@@ -1,10 +1,9 @@
-use crate::types::Sample;
 use rubato::{
     SincFixedIn, SincInterpolationParameters, SincInterpolationType, VecResampler, WindowFunction,
 };
 
 pub struct Resampler {
-    inner: SincFixedIn<Sample>,
+    inner: SincFixedIn<f32>,
     in_channels: usize,
     out_channels: usize,
 }
@@ -18,7 +17,7 @@ impl Resampler {
             oversampling_factor: 160,
             window: WindowFunction::Hann2,
         };
-        let inner = SincFixedIn::<Sample>::new(
+        let inner = SincFixedIn::<f32>::new(
             out_sr as f64 / in_sr as f64,
             10.0,
             params,
@@ -34,7 +33,7 @@ impl Resampler {
     }
 
     /// resample expects frames as Vec<Vec<Sample>> per channel
-    pub fn process(&mut self, in_frames: Vec<Vec<Sample>>) -> anyhow::Result<Vec<Vec<Sample>>> {
+    pub fn process(&mut self, in_frames: Vec<Vec<f32>>) -> anyhow::Result<Vec<Vec<f32>>> {
         let out = self.inner.process(&in_frames, None)?;
         Ok(out)
     }
