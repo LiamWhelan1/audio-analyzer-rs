@@ -255,7 +255,7 @@ impl Note {
         let base = base_freq.unwrap_or(440.0);
         let base = base * 2.0_f32.powf(-4.75);
         let log = (freq / base).log2() * 1200.0;
-        let octave = ((log + 100.0) / 1200.0) as u8;
+        let octave = ((log + 50.0) / 1200.0) as u8;
         let semis = ((log / 100.0).round() % 12.0) as usize;
         let mut cents = log % 100.0;
         cents = if cents < 50.0 {
