@@ -8,9 +8,8 @@ pub mod testing;
 pub mod traits;
 
 use anyhow::Result;
-use crossbeam_channel::{Receiver, Sender, bounded};
+use crossbeam_channel::{Sender, bounded};
 use std::thread;
-use std::time::Duration;
 
 use crate::audio_io::AudioPipeline;
 use crate::audio_io::stft::STFT;
@@ -49,7 +48,11 @@ pub fn record(builder: &mut AudioPipeline, path: &str) -> Result<audio_io::recor
     Ok(rec)
 }
 
-pub fn tune(mode: analysis::TuningSystem, builder: &mut AudioPipeline) -> Result<STFT> {
+pub fn tune(
+    mode: analysis::TuningSystem,
+    base: Option<f32>,
+    builder: &mut AudioPipeline,
+) -> Result<STFT> {
     println!("🎵  Tune command received.");
     let (s, r) = bounded(1);
     // TODO: Implement tuning (pitch analysis, reference tone, etc.)
@@ -57,19 +60,18 @@ pub fn tune(mode: analysis::TuningSystem, builder: &mut AudioPipeline) -> Result
     // Regular notes, chord, orchestra, ...?
     // Different tuning systems: equal temperament, just intonation, ...?
     builder.start_input()?;
-    let tuner = builder.spawn_transformer(s, None);
+    let tuner = builder.spawn_transformer(s);
     thread::spawn(move || {
-        let mut prev_note = Note::new("C0");
         loop {
-            let note = if let Ok(n) = r.recv() {
+            let notes = if let Ok(n) = r.recv() {
                 n
             } else {
                 break;
             };
-            if note.to_freq(None) != prev_note.to_freq(None) {
-                println!("{note}")
+            for note in notes {
+                print!("{}, ", Note::from_freq(note, base));
             }
-            prev_note = note;
+            println!("");
         }
     });
     Ok(tuner)
@@ -100,4 +102,36 @@ pub fn drone(pitch: &str) -> Result<()> {
     println!("Drone at {pitch}");
     // TODO: Implement drone pitch
     Ok(())
+}
+
+#[cfg(target_os = "android")]
+pub mod android {
+    use crate::*;
+    use jni::JNIEnv;
+    use jni::objects::JClass;
+    use jni::sys::jint;
+    #[no_mangle]
+    pub unsafe extern "C" fn Java_com_aariyauna_cadenza_RustAnalyzerModule_play(
+        _env: JNIEnv,
+        _class: JClass,
+    ) {
+    }
+    #[no_mangle]
+    pub unsafe extern "C" fn Java_com_aariyauna_cadenza_RustAnalyzerModule_pause() {}
+    #[no_mangle]
+    pub unsafe extern "C" fn Java_com_aariyauna_cadenza_RustAnalyzerModule_start_worker() {}
+    #[no_mangle]
+    pub unsafe extern "C" fn Java_com_aariyauna_cadenza_RustAnalyzerModule_stop_worker() {}
+    #[no_mangle]
+    pub unsafe extern "C" fn Java_com_aariyauna_cadenza_RustAnalyzerModule_pause_worker() {}
+    #[no_mangle]
+    pub unsafe extern "C" fn Java_com_aariyauna_cadenza_RustAnalyzerModule_record() {}
+    #[no_mangle]
+    pub unsafe extern "C" fn Java_com_aariyauna_cadenza_RustAnalyzerModule_tune() {}
+    #[no_mangle]
+    pub unsafe extern "C" fn Java_com_aariyauna_cadenza_RustAnalyzerModule_metronome() {}
+    #[no_mangle]
+    pub unsafe extern "C" fn Java_com_aariyauna_cadenza_RustAnalyzerModule_upload() {}
+    #[no_mangle]
+    pub unsafe extern "C" fn Java_com_aariyauna_cadenza_RustAnalyzerModule_drone() {}
 }

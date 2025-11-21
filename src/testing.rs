@@ -66,7 +66,7 @@ pub fn run_cli_simulation() {
                     builder = Some(AudioPipeline::new().unwrap());
                     builder.as_mut().unwrap()
                 };
-                let tuner = tune(crate::analysis::TuningSystem::EqualTemperament, b);
+                let tuner = tune(crate::analysis::TuningSystem::EqualTemperament, None, b);
                 if let Err(e) = tuner {
                     eprintln!("Error: {}", e);
                 } else {

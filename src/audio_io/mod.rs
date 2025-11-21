@@ -499,24 +499,13 @@ impl AudioPipeline {
         recorder::Recorder::start_record(slots, cons, handle, reclaim, spec, path)
     }
 
-    pub fn spawn_transformer(
-        &mut self,
-        sender: Sender<Note>,
-        base_freq: Option<f32>,
-    ) -> stft::STFT {
+    pub fn spawn_transformer(&mut self, sender: Sender<Vec<f32>>) -> stft::STFT {
         let handle = self.available_handles.pop().expect("Out of consumer slots");
         let cons = self.add_consumer(handle);
         let slots = self.slots.clone();
         let reclaim = self.reclaim_tx.clone();
         let mut stft = stft::STFT::new(handle, sender);
-        stft.pitch(
-            slots,
-            self.meta.slot_len,
-            cons,
-            reclaim,
-            self.meta.in_sr,
-            base_freq,
-        );
+        stft.pitches(slots, self.meta.slot_len, cons, reclaim, self.meta.in_sr);
         stft
     }
 }
