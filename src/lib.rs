@@ -8,130 +8,272 @@ pub mod testing;
 pub mod traits;
 
 use anyhow::Result;
-use crossbeam_channel::{Sender, bounded};
-use std::thread;
+use std::ffi::CStr;
+use std::os::raw::c_char;
+use std::panic;
+// use std::sync::Arc;
 
 use crate::audio_io::AudioPipeline;
-use crate::audio_io::stft::STFT;
-use crate::generators::Note;
+use crate::audio_io::recorder::Recorder;
 use crate::traits::Worker;
 
-pub fn play(builder: &mut AudioPipeline) -> Result<()> {
-    println!("▶️  Play command received.");
-    builder.start_input()?;
-    Ok(())
+// ============================================================================
+//  FFI HANDLE MANAGEMENT (The Wrapper)
+// ============================================================================
+
+/// A concrete wrapper around the dynamic Worker trait.
+/// We wrap the Worker and a pointer to the parent Pipeline to handle cleanup.
+pub struct WorkerHandle {
+    pub worker: Box<dyn Worker>,
+    pub pipeline: *mut AudioPipeline,
 }
 
-pub fn pause() -> Result<()> {
-    println!("⏸️  Pause command received.");
-    // TODO: Implement pause logic
-    Ok(())
+/// Helper: Wraps a specific worker into a generic FFI handle.
+fn into_worker_handle<T: Worker + 'static>(worker: T, pipeline: *mut AudioPipeline) -> i64 {
+    let boxed_worker: Box<dyn Worker> = Box::new(worker);
+    let wrapper = Box::new(WorkerHandle {
+        worker: boxed_worker,
+        pipeline,
+    });
+    Box::into_raw(wrapper) as i64
 }
 
-pub fn start_worker(worker: &mut Box<dyn Worker>) {
-    worker.start();
+/// Helper: Access the generic Worker from the FFI handle.
+unsafe fn worker_from_handle<'a>(handle: i64) -> Option<&'a mut Box<dyn Worker>> {
+    if handle == 0 {
+        return None;
+    }
+    unsafe {
+        let wrapper = &mut *(handle as *mut WorkerHandle);
+        Some(&mut wrapper.worker)
+    }
 }
 
-pub fn stop_worker(worker: &mut Box<dyn Worker>, builder: &mut AudioPipeline) {
-    let handle = worker.stop();
-    builder.remove_consumer(handle);
+/// Helper: Consumes (drops) the generic Worker handle.
+unsafe fn drop_worker_handle(handle: i64) {
+    if handle != 0 {
+        unsafe {
+            drop(Box::from_raw(handle as *mut WorkerHandle));
+        }
+    }
 }
 
-pub fn pause_worker(worker: &mut Box<dyn Worker>) {
-    worker.pause();
+/// Helper: Generic pipeline handle management
+fn into_pipeline_handle(p: AudioPipeline) -> i64 {
+    Box::into_raw(Box::new(p)) as i64
 }
 
-pub fn record(builder: &mut AudioPipeline, path: &str) -> Result<audio_io::recorder::Recorder> {
-    println!("🎙️  Record command received.");
-    builder.start_input()?;
-    let rec = builder.spawn_recorder(path);
-    Ok(rec)
+unsafe fn pipeline_from_handle<'a>(handle: i64) -> Option<&'a mut AudioPipeline> {
+    if handle == 0 {
+        return None;
+    }
+    unsafe { Some(&mut *(handle as *mut AudioPipeline)) }
 }
 
-pub fn tune(
-    mode: analysis::TuningSystem,
-    base: Option<f32>,
-    builder: &mut AudioPipeline,
-) -> Result<STFT> {
-    println!("🎵  Tune command received.");
-    let (s, r) = bounded(1);
-    // TODO: Implement tuning (pitch analysis, reference tone, etc.)
-    // Should have multiple modes to select from:
-    // Regular notes, chord, orchestra, ...?
-    // Different tuning systems: equal temperament, just intonation, ...?
-    builder.start_input()?;
-    let tuner = builder.spawn_transformer(s);
-    thread::spawn(move || {
-        loop {
-            let notes = if let Ok(n) = r.recv() {
-                n
-            } else {
-                break;
-            };
-            for note in notes {
-                print!("{}, ", Note::from_freq(note, base));
-            }
-            println!("");
+unsafe fn cstr_to_rust_str(c_ptr: *const c_char) -> Option<&'static str> {
+    if c_ptr.is_null() {
+        return None;
+    }
+    unsafe { CStr::from_ptr(c_ptr).to_str().ok() }
+}
+
+// ============================================================================
+//  PIPELINE LIFECYCLE
+// ============================================================================
+
+#[unsafe(no_mangle)]
+pub extern "C" fn init_pipeline() -> i64 {
+    // Safety: catch_unwind prevents Rust panics from crashing the C/Java/Swift runtime
+    let result = panic::catch_unwind(|| match AudioPipeline::new() {
+        Ok(p) => into_pipeline_handle(p),
+        Err(e) => {
+            eprintln!("Failed to init pipeline: {}", e);
+            0
         }
     });
-    Ok(tuner)
-}
 
-pub fn metronome(
-    bpm: f32,
-    beats: usize,
-    division: usize,
-    subdivision: Option<Vec<usize>>,
-    pattern: Vec<generators::metronome::BeatStrength>,
-) -> Result<Sender<bool>> {
-    println!("🕒  Metronome command received.");
-    let (s, r) = bounded(1);
-    let metronome =
-        generators::metronome::Metronome::new(bpm, beats, division, subdivision, pattern);
-    metronome.play(r);
-    Ok(s)
-}
-
-pub fn upload<T>(pic: T) -> Result<()> {
-    println!("Upload command received.");
-    // TODO: Implement piece scanning
-    Ok(())
-}
-
-pub fn drone(pitch: &str) -> Result<()> {
-    println!("Drone at {pitch}");
-    // TODO: Implement drone pitch
-    Ok(())
-}
-
-#[cfg(target_os = "android")]
-pub mod android {
-    use crate::*;
-    use jni::JNIEnv;
-    use jni::objects::JClass;
-    use jni::sys::jint;
-    #[no_mangle]
-    pub unsafe extern "C" fn Java_com_aariyauna_cadenza_RustAnalyzerModule_play(
-        _env: JNIEnv,
-        _class: JClass,
-    ) {
+    match result {
+        Ok(handle) => handle,
+        Err(_) => {
+            eprintln!("Rust panic caught during pipeline init");
+            0
+        }
     }
-    #[no_mangle]
-    pub unsafe extern "C" fn Java_com_aariyauna_cadenza_RustAnalyzerModule_pause() {}
-    #[no_mangle]
-    pub unsafe extern "C" fn Java_com_aariyauna_cadenza_RustAnalyzerModule_start_worker() {}
-    #[no_mangle]
-    pub unsafe extern "C" fn Java_com_aariyauna_cadenza_RustAnalyzerModule_stop_worker() {}
-    #[no_mangle]
-    pub unsafe extern "C" fn Java_com_aariyauna_cadenza_RustAnalyzerModule_pause_worker() {}
-    #[no_mangle]
-    pub unsafe extern "C" fn Java_com_aariyauna_cadenza_RustAnalyzerModule_record() {}
-    #[no_mangle]
-    pub unsafe extern "C" fn Java_com_aariyauna_cadenza_RustAnalyzerModule_tune() {}
-    #[no_mangle]
-    pub unsafe extern "C" fn Java_com_aariyauna_cadenza_RustAnalyzerModule_metronome() {}
-    #[no_mangle]
-    pub unsafe extern "C" fn Java_com_aariyauna_cadenza_RustAnalyzerModule_upload() {}
-    #[no_mangle]
-    pub unsafe extern "C" fn Java_com_aariyauna_cadenza_RustAnalyzerModule_drone() {}
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn shutdown_pipeline(handle: i64) {
+    unsafe {
+        if handle != 0 {
+            // Dropping the AudioPipeline will trigger its Drop trait.
+            // This should clean up input/output streams and cpal resources.
+            drop(Box::from_raw(handle as *mut AudioPipeline));
+        }
+    }
+    println!("Pipeline shut down and memory freed.");
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn start_input(handle: i64) -> i32 {
+    if let Some(builder) = unsafe { pipeline_from_handle(handle) } {
+        match builder.start_input() {
+            Ok(_) => 0,
+            Err(e) => {
+                eprintln!("Error starting input: {}", e);
+                -1
+            }
+        }
+    } else {
+        -1
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn play_start(handle: i64) -> i32 {
+    if let Some(builder) = unsafe { pipeline_from_handle(handle) } {
+        println!("▶️  Play command received.");
+        // Note: play likely needs output stream, not input.
+        // If play requires start_input() logic, keep as is.
+        match builder.start_input() {
+            Ok(_) => 0,
+            Err(e) => {
+                eprintln!("Error starting input for playback: {}", e);
+                -1
+            }
+        }
+    } else {
+        -1
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pause_command(_handle: i64) -> i32 {
+    // For global pipeline pause
+    println!("⏸️  Global Pause command.");
+    0
+}
+
+// ============================================================================
+//  GENERIC WORKER CONTROL
+// ============================================================================
+
+#[unsafe(no_mangle)]
+pub extern "C" fn worker_start(handle: i64) -> i32 {
+    if let Some(worker) = unsafe { worker_from_handle(handle) } {
+        worker.start();
+        0
+    } else {
+        -1
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn worker_pause(handle: i64) -> i32 {
+    if let Some(worker) = unsafe { worker_from_handle(handle) } {
+        worker.pause();
+        0
+    } else {
+        -1
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn worker_stop(handle: i64) -> i32 {
+    if handle == 0 {
+        return -1;
+    }
+
+    let wrapper = unsafe { &mut *(handle as *mut WorkerHandle) };
+
+    // 1. Stop the worker logic (returns the consumer handle ID)
+    let consumer_id = wrapper.worker.stop();
+
+    // 2. Implicitly remove consumer from the pipeline
+    if !wrapper.pipeline.is_null() {
+        unsafe {
+            let pipeline = &mut *wrapper.pipeline;
+
+            // A. Remove the specific consumer for this worker
+            pipeline.remove_consumer(consumer_id);
+
+            // B. Check if we should stop the microphone/input stream
+            pipeline.stop_input();
+        }
+    }
+
+    // 3. Free the worker wrapper memory
+    unsafe {
+        drop_worker_handle(handle);
+    }
+
+    println!("Worker stopped, consumer removed, memory released.");
+    0
+}
+
+// ============================================================================
+//  SPECIFIC CREATORS (Return Generic Handles)
+// ============================================================================
+
+#[unsafe(no_mangle)]
+pub extern "C" fn record_start(pipeline_handle: i64, temp_path_ptr: *const c_char) -> i64 {
+    let builder = unsafe { pipeline_from_handle(pipeline_handle) };
+    let path = unsafe { cstr_to_rust_str(temp_path_ptr) };
+
+    if let (Some(b), Some(p)) = (builder, path) {
+        // 1. Ensure Input Stream is Running
+        // We must start the input before spawning the recorder so data is available.
+        if let Err(e) = b.start_input() {
+            eprintln!("Failed to start input stream for recording: {}", e);
+            return 0;
+        }
+
+        println!("🎙️  Spawning Recorder to: {}", p);
+        match b.spawn_recorder(p) {
+            Ok(recorder) => into_worker_handle(recorder, pipeline_handle as *mut AudioPipeline),
+            Err(e) => {
+                eprintln!("Failed to spawn recorder struct: {}", e);
+                0
+            }
+        }
+    } else {
+        0
+    }
+}
+
+pub type AnalysisCallback = extern "C" fn(pitch_hz: f32);
+
+#[unsafe(no_mangle)]
+pub extern "C" fn tune_start(pipeline_handle: i64, callback: AnalysisCallback) -> i64 {
+    let builder = unsafe { pipeline_from_handle(pipeline_handle) };
+
+    if let Some(b) = builder {
+        // 1. Ensure Input Stream is Running
+        if let Err(e) = b.start_input() {
+            eprintln!("Failed to start input stream for tuning: {}", e);
+            return 0;
+        }
+
+        println!("🎵  Spawning Tuner.");
+        match b.spawn_transformer(callback) {
+            Ok(tuner) => into_worker_handle(tuner, pipeline_handle as *mut AudioPipeline),
+            Err(e) => {
+                eprintln!("Failed to spawn tuner struct: {}", e);
+                0
+            }
+        }
+    } else {
+        0
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn metronome_start(_bpm: f32) -> i64 {
+    println!("TODO: Metronome spawn logic.");
+    0
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn drone_start(_pitch: f32) -> i64 {
+    println!("TODO: Drone spawn logic.");
+    0
 }

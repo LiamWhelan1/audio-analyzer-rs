@@ -11,10 +11,10 @@ use std::{
 use crossbeam_channel::Sender;
 use rustfft::num_complex::Complex;
 
+use crate::AnalysisCallback;
 use crate::{audio_io::SlotPool, dsp::fft::FftProcessor, traits::Worker};
 
 pub struct STFT {
-    sender: Sender<Vec<f32>>,
     state: Arc<AtomicI8>,
     handle: u8,
 }
@@ -33,9 +33,8 @@ impl Worker for STFT {
     }
 }
 impl STFT {
-    pub fn new(handle: u8, sender: Sender<Vec<f32>>) -> Self {
+    pub fn new(handle: u8) -> Self {
         STFT {
-            sender,
             state: Arc::new(AtomicI8::new(0)),
             handle,
         }
@@ -47,6 +46,7 @@ impl STFT {
         mut cons: rtrb::Consumer<usize>,
         reclaim: Sender<usize>,
         sr: u32,
+        callback: AnalysisCallback,
     ) {
         self.state.store(1, Ordering::Relaxed);
         let state = self.state.clone();
@@ -63,8 +63,6 @@ impl STFT {
         let freqs: Vec<f32> = (0..half_len)
             .map(|i| (i as f32) * (sr as f32) / (slot_len as f32))
             .collect();
-
-        let sender = self.sender.clone();
         let mut prev_freq = 0.0_f32;
 
         // --- parameters you can tune ---
@@ -76,7 +74,6 @@ impl STFT {
         let mut freq_buffer: VecDeque<f32> = VecDeque::with_capacity(5);
         // circular_frame_buffer collects samples from consecutive slots; we will produce frames with step=hop_size
         let mut circular_frame_buffer: Vec<f32> = Vec::with_capacity(slot_len * 4);
-
         thread::spawn(move || {
             while state.load(Ordering::Relaxed) != -1 || !cons.is_empty() {
                 // pause handling: we still pop but release quickly (matching your prior logic)
@@ -208,7 +205,7 @@ impl STFT {
                             // Send note if frequency changed
                             if (freq - prev_freq).abs() >= 0.5 {
                                 prev_freq = freq;
-                                let _ = sender.send(vec![freq]);
+                                let _ = callback(freq);
                             }
 
                             // advance by hop_size (overlap)
@@ -230,6 +227,7 @@ impl STFT {
         mut cons: rtrb::Consumer<usize>,
         reclaim: Sender<usize>,
         sr: u32,
+        sender: Sender<Vec<f32>>,
     ) {
         self.state.store(1, Ordering::Relaxed);
         let state = self.state.clone();
@@ -277,7 +275,7 @@ impl STFT {
         }
         let mut tracked_notes: Vec<Track> = Vec::new();
 
-        let sender = self.sender.clone();
+        let sender = sender.clone();
         let mut prev_sent_freqs: Vec<f32> = Vec::new(); // optionally used to reduce duplicate sends
 
         thread::spawn(move || {

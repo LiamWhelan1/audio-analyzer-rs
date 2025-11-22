@@ -38,6 +38,7 @@ dependencies = [
  "cpal",
  "crossbeam-channel",
  "hound",
+ "jni",
  "log",
  "realfft",
  "rtrb",

@@ -15,6 +15,8 @@ use rtrb::Consumer;
 
 use crate::audio_io::SlotPool;
 
+// static CALLBACK_COUNT: AtomicU64 = AtomicU64::new(0);
+
 pub struct Recorder {
     state: Arc<AtomicI8>,
     handle: u8,
@@ -49,6 +51,7 @@ impl Recorder {
             handle,
         };
         let state = recorder.state.clone();
+        println!("recorder initialized");
         thread::spawn(move || {
             let file = File::create(path).unwrap();
             let bufw = BufWriter::new(file);
@@ -83,7 +86,6 @@ impl Recorder {
                                 let slot_slice: &mut [f32] = &mut *slots.slots[idx].get();
                                 // let count = CALLBACK_COUNT.load(Ordering::Relaxed);
                                 // if count % 200 == 0 {
-                                //     super::analysis::handle_audio_input(&slot_slice, 1);
                                 //     let min =
                                 //         slot_slice.iter().fold(f32::INFINITY, |a, &s| a.min(s));
                                 //     let max =
