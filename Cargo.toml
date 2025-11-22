@@ -3,9 +3,9 @@ name = "audio-analyzer-rs"
 version = "0.1.0"
 edition = "2024"
 
-# [lib]
-# name = "audio_analyzer_rs"
-# crate-type = ["staticlib", "cdylib"]
+[lib]
+name = "audio_analyzer_rs"
+crate-type = ["staticlib", "cdylib"]
 
 [dependencies]
 cpal = "0.16"                 # audio input/output host
