@@ -1,1 +1,0 @@
-2025-11-22T06:48:54.728743Z ERROR cpal_wasapi_in audio_analyzer_rs::audio_io: Input stream error: The requested device is no longer available. For example, it has been unplugged.

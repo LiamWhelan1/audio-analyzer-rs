@@ -7,14 +7,14 @@ pub mod resample;
 pub mod testing;
 pub mod traits;
 
-use anyhow::Result;
 use std::ffi::CStr;
 use std::os::raw::c_char;
-use std::panic;
+use std::{panic, slice};
 // use std::sync::Arc;
 
 use crate::audio_io::AudioPipeline;
-use crate::audio_io::recorder::Recorder;
+use crate::audio_io::output::{BeatStrength, MetronomeCommand, SynthCommand, SynthNote};
+// use crate::generators::metronome;
 use crate::traits::Worker;
 
 // ============================================================================
@@ -70,11 +70,28 @@ unsafe fn pipeline_from_handle<'a>(handle: i64) -> Option<&'a mut AudioPipeline>
     unsafe { Some(&mut *(handle as *mut AudioPipeline)) }
 }
 
-unsafe fn cstr_to_rust_str(c_ptr: *const c_char) -> Option<&'static str> {
+pub unsafe fn cstr_to_rust_str(c_ptr: *const c_char) -> Option<&'static str> {
     if c_ptr.is_null() {
         return None;
     }
     unsafe { CStr::from_ptr(c_ptr).to_str().ok() }
+}
+
+pub struct MetronomeHandle {
+    pub producer: rtrb::Producer<MetronomeCommand>,
+}
+
+unsafe fn drop_metronome_handle(handle: i64) {
+    if handle != 0 {
+        unsafe { drop(Box::from_raw(handle as *mut MetronomeHandle)) };
+    }
+}
+
+unsafe fn metronome_from_handle<'a>(handle: i64) -> Option<&'a mut MetronomeHandle> {
+    if handle == 0 {
+        return None;
+    }
+    unsafe { Some(&mut *(handle as *mut MetronomeHandle)) }
 }
 
 // ============================================================================
@@ -134,10 +151,10 @@ pub extern "C" fn play_start(handle: i64) -> i32 {
         println!("▶️  Play command received.");
         // Note: play likely needs output stream, not input.
         // If play requires start_input() logic, keep as is.
-        match builder.start_input() {
+        match builder.start_output() {
             Ok(_) => 0,
             Err(e) => {
-                eprintln!("Error starting input for playback: {}", e);
+                eprintln!("Error starting output for playback: {}", e);
                 -1
             }
         }
@@ -240,7 +257,7 @@ pub extern "C" fn record_start(pipeline_handle: i64, temp_path_ptr: *const c_cha
     }
 }
 
-pub type AnalysisCallback = extern "C" fn(pitch_hz: f32);
+pub type AnalysisCallback = extern "C" fn(name: *const c_char, cents: f32);
 
 #[unsafe(no_mangle)]
 pub extern "C" fn tune_start(pipeline_handle: i64, callback: AnalysisCallback) -> i64 {
@@ -266,10 +283,284 @@ pub extern "C" fn tune_start(pipeline_handle: i64, callback: AnalysisCallback) -
     }
 }
 
+// ============================================================================
+//  METRONOME CONTROLS
+// ============================================================================
+
 #[unsafe(no_mangle)]
-pub extern "C" fn metronome_start(_bpm: f32) -> i64 {
-    println!("TODO: Metronome spawn logic.");
-    0
+pub extern "C" fn metronome_start(pipeline_handle: i64, bpm: f32) -> i64 {
+    let builder = unsafe { pipeline_from_handle(pipeline_handle) };
+
+    if let Some(b) = builder {
+        // Ensure audio output is running
+        if let Err(e) = b.start_output() {
+            eprintln!("Failed to start output for metronome: {}", e);
+            return 0;
+        }
+
+        // Spawn and get the producer
+        let producer = b.spawn_metronome(bpm);
+
+        // Wrap in a handle
+        let handle = Box::new(MetronomeHandle { producer });
+
+        println!("⏱️  Metronome started at {} BPM", bpm);
+        Box::into_raw(handle) as i64
+    } else {
+        0
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn metronome_stop(handle: i64) -> i32 {
+    unsafe {
+        if let Some(met) = metronome_from_handle(handle) {
+            // Option A: Send explicit stop (Good for gentle cleanup)
+            let _ = met.producer.push(MetronomeCommand::Stop);
+
+            // Option B: Just drop the handle (Disconnects channel)
+            drop_metronome_handle(handle);
+            println!("⏱️  Metronome stopped.");
+            0
+        } else {
+            -1
+        }
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn metronome_set_bpm(handle: i64, bpm: f32) -> i32 {
+    println!("Setting bpm to {bpm}");
+    if let Some(met) = unsafe { metronome_from_handle(handle) } {
+        if met.producer.push(MetronomeCommand::SetBpm(bpm)).is_ok() {
+            return 0;
+        }
+    }
+    -1
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn metronome_set_volume(handle: i64, volume: f32) -> i32 {
+    if let Some(met) = unsafe { metronome_from_handle(handle) } {
+        if met
+            .producer
+            .push(MetronomeCommand::SetVolume(volume))
+            .is_ok()
+        {
+            return 0;
+        }
+    }
+    -1
+}
+
+/// Sets active subdivisions using an array of integers.
+///
+/// `divs_ptr`: Pointer to an array of `usize` (e.g., [3, 4] for triplets + 16ths).
+/// `len`: Number of elements in the array.
+#[unsafe(no_mangle)]
+pub extern "C" fn metronome_set_subdivisions(
+    handle: i64,
+    divs_ptr: *const usize,
+    len: usize,
+) -> i32 {
+    if let Some(met) = unsafe { metronome_from_handle(handle) } {
+        if divs_ptr.is_null() {
+            // If null, assume clear subdivisions
+            if met
+                .producer
+                .push(MetronomeCommand::SetSubdivisions(vec![]))
+                .is_ok()
+            {
+                return 0;
+            }
+            return -1;
+        }
+
+        let subdivisions = unsafe { slice::from_raw_parts(divs_ptr, len).to_vec() };
+
+        if met
+            .producer
+            .push(MetronomeCommand::SetSubdivisions(subdivisions))
+            .is_ok()
+        {
+            return 0;
+        }
+    }
+    -1
+}
+
+/// Sets the main beat pattern using an array of integers.
+///
+/// Mappings:
+/// 0: None (Silence)
+/// 1: Weak
+/// 2: Medium
+/// 3: Strong
+///
+/// `pattern_ptr`: Pointer to an array of `i32`.
+/// `len`: Number of beats in the pattern.
+#[unsafe(no_mangle)]
+pub extern "C" fn metronome_set_pattern(handle: i64, pattern_ptr: *const i32, len: usize) -> i32 {
+    if let Some(met) = unsafe { metronome_from_handle(handle) } {
+        if pattern_ptr.is_null() || len == 0 {
+            return -1;
+        }
+
+        // Convert raw C array to Rust slice
+        let raw_pattern = unsafe { slice::from_raw_parts(pattern_ptr, len) };
+
+        // Map integers to BeatStrength enum
+        let pattern: Vec<BeatStrength> = raw_pattern
+            .iter()
+            .map(|&p| match p {
+                3 => BeatStrength::Strong,
+                2 => BeatStrength::Medium,
+                1 => BeatStrength::Weak,
+                _ => BeatStrength::None,
+            })
+            .collect();
+
+        if met
+            .producer
+            .push(MetronomeCommand::SetPattern(pattern))
+            .is_ok()
+        {
+            return 0;
+        }
+    }
+    -1
+}
+
+// ============================================================================
+//  SYNTHESIZER FFI
+// ============================================================================
+
+pub struct SynthHandle {
+    pub producer: rtrb::Producer<SynthCommand>,
+}
+
+unsafe fn drop_synth_handle(handle: i64) {
+    if handle != 0 {
+        unsafe { drop(Box::from_raw(handle as *mut SynthHandle)) };
+    }
+}
+
+unsafe fn synth_from_handle<'a>(handle: i64) -> Option<&'a mut SynthHandle> {
+    if handle == 0 {
+        return None;
+    }
+    unsafe { Some(&mut *(handle as *mut SynthHandle)) }
+}
+
+/// A C-compatible struct for passing note data.
+#[repr(C)]
+pub struct FFISynthNote {
+    pub freq: f32,
+    pub duration_ms: f32,
+    pub onset_ms: f32,
+    pub velocity: f32,
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn synth_start(pipeline_handle: i64) -> i64 {
+    let builder = unsafe { pipeline_from_handle(pipeline_handle) };
+    if let Some(b) = builder {
+        if let Err(e) = b.start_output() {
+            eprintln!("Failed to start output for synth: {}", e);
+            return 0;
+        }
+        let producer = b.spawn_synthesizer();
+        let handle = Box::new(SynthHandle { producer });
+        println!("🎹 Synthesizer spawned.");
+        Box::into_raw(handle) as i64
+    } else {
+        0
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn synth_stop(handle: i64) -> i32 {
+    unsafe {
+        if let Some(s) = synth_from_handle(handle) {
+            let _ = s.producer.push(SynthCommand::Stop);
+            drop_synth_handle(handle);
+            println!("🎹 Synthesizer stopped.");
+            0
+        } else {
+            -1
+        }
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn synth_play_live(handle: i64, freq: f32, velocity: f32) -> i32 {
+    if let Some(s) = unsafe { synth_from_handle(handle) } {
+        if velocity > 0.0 {
+            if s.producer
+                .push(SynthCommand::NoteOn { freq, velocity })
+                .is_ok()
+            {
+                return 0;
+            }
+        } else {
+            if s.producer.push(SynthCommand::NoteOff { freq }).is_ok() {
+                return 0;
+            }
+        }
+    }
+    -1
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn synth_load_sequence(
+    handle: i64,
+    notes_ptr: *const FFISynthNote,
+    len: usize,
+) -> i32 {
+    if let Some(s) = unsafe { synth_from_handle(handle) } {
+        if notes_ptr.is_null() {
+            return -1;
+        }
+
+        let raw_notes = unsafe { slice::from_raw_parts(notes_ptr, len) };
+
+        // Convert FFI structs to internal Rust structs
+        let notes: Vec<SynthNote> = raw_notes
+            .iter()
+            .map(|n| SynthNote {
+                freq: n.freq,
+                duration_ms: n.duration_ms,
+                onset_ms: n.onset_ms,
+                velocity: n.velocity,
+            })
+            .collect();
+
+        if s.producer.push(SynthCommand::LoadSequence(notes)).is_ok() {
+            println!("🎹 Sequence loaded with {} notes", len);
+            return 0;
+        }
+    }
+    -1
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn synth_pause(handle: i64) -> i32 {
+    if let Some(s) = unsafe { synth_from_handle(handle) } {
+        if s.producer.push(SynthCommand::Pause).is_ok() {
+            return 0;
+        }
+    }
+    -1
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn synth_resume(handle: i64) -> i32 {
+    if let Some(s) = unsafe { synth_from_handle(handle) } {
+        if s.producer.push(SynthCommand::Resume).is_ok() {
+            return 0;
+        }
+    }
+    -1
 }
 
 #[unsafe(no_mangle)]

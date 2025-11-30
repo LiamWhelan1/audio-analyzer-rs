@@ -1,5 +1,6 @@
 use std::{
     collections::VecDeque,
+    ffi::CString,
     sync::{
         Arc,
         atomic::{AtomicI8, Ordering},
@@ -11,7 +12,7 @@ use std::{
 use crossbeam_channel::Sender;
 use rustfft::num_complex::Complex;
 
-use crate::AnalysisCallback;
+use crate::{AnalysisCallback, generators::Note};
 use crate::{audio_io::SlotPool, dsp::fft::FftProcessor, traits::Worker};
 
 pub struct STFT {
@@ -205,7 +206,10 @@ impl STFT {
                             // Send note if frequency changed
                             if (freq - prev_freq).abs() >= 0.5 {
                                 prev_freq = freq;
-                                let _ = callback(freq);
+                                let note = Note::from_freq(freq, None);
+                                let name = CString::new(note.get_name()).unwrap();
+                                let cents = note.get_cents();
+                                let _ = callback(name.as_ptr(), cents);
                             }
 
                             // advance by hop_size (overlap)

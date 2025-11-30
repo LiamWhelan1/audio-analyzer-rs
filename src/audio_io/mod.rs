@@ -1,18 +1,65 @@
+pub mod output; // <-- NEW: Output system module
 pub mod recorder;
 pub mod stft;
 
 use anyhow::{Result, anyhow};
-use cpal::{StreamError, traits::*};
+use cpal::traits::*;
 use crossbeam_channel::{Sender, unbounded};
 use hound;
 use rtrb::{Consumer, Producer, RingBuffer};
+use spin; // <-- NEW: For real-time safe mutex
 use std::cell::UnsafeCell;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI64, AtomicUsize, Ordering};
 use std::thread;
 use std::time::Duration;
 
 use crate::AnalysisCallback;
+use crate::audio_io::output::{BeatStrength, Metronome};
+use output::{AudioSource, Mixer, OutputController}; // <-- NEW: Import output wrappers
+
+// ============================================================================
+//  STREAM TIMER
+// ============================================================================
+
+// This object will be shared (via Arc) between
+// the input and output callbacks.
+pub struct StreamTimer {
+    // Tracks total frames processed by the output (master)
+    output_frames: AtomicI64,
+    // Tracks total frames processed by the input (slave)
+    input_frames: AtomicI64,
+}
+
+impl StreamTimer {
+    pub fn new() -> Arc<Self> {
+        Arc::new(Self {
+            output_frames: AtomicI64::new(0),
+            input_frames: AtomicI64::new(0),
+        })
+    }
+    // Call this from the output callback
+    pub fn tick_output(&self, num_frames: i64) {
+        self.output_frames.fetch_add(num_frames, Ordering::Relaxed);
+    }
+
+    // Call this from the input callback
+    pub fn tick_input(&self, num_frames: i64) {
+        self.input_frames.fetch_add(num_frames, Ordering::Relaxed);
+    }
+
+    // This is the magic: calculate the current drift.
+    // A positive value means the input is "ahead" of the output.
+    // A negative value means it's "behind".
+    pub fn get_drift_samples(&self) -> i64 {
+        let in_t = self.input_frames.load(Ordering::Relaxed);
+        let out_t = self.output_frames.load(Ordering::Relaxed);
+        in_t - out_t
+    }
+}
+
+unsafe impl Send for StreamTimer {}
+unsafe impl Sync for StreamTimer {}
 
 // ============================================================================
 //  SLOT POOL (Shared Memory)
@@ -71,7 +118,6 @@ impl SlotPool {
 
 #[derive(Clone)]
 pub struct AudioMeta {
-    host: Arc<cpal::Host>, // Wrapped in Arc to be cloneable if needed, mostly for device init
     in_dev: cpal::Device,
     out_dev: cpal::Device,
     in_conf: cpal::SupportedStreamConfig,
@@ -88,7 +134,7 @@ pub struct AudioMeta {
 impl AudioMeta {
     /// Probes the system for the current default devices and configuration.
     pub fn probe() -> Result<Self> {
-        let host = Arc::new(cpal::default_host());
+        let host = cpal::default_host();
 
         let in_dev = host
             .default_input_device()
@@ -123,7 +169,6 @@ impl AudioMeta {
         let slot_len = frames;
 
         Ok(Self {
-            host,
             in_dev,
             out_dev,
             in_conf,
@@ -147,16 +192,20 @@ pub struct AudioPipeline {
     meta: AudioMeta,
     pub slots: Arc<SlotPool>,
     running: Arc<AtomicBool>,
-    input_error: Arc<AtomicBool>, // Tracks async stream errors
+    timer: Arc<StreamTimer>,
 
-    // Pipeline Infrastructure (Option-wrapped to allow reconstruction)
+    // Input State
+    input_error: Arc<AtomicBool>, // Tracks async stream errors
     free_cons: Option<Consumer<usize>>,
     reducer_prod: Option<Producer<usize>>,
     reclaim_tx: Sender<usize>,
     reducer_add_tx: Sender<(u8, Producer<usize>)>,
     reducer_remove_tx: Sender<u8>,
-
     available_handles: Vec<u8>,
+
+    // Output State
+    output_error: Arc<AtomicBool>,
+    mixer: Arc<spin::Mutex<Mixer>>,
 
     // Threads
     reclaimer_handle: Option<thread::JoinHandle<()>>,
@@ -164,6 +213,7 @@ pub struct AudioPipeline {
 
     // Streams
     input_stream: Option<cpal::Stream>,
+    output_stream: Option<cpal::Stream>,
 }
 
 impl AudioPipeline {
@@ -176,6 +226,7 @@ impl AudioPipeline {
     fn build_fresh() -> Result<Self> {
         let meta = AudioMeta::probe()?;
         let slots = SlotPool::new(meta.pool, meta.slot_len);
+        let timer = StreamTimer::new();
 
         // 1. Free Ring (Reclaimer -> Input)
         let (mut free_prod, free_cons) = RingBuffer::<usize>::new(meta.pool);
@@ -192,7 +243,13 @@ impl AudioPipeline {
         let (reducer_remove_tx, reducer_remove_rx) = unbounded::<u8>();
 
         let running = Arc::new(AtomicBool::new(true));
+
+        // Input state
         let input_error = Arc::new(AtomicBool::new(false));
+
+        // Output state
+        let output_error = Arc::new(AtomicBool::new(false));
+        let mixer = Arc::new(spin::Mutex::new(Mixer::new(meta.out_channels as usize)));
 
         // 4. Reclaimer Thread
         let running_reclaim = running.clone();
@@ -276,6 +333,7 @@ impl AudioPipeline {
             meta,
             slots,
             running,
+            timer,
             input_error,
             free_cons: Some(free_cons),
             reducer_prod: Some(reducer_prod),
@@ -283,10 +341,18 @@ impl AudioPipeline {
             reducer_add_tx,
             reducer_remove_tx,
             available_handles: (0..u8::MAX).collect(),
+            output_error,
+            mixer,
             reclaimer_handle: Some(reclaimer_handle),
             reducer_handle: Some(reducer_handle),
             input_stream: None,
+            output_stream: None,
         })
+    }
+
+    /// Public getter for the output controller
+    pub fn output_controller(&self) -> OutputController {
+        OutputController::new(self.mixer.clone())
     }
 
     /// Completely resets the pipeline.
@@ -304,6 +370,8 @@ impl AudioPipeline {
         self.meta = new_pipe.meta;
         self.slots = new_pipe.slots;
         self.running = new_pipe.running;
+        self.timer = new_pipe.timer;
+
         self.input_error = new_pipe.input_error;
         self.free_cons = new_pipe.free_cons;
         self.reducer_prod = new_pipe.reducer_prod;
@@ -311,21 +379,28 @@ impl AudioPipeline {
         self.reducer_add_tx = new_pipe.reducer_add_tx;
         self.reducer_remove_tx = new_pipe.reducer_remove_tx;
         self.available_handles = new_pipe.available_handles;
+
+        self.output_error = new_pipe.output_error;
+        self.mixer = new_pipe.mixer;
+
         self.reclaimer_handle = new_pipe.reclaimer_handle;
         self.reducer_handle = new_pipe.reducer_handle;
         self.input_stream = None;
+        self.output_stream = None;
 
         println!(
-            "✅  Pipeline Reset Complete. New Device: {}",
-            self.meta.in_dev.name().unwrap_or_default()
+            "✅  Pipeline Reset Complete. New Devices: In={}, Out={}",
+            self.meta.in_dev.name().unwrap_or_default(),
+            self.meta.out_dev.name().unwrap_or_default()
         );
         Ok(())
     }
 
     fn shutdown_internal(&mut self) {
         self.running.store(false, Ordering::SeqCst);
-        // Drop stream explicitly
+        // Drop streams explicitly
         self.input_stream = None;
+        self.output_stream = None;
         // Join threads
         if let Some(h) = self.reducer_handle.take() {
             h.join().ok();
@@ -347,6 +422,13 @@ impl AudioPipeline {
         if let Some(stream) = self.input_stream.take() {
             drop(stream);
             println!("Input stream stopped and dropped.");
+        }
+    }
+
+    pub fn stop_output(&mut self) {
+        if let Some(stream) = self.output_stream.take() {
+            drop(stream);
+            println!("Output stream stopped and dropped.");
         }
     }
 
@@ -374,7 +456,7 @@ impl AudioPipeline {
         }
 
         // 4. Attempt to build stream
-        match self.build_stream_internal() {
+        match self.build_input_stream_internal() {
             Ok(s) => {
                 s.play()?;
                 self.input_stream = Some(s);
@@ -383,10 +465,13 @@ impl AudioPipeline {
                 Ok(())
             }
             Err(e) => {
-                println!("⚠️  Stream build failed: {}. Attempting fresh reset...", e);
+                println!(
+                    "⚠️  Input stream build failed: {}. Attempting fresh reset...",
+                    e
+                );
                 // Fallback: Try full reset and build again
                 self.reset_pipeline()?;
-                let s = self.build_stream_internal()?;
+                let s = self.build_input_stream_internal()?;
                 s.play()?;
                 self.input_stream = Some(s);
                 Ok(())
@@ -394,7 +479,43 @@ impl AudioPipeline {
         }
     }
 
-    fn build_stream_internal(&mut self) -> Result<cpal::Stream> {
+    pub fn start_output(&mut self) -> Result<()> {
+        if self.output_error.load(Ordering::Relaxed) {
+            println!("⚠️  Detected async output error. Resetting...");
+            self.reset_pipeline()?;
+        }
+
+        if self.meta.out_dev.default_output_config().is_err() {
+            println!("⚠️  Stored output device invalid. Resetting...");
+            self.reset_pipeline()?;
+        }
+
+        if self.output_stream.is_some() {
+            return Ok(());
+        }
+
+        match self.build_output_stream_internal() {
+            Ok(s) => {
+                s.play()?;
+                self.output_stream = Some(s);
+                self.output_error.store(false, Ordering::Relaxed);
+                Ok(())
+            }
+            Err(e) => {
+                println!(
+                    "⚠️  Output stream build failed: {}. Attempting fresh reset...",
+                    e
+                );
+                self.reset_pipeline()?;
+                let s = self.build_output_stream_internal()?;
+                s.play()?;
+                self.output_stream = Some(s);
+                Ok(())
+            }
+        }
+    }
+
+    fn build_input_stream_internal(&mut self) -> Result<cpal::Stream> {
         // We must take() these. If this method fails after taking,
         // the pipeline is broken (missing rings) and MUST be reset next time.
         let free_cons = self
@@ -408,6 +529,9 @@ impl AudioPipeline {
 
         let config: cpal::StreamConfig = self.meta.in_conf.clone().into();
         let err_flag = self.input_error.clone();
+
+        // ** ADDED TIMER **
+        let timer = self.timer.clone();
 
         let err_fn = move |err| {
             log::error!("Input stream error: {}", err);
@@ -425,6 +549,7 @@ impl AudioPipeline {
                 reducer_prod,
                 self.slots.clone(),
                 self.running.clone(),
+                timer, // <-- Pass timer
                 err_fn,
             )?,
             cpal::SampleFormat::I16 => Self::build_input_stream_impl::<i16>(
@@ -436,6 +561,7 @@ impl AudioPipeline {
                 reducer_prod,
                 self.slots.clone(),
                 self.running.clone(),
+                timer, // <-- Pass timer
                 err_fn,
             )?,
             cpal::SampleFormat::U16 => Self::build_input_stream_impl::<u16>(
@@ -447,6 +573,7 @@ impl AudioPipeline {
                 reducer_prod,
                 self.slots.clone(),
                 self.running.clone(),
+                timer, // <-- Pass timer
                 err_fn,
             )?,
             f => return Err(anyhow!("Unsupported sample format: {}", f)),
@@ -463,6 +590,7 @@ impl AudioPipeline {
         mut reducer_prod: Producer<usize>,
         slots: Arc<SlotPool>,
         running: Arc<AtomicBool>,
+        timer: Arc<StreamTimer>, // <-- Receive timer
         err_fn: impl FnMut(cpal::StreamError) + Send + 'static,
     ) -> Result<cpal::Stream>
     where
@@ -474,6 +602,11 @@ impl AudioPipeline {
         let stream = device.build_input_stream(
             config,
             move |data: &[T], _: &cpal::InputCallbackInfo| {
+                // ** TICK TIMER **
+                // We tick at the *start* of the callback
+                let frames = data.len() / channels;
+                timer.tick_input(frames as i64);
+
                 if !running.load(Ordering::Relaxed) {
                     return;
                 }
@@ -531,6 +664,130 @@ impl AudioPipeline {
         Ok(stream)
     }
 
+    // --- NEW: Output Stream Functions ---
+
+    fn build_output_stream_internal(&mut self) -> Result<cpal::Stream> {
+        let config: cpal::StreamConfig = self.meta.out_conf.clone().into();
+        let err_flag = self.output_error.clone();
+
+        let timer = self.timer.clone();
+        let mixer = self.mixer.clone();
+        let running = self.running.clone();
+        let channels = self.meta.out_channels as usize;
+
+        let err_fn = move |err| {
+            log::error!("Output stream error: {}", err);
+            err_flag.store(true, Ordering::Relaxed);
+        };
+
+        let stream = match self.meta.out_conf.sample_format() {
+            cpal::SampleFormat::F32 => Self::build_output_stream_impl::<f32>(
+                &self.meta.out_dev,
+                &config,
+                channels,
+                timer,
+                mixer,
+                running,
+                err_fn,
+            )?,
+            cpal::SampleFormat::I16 => Self::build_output_stream_impl::<i16>(
+                &self.meta.out_dev,
+                &config,
+                channels,
+                timer,
+                mixer,
+                running,
+                err_fn,
+            )?,
+            cpal::SampleFormat::U16 => Self::build_output_stream_impl::<u16>(
+                &self.meta.out_dev,
+                &config,
+                channels,
+                timer,
+                mixer,
+                running,
+                err_fn,
+            )?,
+            f => return Err(anyhow!("Unsupported sample format: {}", f)),
+        };
+        Ok(stream)
+    }
+
+    fn build_output_stream_impl<T>(
+        device: &cpal::Device,
+        config: &cpal::StreamConfig,
+        channels: usize,
+        timer: Arc<StreamTimer>,
+        mixer: Arc<spin::Mutex<Mixer>>,
+        running: Arc<AtomicBool>,
+        err_fn: impl FnMut(cpal::StreamError) + Send + 'static,
+    ) -> Result<cpal::Stream>
+    where
+        T: cpal::Sample + cpal::SizedSample + cpal::FromSample<f32>,
+    {
+        // --- THIS IS THE FIX ---
+        // Pre-allocate a local f32 buffer here, outside the callback.
+        // We guess a buffer size. It will resize if needed, but ideally only once.
+        let default_buf_size = 1024 * channels;
+        let mut local_f32_buffer = vec![0.0f32; default_buf_size];
+
+        let stream = device.build_output_stream(
+            config,
+            move |data: &mut [T], _: &cpal::OutputCallbackInfo| {
+                let frames = data.len() / channels;
+                // ** TICK TIMER **
+                timer.tick_output(frames as i64);
+
+                if !running.load(Ordering::Relaxed) {
+                    data.fill(T::EQUILIBRIUM);
+                    return;
+                }
+
+                // We use try_lock() to avoid blocking the audio thread.
+                // If the main thread is busy adding/removing sources,
+                // we'll just play silence for one buffer.
+                if let Some(mut mixer) = mixer.try_lock() {
+                    // --- THIS LOGIC IS REPLACED ---
+                    // // Get the mixer's internal f32 buffer, ensuring it's the right size
+                    // let f32_buffer = mixer.get_f32_buffer(data.len());
+                    //
+                    // // Run all audio sources (metronome, synths, etc.)
+                    // mixer.process(f32_buffer, channels);
+                    //
+                    // // Convert our f32 mixed audio into the hardware sample format
+                    // for (f32_sample, out_sample) in f32_buffer.iter().zip(data.iter_mut()) {
+                    //     *out_sample = T::from_sample(*f32_sample);
+                    // }
+
+                    // --- WITH THIS ---
+
+                    // 1. Ensure our local buffer is the right size.
+                    // This won't allocate unless the hardware buffer size changes.
+                    if local_f32_buffer.len() != data.len() {
+                        local_f32_buffer.resize(data.len(), 0.0);
+                    }
+
+                    // 2. Run the mixer. It will fill `local_f32_buffer`
+                    //    and use its *own* internal `scratch_buf` for mixing.
+                    //    The borrows no longer conflict.
+                    mixer.process(&mut local_f32_buffer, channels);
+
+                    // 3. Convert from our local f32 buffer into the hardware buffer `data`.
+                    for (f32_sample, out_sample) in local_f32_buffer.iter().zip(data.iter_mut()) {
+                        *out_sample = T::from_sample(*f32_sample);
+                    }
+                } else {
+                    // Failed to get lock, play silence
+                    data.fill(T::EQUILIBRIUM);
+                }
+            },
+            err_fn,
+            None,
+        )?;
+
+        Ok(stream)
+    }
+
     pub fn add_consumer(&mut self, handle: u8) -> Consumer<usize> {
         let (prod, cons) = RingBuffer::<usize>::new(self.meta.pool);
         self.reducer_add_tx.send((handle, prod)).unwrap();
@@ -548,7 +805,7 @@ impl AudioPipeline {
         let cons = self.add_consumer(handle);
 
         let spec = hound::WavSpec {
-            channels: 1,
+            channels: 1, // Our slots are mono
             sample_rate: self.meta.in_sr,
             bits_per_sample: 16,
             sample_format: hound::SampleFormat::Int,
@@ -578,5 +835,30 @@ impl AudioPipeline {
             callback,
         );
         Ok(stft)
+    }
+
+    pub fn spawn_metronome(&mut self, bpm: f32) -> Producer<output::MetronomeCommand> {
+        let controller = self.output_controller();
+        let (met, met_controller) = Metronome::new(
+            self.meta.out_sr,
+            bpm,
+            vec![
+                BeatStrength::Strong,
+                BeatStrength::Weak,
+                BeatStrength::Weak,
+                BeatStrength::Weak,
+            ],
+            None,
+        );
+        controller.add_source(Box::new(met));
+        met_controller
+    }
+    pub fn spawn_synthesizer(&mut self) -> Producer<output::SynthCommand> {
+        let (synth, producer) = output::Synthesizer::new(self.meta.out_sr);
+
+        // Add to mixer
+        self.output_controller().add_source(Box::new(synth));
+
+        producer
     }
 }

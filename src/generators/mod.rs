@@ -285,6 +285,23 @@ impl Note {
             cents,
         }
     }
+    pub fn get_name(&self) -> String {
+        let accidental = if let Some(acc) = &self.accidental {
+            match acc {
+                Accidental::Sharp => "#",
+                Accidental::Flat => "b",
+                Accidental::Natural => "",
+                Accidental::DoubleFlat => "bb",
+                Accidental::DoubleSharp => "x",
+            }
+        } else {
+            ""
+        };
+        format!("{:?}{}{}", self.name, accidental, self.octave)
+    }
+    pub fn get_cents(&self) -> f32 {
+        self.cents
+    }
 }
 
 impl fmt::Display for Note {
