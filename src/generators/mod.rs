@@ -1,13 +1,32 @@
-pub mod drone;
 pub mod metronome;
+pub mod synth;
+use std::f32::consts::PI;
 use std::fmt::{self, write};
 
-#[derive(Clone, Copy)]
+// ============================================================================
+//  CONSTANTS & UTILS
+// ============================================================================
+
+const TWO_PI: f32 = 2.0 * PI;
+const MIN_ENVELOPE: f32 = 0.001;
+// Standard MIDI max velocity
+const MAX_MIDI_VELOCITY: f32 = 127.0;
+
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Waveform {
     Sine,
     Square,
     Sawtooth,
     Triangle,
+}
+
+#[derive(Clone, Debug)]
+pub struct SynthNote {
+    pub freq: f32,
+    pub duration_beats: f32,
+    pub onset_beats: f32,
+    pub velocity: f32,
+    pub waveform: Waveform,
 }
 
 pub struct MidiNote {

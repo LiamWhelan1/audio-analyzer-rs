@@ -10,56 +10,14 @@ use rtrb::{Consumer, Producer, RingBuffer};
 use spin; // <-- NEW: For real-time safe mutex
 use std::cell::UnsafeCell;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicI64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::thread;
 use std::time::Duration;
 
 use crate::AnalysisCallback;
-use crate::audio_io::output::{BeatStrength, Metronome};
-use output::{AudioSource, Mixer, OutputController}; // <-- NEW: Import output wrappers
-
-// ============================================================================
-//  STREAM TIMER
-// ============================================================================
-
-// This object will be shared (via Arc) between
-// the input and output callbacks.
-pub struct StreamTimer {
-    // Tracks total frames processed by the output (master)
-    output_frames: AtomicI64,
-    // Tracks total frames processed by the input (slave)
-    input_frames: AtomicI64,
-}
-
-impl StreamTimer {
-    pub fn new() -> Arc<Self> {
-        Arc::new(Self {
-            output_frames: AtomicI64::new(0),
-            input_frames: AtomicI64::new(0),
-        })
-    }
-    // Call this from the output callback
-    pub fn tick_output(&self, num_frames: i64) {
-        self.output_frames.fetch_add(num_frames, Ordering::Relaxed);
-    }
-
-    // Call this from the input callback
-    pub fn tick_input(&self, num_frames: i64) {
-        self.input_frames.fetch_add(num_frames, Ordering::Relaxed);
-    }
-
-    // This is the magic: calculate the current drift.
-    // A positive value means the input is "ahead" of the output.
-    // A negative value means it's "behind".
-    pub fn get_drift_samples(&self) -> i64 {
-        let in_t = self.input_frames.load(Ordering::Relaxed);
-        let out_t = self.output_frames.load(Ordering::Relaxed);
-        in_t - out_t
-    }
-}
-
-unsafe impl Send for StreamTimer {}
-unsafe impl Sync for StreamTimer {}
+use crate::generators::metronome::{Metronome, MetronomeCommand};
+use crate::generators::synth::{SynthCommand, Synthesizer};
+use output::{Mixer, MusicalTransport, OutputController}; // <-- NEW: Import output wrappers
 
 // ============================================================================
 //  SLOT POOL (Shared Memory)
@@ -192,7 +150,7 @@ pub struct AudioPipeline {
     meta: AudioMeta,
     pub slots: Arc<SlotPool>,
     running: Arc<AtomicBool>,
-    timer: Arc<StreamTimer>,
+    pub transport: Arc<MusicalTransport>,
 
     // Input State
     input_error: Arc<AtomicBool>, // Tracks async stream errors
@@ -226,7 +184,7 @@ impl AudioPipeline {
     fn build_fresh() -> Result<Self> {
         let meta = AudioMeta::probe()?;
         let slots = SlotPool::new(meta.pool, meta.slot_len);
-        let timer = StreamTimer::new();
+        let transport = MusicalTransport::new(120.0);
 
         // 1. Free Ring (Reclaimer -> Input)
         let (mut free_prod, free_cons) = RingBuffer::<usize>::new(meta.pool);
@@ -333,7 +291,7 @@ impl AudioPipeline {
             meta,
             slots,
             running,
-            timer,
+            transport,
             input_error,
             free_cons: Some(free_cons),
             reducer_prod: Some(reducer_prod),
@@ -370,7 +328,7 @@ impl AudioPipeline {
         self.meta = new_pipe.meta;
         self.slots = new_pipe.slots;
         self.running = new_pipe.running;
-        self.timer = new_pipe.timer;
+        self.transport = new_pipe.transport;
 
         self.input_error = new_pipe.input_error;
         self.free_cons = new_pipe.free_cons;
@@ -531,7 +489,7 @@ impl AudioPipeline {
         let err_flag = self.input_error.clone();
 
         // ** ADDED TIMER **
-        let timer = self.timer.clone();
+        let transport = self.transport.clone();
 
         let err_fn = move |err| {
             log::error!("Input stream error: {}", err);
@@ -549,7 +507,7 @@ impl AudioPipeline {
                 reducer_prod,
                 self.slots.clone(),
                 self.running.clone(),
-                timer, // <-- Pass timer
+                transport, // <-- Pass timer
                 err_fn,
             )?,
             cpal::SampleFormat::I16 => Self::build_input_stream_impl::<i16>(
@@ -561,7 +519,7 @@ impl AudioPipeline {
                 reducer_prod,
                 self.slots.clone(),
                 self.running.clone(),
-                timer, // <-- Pass timer
+                transport, // <-- Pass timer
                 err_fn,
             )?,
             cpal::SampleFormat::U16 => Self::build_input_stream_impl::<u16>(
@@ -573,7 +531,7 @@ impl AudioPipeline {
                 reducer_prod,
                 self.slots.clone(),
                 self.running.clone(),
-                timer, // <-- Pass timer
+                transport, // <-- Pass timer
                 err_fn,
             )?,
             f => return Err(anyhow!("Unsupported sample format: {}", f)),
@@ -590,7 +548,7 @@ impl AudioPipeline {
         mut reducer_prod: Producer<usize>,
         slots: Arc<SlotPool>,
         running: Arc<AtomicBool>,
-        timer: Arc<StreamTimer>, // <-- Receive timer
+        transport: Arc<MusicalTransport>, // <-- Receive timer
         err_fn: impl FnMut(cpal::StreamError) + Send + 'static,
     ) -> Result<cpal::Stream>
     where
@@ -605,7 +563,7 @@ impl AudioPipeline {
                 // ** TICK TIMER **
                 // We tick at the *start* of the callback
                 let frames = data.len() / channels;
-                timer.tick_input(frames as i64);
+                transport.tick_input(frames as i64);
 
                 if !running.load(Ordering::Relaxed) {
                     return;
@@ -670,7 +628,7 @@ impl AudioPipeline {
         let config: cpal::StreamConfig = self.meta.out_conf.clone().into();
         let err_flag = self.output_error.clone();
 
-        let timer = self.timer.clone();
+        let transport = self.transport.clone();
         let mixer = self.mixer.clone();
         let running = self.running.clone();
         let channels = self.meta.out_channels as usize;
@@ -685,7 +643,8 @@ impl AudioPipeline {
                 &self.meta.out_dev,
                 &config,
                 channels,
-                timer,
+                self.meta.out_sr,
+                transport,
                 mixer,
                 running,
                 err_fn,
@@ -694,7 +653,8 @@ impl AudioPipeline {
                 &self.meta.out_dev,
                 &config,
                 channels,
-                timer,
+                self.meta.out_sr,
+                transport,
                 mixer,
                 running,
                 err_fn,
@@ -703,7 +663,8 @@ impl AudioPipeline {
                 &self.meta.out_dev,
                 &config,
                 channels,
-                timer,
+                self.meta.out_sr,
+                transport,
                 mixer,
                 running,
                 err_fn,
@@ -717,7 +678,8 @@ impl AudioPipeline {
         device: &cpal::Device,
         config: &cpal::StreamConfig,
         channels: usize,
-        timer: Arc<StreamTimer>,
+        sr: u32,
+        transport: Arc<MusicalTransport>,
         mixer: Arc<spin::Mutex<Mixer>>,
         running: Arc<AtomicBool>,
         err_fn: impl FnMut(cpal::StreamError) + Send + 'static,
@@ -736,7 +698,7 @@ impl AudioPipeline {
             move |data: &mut [T], _: &cpal::OutputCallbackInfo| {
                 let frames = data.len() / channels;
                 // ** TICK TIMER **
-                timer.tick_output(frames as i64);
+                transport.tick_output(frames as i64, sr as f32);
 
                 if !running.load(Ordering::Relaxed) {
                     data.fill(T::EQUILIBRIUM);
@@ -837,24 +799,14 @@ impl AudioPipeline {
         Ok(stft)
     }
 
-    pub fn spawn_metronome(&mut self, bpm: f32) -> Producer<output::MetronomeCommand> {
+    pub fn spawn_metronome(&mut self, bpm: f32) -> Producer<MetronomeCommand> {
         let controller = self.output_controller();
-        let (met, met_controller) = Metronome::new(
-            self.meta.out_sr,
-            bpm,
-            vec![
-                BeatStrength::Strong,
-                BeatStrength::Weak,
-                BeatStrength::Weak,
-                BeatStrength::Weak,
-            ],
-            None,
-        );
+        let (met, met_controller) = Metronome::new(self.meta.out_sr, bpm, self.transport.clone());
         controller.add_source(Box::new(met));
         met_controller
     }
-    pub fn spawn_synthesizer(&mut self) -> Producer<output::SynthCommand> {
-        let (synth, producer) = output::Synthesizer::new(self.meta.out_sr);
+    pub fn spawn_synthesizer(&mut self) -> Producer<SynthCommand> {
+        let (synth, producer) = Synthesizer::new(self.meta.out_sr, self.transport.clone());
 
         // Add to mixer
         self.output_controller().add_source(Box::new(synth));

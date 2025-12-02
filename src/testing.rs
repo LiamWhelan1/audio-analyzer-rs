@@ -3,7 +3,8 @@ use crate::{
     init_pipeline, metronome_set_bpm, metronome_set_pattern, metronome_set_subdivisions,
     metronome_set_volume, metronome_start, metronome_stop, pause_command, play_start, record_start,
     shutdown_pipeline, start_input, synth_load_sequence, synth_pause, synth_play_live,
-    synth_resume, synth_start, synth_stop, tune_start, worker_pause, worker_start, worker_stop,
+    synth_resume, synth_set_vol, synth_start, synth_stop, tune_start, worker_pause, worker_start,
+    worker_stop,
 };
 use std::collections::HashMap;
 use std::ffi::{CString, c_char};
@@ -324,14 +325,14 @@ pub fn run_cli_simulation() {
                     let seq = vec![
                         crate::FFISynthNote {
                             freq: 440.0,
-                            duration_ms: 500.0,
-                            onset_ms: 0.0,
+                            duration_beats: 2.0,
+                            onset_beats: 0.0,
                             velocity: 80.0,
                         },
                         crate::FFISynthNote {
                             freq: 660.0,
-                            duration_ms: 500.0,
-                            onset_ms: 500.0,
+                            duration_beats: 2.0,
+                            onset_beats: 2.0,
                             velocity: 80.0,
                         },
                     ];
@@ -355,6 +356,19 @@ pub fn run_cli_simulation() {
                 if let Some(&h) = synth_handles.last() {
                     synth_resume(h);
                     println!("🎹 Synth {} resumed", h);
+                }
+            }
+            "set synth vol" => {
+                if let Some(h) = synth_handles.first() {
+                    println!("volume? (0.0-1.0)");
+                    let mut v = String::new();
+                    if io::stdin().read_line(&mut v).is_err() {
+                        println!("Error reading input.");
+                        continue;
+                    }
+                    if let Ok(vol) = v.trim().parse::<f32>() {
+                        synth_set_vol(*h, vol);
+                    }
                 }
             }
             "start input" => {

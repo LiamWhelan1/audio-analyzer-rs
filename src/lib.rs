@@ -13,8 +13,11 @@ use std::{panic, slice};
 // use std::sync::Arc;
 
 use crate::audio_io::AudioPipeline;
-use crate::audio_io::output::{BeatStrength, MetronomeCommand, SynthCommand, SynthNote};
-// use crate::generators::metronome;
+use crate::generators::{
+    SynthNote, Waveform,
+    metronome::{BeatStrength, MetronomeCommand},
+    synth::SynthCommand,
+};
 use crate::traits::Worker;
 
 // ============================================================================
@@ -456,8 +459,8 @@ unsafe fn synth_from_handle<'a>(handle: i64) -> Option<&'a mut SynthHandle> {
 #[repr(C)]
 pub struct FFISynthNote {
     pub freq: f32,
-    pub duration_ms: f32,
-    pub onset_ms: f32,
+    pub duration_beats: f32,
+    pub onset_beats: f32,
     pub velocity: f32,
 }
 
@@ -497,7 +500,11 @@ pub extern "C" fn synth_play_live(handle: i64, freq: f32, velocity: f32) -> i32 
     if let Some(s) = unsafe { synth_from_handle(handle) } {
         if velocity > 0.0 {
             if s.producer
-                .push(SynthCommand::NoteOn { freq, velocity })
+                .push(SynthCommand::NoteOn {
+                    freq,
+                    velocity,
+                    waveform: Waveform::Sine,
+                })
                 .is_ok()
             {
                 return 0;
@@ -529,9 +536,10 @@ pub extern "C" fn synth_load_sequence(
             .iter()
             .map(|n| SynthNote {
                 freq: n.freq,
-                duration_ms: n.duration_ms,
-                onset_ms: n.onset_ms,
+                duration_beats: n.duration_beats,
+                onset_beats: n.onset_beats,
                 velocity: n.velocity,
+                waveform: Waveform::Triangle,
             })
             .collect();
 
@@ -557,6 +565,16 @@ pub extern "C" fn synth_pause(handle: i64) -> i32 {
 pub extern "C" fn synth_resume(handle: i64) -> i32 {
     if let Some(s) = unsafe { synth_from_handle(handle) } {
         if s.producer.push(SynthCommand::Resume).is_ok() {
+            return 0;
+        }
+    }
+    -1
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn synth_set_vol(handle: i64, volume: f32) -> i32 {
+    if let Some(s) = unsafe { synth_from_handle(handle) } {
+        if s.producer.push(SynthCommand::SetVolume(volume)).is_ok() {
             return 0;
         }
     }

@@ -8,3 +8,8 @@ pub trait Worker: Send + Sync {
     /// Stops the worker logic and prepares for cleanup.
     fn stop(&mut self) -> u8;
 }
+
+pub trait AudioSource {
+    fn process(&mut self, buffer: &mut [f32], channels: usize);
+    fn is_finished(&self) -> bool;
+}
