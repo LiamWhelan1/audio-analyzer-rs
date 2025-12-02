@@ -1,10 +1,11 @@
 use crate::generators::MidiNote;
 use crate::{
     init_pipeline, metronome_set_bpm, metronome_set_pattern, metronome_set_subdivisions,
-    metronome_set_volume, metronome_start, metronome_stop, pause_command, play_start, record_start,
-    shutdown_pipeline, start_input, synth_load_sequence, synth_pause, synth_play_live,
-    synth_resume, synth_set_vol, synth_start, synth_stop, tune_start, worker_pause, worker_start,
-    worker_stop,
+    metronome_set_volume, metronome_start, metronome_stop, pause_command, play_start,
+    player_create, player_destroy, player_load_track, player_pause, player_play, player_seek,
+    player_stop, record_start, shutdown_pipeline, start_input, synth_load_sequence, synth_pause,
+    synth_play_live, synth_resume, synth_set_vol, synth_start, synth_stop, tune_start,
+    worker_pause, worker_start, worker_stop,
 };
 use std::collections::HashMap;
 use std::ffi::{CString, c_char};
@@ -105,6 +106,7 @@ pub fn run_cli_simulation() {
     let mut rec_counter = 0;
     let mut met_handles: Vec<i64> = Vec::new();
     let mut synth_handles: Vec<i64> = Vec::new();
+    let mut player_handles: Vec<i64> = Vec::new();
     println!(
         "Type a command: play | pause | record | tune | stop record | stop tune | stop | exit\n"
     );
@@ -407,20 +409,100 @@ pub fn run_cli_simulation() {
                     }
                 }
             }
+            "player start" => {
+                let h = player_create(pipeline_handle);
+                if h != 0 {
+                    println!("🎧 Player started: {}", h);
+                    player_handles.push(h);
+                } else {
+                    eprintln!("❌ Failed to spawn player");
+                }
+            }
+            "player load" => {
+                if let Some(&h) = player_handles.last() {
+                    println!("file path?");
+                    let mut path = String::new();
+                    if io::stdin().read_line(&mut path).is_err() {
+                        println!("Error reading input.");
+                        continue;
+                    }
+                    let path = path.trim();
+                    let c_path = CString::new(path).unwrap();
+                    if player_load_track(h, c_path.as_ptr()) == 0 {
+                        println!("Loaded {}", path);
+                    } else {
+                        eprintln!("Failed to load {}", path);
+                    }
+                } else {
+                    println!("No player running.");
+                }
+            }
+            "player play" => {
+                if let Some(&h) = player_handles.last() {
+                    player_play(h);
+                    println!("▶️ Player playing");
+                }
+            }
+            "player pause" => {
+                if let Some(&h) = player_handles.last() {
+                    player_pause(h);
+                    println!("⏸️ Player paused");
+                }
+            }
+            "player stop" => {
+                if let Some(&h) = player_handles.last() {
+                    player_stop(h);
+                    println!("⏹️ Player stopped");
+                }
+            }
+            "player seek" => {
+                if let Some(&h) = player_handles.last() {
+                    println!("seconds?");
+                    let mut s = String::new();
+                    if io::stdin().read_line(&mut s).is_err() {
+                        continue;
+                    }
+                    if let Ok(sec) = s.trim().parse::<f64>() {
+                        player_seek(h, sec);
+                        println!("Seeked to {}s", sec);
+                    }
+                }
+            }
+            "player destroy" => {
+                if let Some(h) = player_handles.pop() {
+                    player_destroy(h);
+                }
+            }
             "stop" => {
                 println!("🛑 Stopping all workers...");
                 for (name, handle) in workers.drain() {
                     worker_stop(handle);
                     println!("   Released {}", name);
                 }
+                for h in met_handles.drain(..) {
+                    metronome_stop(h);
+                }
+                for h in synth_handles.drain(..) {
+                    synth_stop(h);
+                }
+                for h in player_handles.drain(..) {
+                    player_destroy(h);
+                }
             }
             "exit" => {
                 println!("👋  Exiting simulation.");
-                // cleanup remaining workers
                 for (_, handle) in workers.drain() {
                     worker_stop(handle);
                 }
-                // cleanup pipeline
+                for h in met_handles {
+                    metronome_stop(h);
+                }
+                for h in synth_handles {
+                    synth_stop(h);
+                }
+                for h in player_handles {
+                    player_destroy(h);
+                }
                 shutdown_pipeline(pipeline_handle);
                 break;
             }

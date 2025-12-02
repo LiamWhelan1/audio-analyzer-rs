@@ -16,6 +16,7 @@ use std::time::Duration;
 
 use crate::AnalysisCallback;
 use crate::generators::metronome::{Metronome, MetronomeCommand};
+use crate::generators::player::{AudioPlayer, PlayerController};
 use crate::generators::synth::{SynthCommand, Synthesizer};
 use output::{Mixer, MusicalTransport, OutputController}; // <-- NEW: Import output wrappers
 
@@ -812,5 +813,10 @@ impl AudioPipeline {
         self.output_controller().add_source(Box::new(synth));
 
         producer
+    }
+    pub fn spawn_player(&mut self) -> PlayerController {
+        let (player, controller) = AudioPlayer::new(self.meta.out_sr);
+        self.output_controller().add_source(Box::new(player));
+        controller
     }
 }

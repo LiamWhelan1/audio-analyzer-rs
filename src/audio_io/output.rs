@@ -1,5 +1,4 @@
 use crate::traits::AudioSource;
-use rtrb::{Consumer, Producer, RingBuffer};
 use spin;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicI64, AtomicU32, AtomicU64, Ordering};

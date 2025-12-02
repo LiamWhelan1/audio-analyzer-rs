@@ -1,7 +1,8 @@
 pub mod metronome;
+pub mod player;
 pub mod synth;
 use std::f32::consts::PI;
-use std::fmt::{self, write};
+use std::fmt;
 
 // ============================================================================
 //  CONSTANTS & UTILS

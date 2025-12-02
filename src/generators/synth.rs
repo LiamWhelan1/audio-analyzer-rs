@@ -205,7 +205,7 @@ impl AudioSource for Synthesizer {
         for frame_idx in (0..buffer.len()).step_by(channels) {
             // 1. Quantization
             if self.pending_start {
-                let next_beat_boundary = transport_beat.ceil();
+                let next_beat_boundary = transport_beat.ceil() - 0.05 * bpm / 50.0;
                 if next_beat_boundary - transport_beat <= beats_per_sample {
                     self.start_beat_offset = next_beat_boundary as f64;
                     self.pending_start = false;

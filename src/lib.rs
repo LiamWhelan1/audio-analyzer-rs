@@ -13,6 +13,7 @@ use std::{panic, slice};
 // use std::sync::Arc;
 
 use crate::audio_io::AudioPipeline;
+use crate::generators::player::PlayerController;
 use crate::generators::{
     SynthNote, Waveform,
     metronome::{BeatStrength, MetronomeCommand},
@@ -585,4 +586,113 @@ pub extern "C" fn synth_set_vol(handle: i64, volume: f32) -> i32 {
 pub extern "C" fn drone_start(_pitch: f32) -> i64 {
     println!("TODO: Drone spawn logic.");
     0
+}
+
+// ============================================================================
+//  PLAYER FFI (NEW)
+// ============================================================================
+
+pub struct PlayerHandle {
+    pub controller: PlayerController,
+}
+
+unsafe fn drop_player_handle(handle: i64) {
+    if handle != 0 {
+        unsafe { drop(Box::from_raw(handle as *mut PlayerHandle)) };
+    }
+}
+
+unsafe fn player_from_handle<'a>(handle: i64) -> Option<&'a mut PlayerHandle> {
+    if handle == 0 {
+        return None;
+    }
+    unsafe { Some(&mut *(handle as *mut PlayerHandle)) }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn player_create(pipeline_handle: i64) -> i64 {
+    let builder = unsafe { pipeline_from_handle(pipeline_handle) };
+    if let Some(b) = builder {
+        // Ensure audio output is running
+        if let Err(e) = b.start_output() {
+            eprintln!("Failed to start output for player: {}", e);
+            return 0;
+        }
+
+        // IMPORTANT: You need to implement spawn_player() in your AudioPipeline struct
+        let controller = b.spawn_player();
+
+        let handle = Box::new(PlayerHandle { controller });
+        println!("🎧 Audio Player spawned.");
+        Box::into_raw(handle) as i64
+    } else {
+        0
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn player_load_track(handle: i64, path_ptr: *const c_char) -> i32 {
+    let p_handle = unsafe { player_from_handle(handle) };
+    let path = unsafe { cstr_to_rust_str(path_ptr) };
+
+    if let (Some(ph), Some(p)) = (p_handle, path) {
+        println!("Loading track: {}", p);
+        if let Err(e) = ph.controller.load_file(p) {
+            eprintln!("Failed to load track '{}': {}", p, e);
+            return -1;
+        }
+        return 0;
+    }
+    -1
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn player_play(handle: i64) -> i32 {
+    if let Some(ph) = unsafe { player_from_handle(handle) } {
+        ph.controller.play();
+        return 0;
+    }
+    -1
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn player_pause(handle: i64) -> i32 {
+    if let Some(ph) = unsafe { player_from_handle(handle) } {
+        ph.controller.pause();
+        return 0;
+    }
+    -1
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn player_stop(handle: i64) -> i32 {
+    if let Some(ph) = unsafe { player_from_handle(handle) } {
+        ph.controller.stop();
+        return 0;
+    }
+    -1
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn player_seek(handle: i64, seconds: f64) -> i32 {
+    if let Some(ph) = unsafe { player_from_handle(handle) } {
+        ph.controller.seek(seconds);
+        return 0;
+    }
+    -1
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn player_destroy(handle: i64) -> i32 {
+    unsafe {
+        if handle != 0 {
+            if let Some(ph) = player_from_handle(handle) {
+                ph.controller.stop();
+            }
+            drop_player_handle(handle);
+            println!("🎧 Player destroyed.");
+            return 0;
+        }
+    }
+    -1
 }
