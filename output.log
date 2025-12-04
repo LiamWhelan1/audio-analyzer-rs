@@ -1,3 +1,0 @@
-2025-12-02T20:57:04.884314Z DEBUG main symphonia_core::probe: found a possible format marker within [66, 74, 79, 70, 6d, 70, 34, 32, 0, 0, 0, 0, 69, 73, 6f, 6d] @ 0+6 bytes.
-2025-12-02T20:57:04.885552Z DEBUG main symphonia_core::probe: found the format marker [66, 74, 79, 70] @ 0+6 bytes.
-2025-12-02T20:57:04.886693Z  INFO main symphonia_format_isomp4::demuxer: stream is seekable with len=306503 bytes.

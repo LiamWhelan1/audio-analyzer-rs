@@ -2,8 +2,6 @@ pub mod analysis;
 pub mod audio_io;
 pub mod dsp;
 pub mod generators;
-// pub mod pipeline;
-pub mod resample;
 pub mod testing;
 pub mod traits;
 
@@ -15,7 +13,6 @@ use std::{panic, slice};
 use crate::audio_io::AudioPipeline;
 use crate::generators::player::PlayerController;
 use crate::generators::{
-    SynthNote, Waveform,
     metronome::{BeatStrength, MetronomeCommand},
     synth::SynthCommand,
 };
@@ -366,13 +363,14 @@ pub extern "C" fn metronome_set_subdivisions(
     handle: i64,
     divs_ptr: *const usize,
     len: usize,
+    beat_index: usize,
 ) -> i32 {
     if let Some(met) = unsafe { metronome_from_handle(handle) } {
         if divs_ptr.is_null() {
             // If null, assume clear subdivisions
             if met
                 .producer
-                .push(MetronomeCommand::SetSubdivisions(vec![]))
+                .push(MetronomeCommand::SetPolyrhythm((vec![], beat_index)))
                 .is_ok()
             {
                 return 0;
@@ -384,7 +382,7 @@ pub extern "C" fn metronome_set_subdivisions(
 
         if met
             .producer
-            .push(MetronomeCommand::SetSubdivisions(subdivisions))
+            .push(MetronomeCommand::SetPolyrhythm((subdivisions, beat_index)))
             .is_ok()
         {
             return 0;
@@ -456,15 +454,6 @@ unsafe fn synth_from_handle<'a>(handle: i64) -> Option<&'a mut SynthHandle> {
     unsafe { Some(&mut *(handle as *mut SynthHandle)) }
 }
 
-/// A C-compatible struct for passing note data.
-#[repr(C)]
-pub struct FFISynthNote {
-    pub freq: f32,
-    pub duration_beats: f32,
-    pub onset_beats: f32,
-    pub velocity: f32,
-}
-
 #[unsafe(no_mangle)]
 pub extern "C" fn synth_start(pipeline_handle: i64) -> i64 {
     let builder = unsafe { pipeline_from_handle(pipeline_handle) };
@@ -497,6 +486,27 @@ pub extern "C" fn synth_stop(handle: i64) -> i32 {
 }
 
 #[unsafe(no_mangle)]
+pub extern "C" fn synth_clear(handle: i64) -> i32 {
+    if let Some(s) = unsafe { synth_from_handle(handle) } {
+        if s.producer.push(SynthCommand::Clear).is_ok() {
+            return 0;
+        }
+    }
+    -1
+}
+
+// #[unsafe(no_mangle)]
+// pub extern "C" fn link_met(synth_handle: i64, met_handle: i64) -> i32 {
+//     let synth = unsafe { synth_from_handle(synth_handle) };
+//     let met = unsafe { metronome_from_handle(met_handle) };
+//     if let (Some(s), Some(m)) = (synth, met) {
+//         let _ = s.producer.push(SynthCommand::LinkMetronome(m.producer));
+//         return 0;
+//     }
+//     -1
+// }
+
+#[unsafe(no_mangle)]
 pub extern "C" fn synth_play_live(handle: i64, freq: f32, velocity: f32) -> i32 {
     if let Some(s) = unsafe { synth_from_handle(handle) } {
         if velocity > 0.0 {
@@ -504,7 +514,7 @@ pub extern "C" fn synth_play_live(handle: i64, freq: f32, velocity: f32) -> i32 
                 .push(SynthCommand::NoteOn {
                     freq,
                     velocity,
-                    waveform: Waveform::Sine,
+                    instrument: generators::Instrument::Violin,
                 })
                 .is_ok()
             {
@@ -520,32 +530,30 @@ pub extern "C" fn synth_play_live(handle: i64, freq: f32, velocity: f32) -> i32 
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn synth_load_sequence(
-    handle: i64,
-    notes_ptr: *const FFISynthNote,
-    len: usize,
-) -> i32 {
-    if let Some(s) = unsafe { synth_from_handle(handle) } {
-        if notes_ptr.is_null() {
-            return -1;
+pub extern "C" fn synth_load_file(handle: i64, midi_path_ptr: *const c_char) -> i32 {
+    let path = unsafe { cstr_to_rust_str(midi_path_ptr) };
+    let synth = unsafe { synth_from_handle(handle) };
+    if let (Some(s), Some(p)) = (synth, path) {
+        if s.producer
+            .push(SynthCommand::LoadFile(p.to_string()))
+            .is_ok()
+        {
+            println!("🎹 Sequence loaded: {} file", p);
+            return 0;
         }
+    }
+    -1
+}
 
-        let raw_notes = unsafe { slice::from_raw_parts(notes_ptr, len) };
-
-        // Convert FFI structs to internal Rust structs
-        let notes: Vec<SynthNote> = raw_notes
-            .iter()
-            .map(|n| SynthNote {
-                freq: n.freq,
-                duration_beats: n.duration_beats,
-                onset_beats: n.onset_beats,
-                velocity: n.velocity,
-                waveform: Waveform::Triangle,
+#[unsafe(no_mangle)]
+pub extern "C" fn synth_play_from(handle: i64, measure: usize) -> i32 {
+    if let Some(s) = unsafe { synth_from_handle(handle) } {
+        if s.producer
+            .push(SynthCommand::Play {
+                start_measure_idx: measure,
             })
-            .collect();
-
-        if s.producer.push(SynthCommand::LoadSequence(notes)).is_ok() {
-            println!("🎹 Sequence loaded with {} notes", len);
+            .is_ok()
+        {
             return 0;
         }
     }

@@ -3,9 +3,9 @@ use crate::{
     init_pipeline, metronome_set_bpm, metronome_set_pattern, metronome_set_subdivisions,
     metronome_set_volume, metronome_start, metronome_stop, pause_command, play_start,
     player_create, player_destroy, player_load_track, player_pause, player_play, player_seek,
-    player_stop, record_start, shutdown_pipeline, start_input, synth_load_sequence, synth_pause,
-    synth_play_live, synth_resume, synth_set_vol, synth_start, synth_stop, tune_start,
-    worker_pause, worker_start, worker_stop,
+    player_stop, record_start, shutdown_pipeline, start_input, synth_clear, synth_load_file,
+    synth_pause, synth_play_from, synth_play_live, synth_resume, synth_set_vol, synth_start,
+    synth_stop, tune_start, worker_pause, worker_start, worker_stop,
 };
 use std::collections::HashMap;
 use std::ffi::{CString, c_char};
@@ -38,7 +38,7 @@ mod ffi_tests {
     use crate::{
         drone_start, metronome_set_bpm, metronome_set_pattern, metronome_set_subdivisions,
         metronome_set_volume, metronome_start, metronome_stop, pause_command, play_start,
-        record_start, shutdown_pipeline, start_input, synth_load_sequence, synth_pause,
+        record_start, shutdown_pipeline, start_input, synth_load_file, synth_pause,
         synth_play_live, synth_resume, synth_start, synth_stop, tune_start, worker_pause,
         worker_start, worker_stop,
     };
@@ -65,14 +65,14 @@ mod ffi_tests {
         assert_eq!(metronome_stop(0), -1);
         assert_eq!(metronome_set_bpm(0, 90.0), -1);
         assert_eq!(metronome_set_volume(0, 0.5), -1);
-        assert_eq!(metronome_set_subdivisions(0, std::ptr::null(), 0), -1);
+        assert_eq!(metronome_set_subdivisions(0, std::ptr::null(), 0, 0), -1);
         assert_eq!(metronome_set_pattern(0, std::ptr::null(), 0), -1);
 
         // Synthesizer handles are similarly defensive for handle==0
         assert_eq!(synth_start(0), 0);
         assert_eq!(synth_stop(0), -1);
         assert_eq!(synth_play_live(0, 440.0, 1.0), -1);
-        assert_eq!(synth_load_sequence(0, std::ptr::null(), 0), -1);
+        assert_eq!(synth_load_file(0, std::ptr::null()), -1);
         assert_eq!(synth_pause(0), -1);
         assert_eq!(synth_resume(0), -1);
 
@@ -252,7 +252,14 @@ pub fn run_cli_simulation() {
                         .map(|n| n.parse::<usize>().unwrap_or(1))
                         .collect();
                     println!("{polys:?}");
-                    metronome_set_subdivisions(*h, polys.as_ptr(), polys.len());
+                    println!("idx? ");
+                    let mut idx = String::new();
+                    if io::stdin().read_line(&mut idx).is_err() {
+                        println!("Error reading input.");
+                        continue;
+                    }
+                    let idx = idx.trim().parse::<usize>().unwrap();
+                    metronome_set_subdivisions(*h, polys.as_ptr(), polys.len(), idx);
                 }
             }
             "drone" => {
@@ -323,29 +330,45 @@ pub fn run_cli_simulation() {
             }
             "synth load" => {
                 if let Some(&h) = synth_handles.last() {
-                    // Build a tiny sequence of two notes
-                    let seq = vec![
-                        crate::FFISynthNote {
-                            freq: 440.0,
-                            duration_beats: 2.0,
-                            onset_beats: 0.0,
-                            velocity: 80.0,
-                        },
-                        crate::FFISynthNote {
-                            freq: 660.0,
-                            duration_beats: 2.0,
-                            onset_beats: 2.0,
-                            velocity: 80.0,
-                        },
-                    ];
-                    let res = synth_load_sequence(h, seq.as_ptr(), seq.len());
-                    if res == 0 {
-                        println!("🎹 Loaded sequence into synth {}", h);
+                    println!("midi path?");
+                    let mut path = String::new();
+                    if io::stdin().read_line(&mut path).is_err() {
+                        println!("Error reading input.");
+                        continue;
+                    }
+                    let path = path.trim();
+                    let c_path = CString::new(path).unwrap();
+                    if synth_load_file(h, c_path.as_ptr()) == 0 {
+                        println!("Loaded {}", path);
                     } else {
-                        eprintln!("❌ Failed to load sequence");
+                        eprintln!("Failed to load {}", path);
                     }
                 } else {
                     println!("No synth running. Start one with 'synth start'.");
+                }
+            }
+            "synth play" => {
+                if let Some(&h) = synth_handles.last() {
+                    println!("start measure?");
+                    let mut measure = String::new();
+                    if io::stdin().read_line(&mut measure).is_err() {
+                        println!("Error reading input.");
+                        continue;
+                    }
+                    let measure = measure.trim().parse::<usize>().unwrap();
+                    if synth_play_from(h, measure) == 0 {
+                        println!("Playing from {}", measure);
+                    } else {
+                        eprintln!("Failed to play from {}", measure);
+                    }
+                } else {
+                    println!("No synth running. Start one with 'synth start'.");
+                }
+            }
+            "synth clear" => {
+                if let Some(&h) = synth_handles.last() {
+                    synth_clear(h);
+                    println!("🎹 Synth {} cleared", h);
                 }
             }
             "synth pause" => {

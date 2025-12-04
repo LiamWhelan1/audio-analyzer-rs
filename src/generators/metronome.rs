@@ -1,10 +1,8 @@
+use super::{MIN_ENVELOPE, TWO_PI};
+use crate::{audio_io::output::MusicalTransport, traits::AudioSource};
+use rtrb::{Consumer, Producer, RingBuffer};
 use std::sync::Arc;
 
-use rtrb::{Consumer, Producer, RingBuffer};
-
-use crate::{audio_io::output::MusicalTransport, traits::AudioSource};
-
-use super::{MIN_ENVELOPE, TWO_PI};
 // ============================================================================
 //  MODULE: METRONOME
 // ============================================================================
@@ -22,7 +20,8 @@ pub enum MetronomeCommand {
     SetBpm(f32),
     SetVolume(f32),
     SetPattern(Vec<BeatStrength>),
-    SetSubdivisions(Vec<usize>),
+    // Tuple: (List of subdivisions, Beat Index to apply them to)
+    SetPolyrhythm((Vec<usize>, usize)),
     SetMuted(bool),
     Stop,
 }
@@ -65,12 +64,15 @@ pub struct Metronome {
     muted: bool,
 
     pattern: Vec<BeatStrength>,
-    subdivisions: Vec<usize>,
-    current_beat_index: usize,
+    // Outer Vec corresponds to beat index, Inner Vec is list of subdivisions for that beat
+    beat_polyrhythms: Vec<Vec<usize>>,
 
+    current_beat_index: usize,
     samples_per_beat: f32,
     main_beat_counter: f32,
-    subdivision_counters: Vec<f32>,
+
+    // Stores (division_amount, current_counter_value) for the *current* beat only
+    active_subdivision_counters: Vec<(usize, f32)>,
 
     active_ticks: Vec<TickGenerator>,
     command_rx: Consumer<MetronomeCommand>,
@@ -85,24 +87,30 @@ impl Metronome {
     ) -> (Self, Producer<MetronomeCommand>) {
         let (prod, cons) = RingBuffer::new(128);
         transport.set_bpm(initial_bpm);
-        transport.reset_beats();
+        transport.reset_to_beats(0.0);
+
+        let initial_pattern = vec![
+            BeatStrength::Strong,
+            BeatStrength::Weak,
+            BeatStrength::Weak,
+            BeatStrength::Weak,
+        ];
+
+        // Initialize polyrhythms with empty vectors matching pattern length
+        let poly_len = initial_pattern.len();
+        let beat_polyrhythms = vec![Vec::new(); poly_len];
 
         let mut met = Self {
             sample_rate: sample_rate as f32,
             transport,
             volume: 0.8,
             muted: false,
-            pattern: vec![
-                BeatStrength::Strong,
-                BeatStrength::Weak,
-                BeatStrength::Weak,
-                BeatStrength::Weak,
-            ],
-            subdivisions: vec![],
+            pattern: initial_pattern,
+            beat_polyrhythms,
             samples_per_beat: 0.0,
             main_beat_counter: 0.0,
             current_beat_index: 0,
-            subdivision_counters: Vec::new(),
+            active_subdivision_counters: Vec::with_capacity(4),
             active_ticks: Vec::with_capacity(16),
             command_rx: cons,
             finished: false,
@@ -115,7 +123,7 @@ impl Metronome {
         let bpm = new_bpm.max(1.0);
         self.samples_per_beat = (self.sample_rate * 60.0) / bpm;
         self.transport.set_bpm(bpm);
-        self.transport.reset_beats();
+        self.transport.reset_to_beats(0.0);
     }
 
     fn spawn_tick(&mut self, strength: &BeatStrength) {
@@ -163,14 +171,36 @@ impl Metronome {
             match cmd {
                 MetronomeCommand::SetBpm(b) => self.update_bpm(b),
                 MetronomeCommand::SetVolume(v) => self.volume = v.clamp(0.0, 2.0),
-                MetronomeCommand::SetPattern(p) => self.pattern = p,
-                MetronomeCommand::SetSubdivisions(s) => {
-                    self.subdivisions = s;
-                    self.subdivision_counters =
-                        vec![self.main_beat_counter; self.subdivisions.len()];
+                MetronomeCommand::SetPattern(p) => {
+                    self.pattern = p;
+                    // Resize the polyrhythms vector to match the new pattern length
+                    // retaining existing configurations where possible
+                    self.beat_polyrhythms.resize(self.pattern.len(), Vec::new());
+                    if self.current_beat_index >= self.pattern.len() {
+                        self.current_beat_index = 0;
+                    }
+                }
+                MetronomeCommand::SetPolyrhythm((divs, index)) => {
+                    if index < self.beat_polyrhythms.len() {
+                        self.beat_polyrhythms[index] = divs;
+                    }
                 }
                 MetronomeCommand::SetMuted(m) => self.muted = m,
                 MetronomeCommand::Stop => self.finished = true,
+            }
+        }
+    }
+
+    // Helper to load subdivisions for the current beat into the active counters
+    fn load_active_subdivisions(&mut self) {
+        self.active_subdivision_counters.clear();
+        if self.current_beat_index < self.beat_polyrhythms.len() {
+            let divs = &self.beat_polyrhythms[self.current_beat_index];
+            for &div in divs {
+                if div > 0 {
+                    // Initialize counter at 0.0 for the start of the beat
+                    self.active_subdivision_counters.push((div, 0.0));
+                }
             }
         }
     }
@@ -189,30 +219,41 @@ impl AudioSource for Metronome {
 
         for frame_idx in (0..buffer.len()).step_by(channels) {
             self.main_beat_counter += 1.0;
+
+            // --- MAIN BEAT LOGIC ---
             if self.main_beat_counter >= self.samples_per_beat {
                 self.main_beat_counter -= self.samples_per_beat;
+
+                // Trigger the main beat sound
                 if !self.pattern.is_empty() {
                     let s = self.pattern[self.current_beat_index].clone();
                     self.spawn_tick(&s);
+                    self.load_active_subdivisions();
                     self.current_beat_index = (self.current_beat_index + 1) % self.pattern.len();
                 }
             }
 
-            let subdivisions = self.subdivisions.clone();
-            for (i, &div) in subdivisions.iter().enumerate() {
-                if div == 0 {
-                    continue;
-                }
+            // --- POLYRHYTHM / SUBDIVISION LOGIC ---
+            // Iterate over the counters specific to the current beat
+            for i in 0..self.active_subdivision_counters.len() {
+                let (div, ref mut counter) = self.active_subdivision_counters[i];
+
                 let samples_per_sub = self.samples_per_beat / (div as f32);
-                self.subdivision_counters[i] += 1.0;
-                if self.subdivision_counters[i] >= samples_per_sub {
-                    self.subdivision_counters[i] -= samples_per_sub;
+                *counter += 1.0;
+
+                if *counter >= samples_per_sub {
+                    *counter -= samples_per_sub;
+
+                    // "Grace period": Don't play subdivision if it lands exactly on the
+                    // main beat (handled by main_beat_counter), prevents flamming/phasing.
+                    // We check main_beat_counter > 100 to ensure we aren't at the very start of the beat.
                     if self.main_beat_counter > 100.0 {
                         self.spawn_tick(&BeatStrength::Subdivision(div));
                     }
                 }
             }
 
+            // --- AUDIO GENERATION ---
             let mut sample = 0.0;
             self.active_ticks.retain(|t| t.envelope > MIN_ENVELOPE);
             for tick in &mut self.active_ticks {

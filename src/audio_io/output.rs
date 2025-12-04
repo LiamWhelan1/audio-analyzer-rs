@@ -69,9 +69,9 @@ impl MusicalTransport {
         f64::from_bits(self.accumulated_beats_bits.load(Ordering::Relaxed))
     }
 
-    pub fn reset_beats(&self) {
+    pub fn reset_to_beats(&self, beats: f64) {
         self.accumulated_beats_bits
-            .store(0.0f64.to_bits(), Ordering::SeqCst);
+            .store(beats.to_bits(), Ordering::SeqCst);
     }
 }
 
