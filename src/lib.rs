@@ -8,7 +8,6 @@ pub mod traits;
 use std::ffi::CStr;
 use std::os::raw::c_char;
 use std::{panic, slice};
-// use std::sync::Arc;
 
 use crate::audio_io::AudioPipeline;
 use crate::generators::player::PlayerController;
@@ -150,8 +149,6 @@ pub extern "C" fn start_input(handle: i64) -> i32 {
 pub extern "C" fn play_start(handle: i64) -> i32 {
     if let Some(builder) = unsafe { pipeline_from_handle(handle) } {
         println!("▶️  Play command received.");
-        // Note: play likely needs output stream, not input.
-        // If play requires start_input() logic, keep as is.
         match builder.start_output() {
             Ok(_) => 0,
             Err(e) => {
@@ -213,9 +210,6 @@ pub extern "C" fn worker_stop(handle: i64) -> i32 {
 
             // A. Remove the specific consumer for this worker
             pipeline.remove_consumer(consumer_id);
-
-            // B. Check if we should stop the microphone/input stream
-            pipeline.stop_input();
         }
     }
 
@@ -239,7 +233,6 @@ pub extern "C" fn record_start(pipeline_handle: i64, temp_path_ptr: *const c_cha
 
     if let (Some(b), Some(p)) = (builder, path) {
         // 1. Ensure Input Stream is Running
-        // We must start the input before spawning the recorder so data is available.
         if let Err(e) = b.start_input() {
             eprintln!("Failed to start input stream for recording: {}", e);
             return 0;
@@ -316,10 +309,7 @@ pub extern "C" fn metronome_start(pipeline_handle: i64, bpm: f32) -> i64 {
 pub extern "C" fn metronome_stop(handle: i64) -> i32 {
     unsafe {
         if let Some(met) = metronome_from_handle(handle) {
-            // Option A: Send explicit stop (Good for gentle cleanup)
             let _ = met.producer.push(MetronomeCommand::Stop);
-
-            // Option B: Just drop the handle (Disconnects channel)
             drop_metronome_handle(handle);
             println!("⏱️  Metronome stopped.");
             0
@@ -354,10 +344,6 @@ pub extern "C" fn metronome_set_volume(handle: i64, volume: f32) -> i32 {
     -1
 }
 
-/// Sets active subdivisions using an array of integers.
-///
-/// `divs_ptr`: Pointer to an array of `usize` (e.g., [3, 4] for triplets + 16ths).
-/// `len`: Number of elements in the array.
 #[unsafe(no_mangle)]
 pub extern "C" fn metronome_set_subdivisions(
     handle: i64,
@@ -367,7 +353,6 @@ pub extern "C" fn metronome_set_subdivisions(
 ) -> i32 {
     if let Some(met) = unsafe { metronome_from_handle(handle) } {
         if divs_ptr.is_null() {
-            // If null, assume clear subdivisions
             if met
                 .producer
                 .push(MetronomeCommand::SetPolyrhythm((vec![], beat_index)))
@@ -391,16 +376,6 @@ pub extern "C" fn metronome_set_subdivisions(
     -1
 }
 
-/// Sets the main beat pattern using an array of integers.
-///
-/// Mappings:
-/// 0: None (Silence)
-/// 1: Weak
-/// 2: Medium
-/// 3: Strong
-///
-/// `pattern_ptr`: Pointer to an array of `i32`.
-/// `len`: Number of beats in the pattern.
 #[unsafe(no_mangle)]
 pub extern "C" fn metronome_set_pattern(handle: i64, pattern_ptr: *const i32, len: usize) -> i32 {
     if let Some(met) = unsafe { metronome_from_handle(handle) } {
@@ -408,10 +383,8 @@ pub extern "C" fn metronome_set_pattern(handle: i64, pattern_ptr: *const i32, le
             return -1;
         }
 
-        // Convert raw C array to Rust slice
         let raw_pattern = unsafe { slice::from_raw_parts(pattern_ptr, len) };
 
-        // Map integers to BeatStrength enum
         let pattern: Vec<BeatStrength> = raw_pattern
             .iter()
             .map(|&p| match p {
@@ -494,17 +467,6 @@ pub extern "C" fn synth_clear(handle: i64) -> i32 {
     }
     -1
 }
-
-// #[unsafe(no_mangle)]
-// pub extern "C" fn link_met(synth_handle: i64, met_handle: i64) -> i32 {
-//     let synth = unsafe { synth_from_handle(synth_handle) };
-//     let met = unsafe { metronome_from_handle(met_handle) };
-//     if let (Some(s), Some(m)) = (synth, met) {
-//         let _ = s.producer.push(SynthCommand::LinkMetronome(m.producer));
-//         return 0;
-//     }
-//     -1
-// }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn synth_play_live(handle: i64, freq: f32, velocity: f32) -> i32 {
@@ -621,13 +583,11 @@ unsafe fn player_from_handle<'a>(handle: i64) -> Option<&'a mut PlayerHandle> {
 pub extern "C" fn player_create(pipeline_handle: i64) -> i64 {
     let builder = unsafe { pipeline_from_handle(pipeline_handle) };
     if let Some(b) = builder {
-        // Ensure audio output is running
         if let Err(e) = b.start_output() {
             eprintln!("Failed to start output for player: {}", e);
             return 0;
         }
 
-        // IMPORTANT: You need to implement spawn_player() in your AudioPipeline struct
         let controller = b.spawn_player();
 
         let handle = Box::new(PlayerHandle { controller });

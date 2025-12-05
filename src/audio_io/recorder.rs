@@ -15,7 +15,7 @@ use rtrb::Consumer;
 
 use crate::audio_io::SlotPool;
 
-// static CALLBACK_COUNT: AtomicU64 = AtomicU64::new(0);
+// static CALLBACK_COUNT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 pub struct Recorder {
     state: Arc<AtomicI8>,
@@ -85,7 +85,7 @@ impl Recorder {
                             unsafe {
                                 let slot_slice: &mut [f32] = &mut *slots.slots[idx].get();
                                 // let count = CALLBACK_COUNT.load(Ordering::Relaxed);
-                                // if count % 200 == 0 {
+                                // if count % 50000 == 0 {
                                 //     let min =
                                 //         slot_slice.iter().fold(f32::INFINITY, |a, &s| a.min(s));
                                 //     let max =
