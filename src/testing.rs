@@ -1,74 +1,76 @@
 use crate::generators::MidiNote;
 use crate::{
-    init_pipeline, metronome_set_bpm, metronome_set_pattern, metronome_set_subdivisions,
-    metronome_set_volume, metronome_start, metronome_stop, pause_command, play_start,
-    player_create, player_destroy, player_load_track, player_pause, player_play, player_seek,
-    player_stop, record_start, shutdown_pipeline, start_input, synth_clear, synth_load_file,
-    synth_pause, synth_play_from, synth_play_live, synth_resume, synth_set_vol, synth_start,
-    synth_stop, tune_start, worker_pause, worker_start, worker_stop,
+    cstr_to_rust_str, init_pipeline, metronome_set_bpm, metronome_set_pattern,
+    metronome_set_subdivisions, metronome_set_volume, metronome_start, metronome_stop, onset_start,
+    pause_command, play_start, player_create, player_destroy, player_load_track, player_pause,
+    player_play, player_seek, player_stop, record_start, shutdown_pipeline, start_input,
+    synth_clear, synth_load_file, synth_pause, synth_play_from, synth_play_live, synth_resume,
+    synth_set_vol, synth_start, synth_stop, tune_start, worker_pause, worker_start, worker_stop,
 };
+use core::slice;
 use std::collections::HashMap;
 use std::ffi::{CString, c_char};
 use std::io::{self, Write};
 
-// --- Mock Callback for the Tuner ---
-// This simulates the C function that would exist on the iOS/Android side.
-extern "C" fn cli_tuner_callback(name: *const c_char, cents: f32) {
-    let name = unsafe { crate::cstr_to_rust_str(name) };
-    // We print with \r (carriage return) to overwrite the line, acting like a real-time display
-    if let Some(n) = name {
-        print!(
-            "\r[Tuner] 🎤 Name: {} {}{:.4}",
-            n,
-            if cents >= 0.0 { "+" } else { "" },
-            cents
-        );
-        io::stdout().flush().unwrap();
-    }
+/// FFI callback that receives tuner results.
+extern "C" fn cli_tuner_callback(names: *const *const c_char, len: usize) {
+    let notes: Vec<String> = unsafe { slice::from_raw_parts(names, len) }
+        .iter()
+        .map(|s| unsafe { cstr_to_rust_str(*s).unwrap().to_string() })
+        .collect();
+    print!("\x1B[2K\r[Tuner] Notes: {:?}", notes);
+    io::stdout().flush().unwrap();
 }
 
-// -----------------------------
-// Unit tests for top-level FFI
-// -----------------------------
+/// FFI integration tests for pipeline, workers, and FFI handles.
 #[cfg(test)]
 mod ffi_tests {
-    use std::os::raw::c_char;
+
+    use std::ffi::c_char;
 
     // Import the FFI functions from the crate root
     use crate::{
         drone_start, metronome_set_bpm, metronome_set_pattern, metronome_set_subdivisions,
-        metronome_set_volume, metronome_start, metronome_stop, pause_command, play_start,
-        record_start, shutdown_pipeline, start_input, synth_load_file, synth_pause,
+        metronome_set_volume, metronome_start, metronome_stop, onset_start, pause_command,
+        play_start, record_start, shutdown_pipeline, start_input, synth_load_file, synth_pause,
         synth_play_live, synth_resume, synth_start, synth_stop, tune_start, worker_pause,
         worker_start, worker_stop,
     };
 
-    extern "C" fn dummy_callback(_name: *const c_char, _cents: f32) {}
+    extern "C" fn dummy_callback(_freqs: *const *const c_char, _len: usize) {}
 
+    /// Test that FFI functions handle null handles gracefully.
     #[test]
     fn invalid_pipeline_handle_behavior() {
-        // All of these should handle a "0"/null handle gracefully and not panic.
         assert_eq!(start_input(0), -1);
         assert_eq!(play_start(0), -1);
 
-        // Worker control with invalid handle should return -1
         assert_eq!(worker_start(0), -1);
         assert_eq!(worker_pause(0), -1);
         assert_eq!(worker_stop(0), -1);
 
-        // Record / tune spawn with invalid pipeline should return 0 (means: failed to spawn)
         assert_eq!(record_start(0, std::ptr::null()), 0);
         assert_eq!(tune_start(0, dummy_callback), 0);
+        assert_eq!(onset_start(0), 0);
 
-        // Metronome with invalid handle should return 0 on start (failure) and -1 for ops
-        assert_eq!(metronome_start(0, 120.0), 0);
+        assert_eq!(
+            metronome_start(
+                0,
+                0.0,
+                vec![].as_ptr(),
+                0,
+                vec![Vec::new().as_ptr()].as_ptr(),
+                vec![].as_ptr(),
+                false,
+            ),
+            0
+        );
         assert_eq!(metronome_stop(0), -1);
         assert_eq!(metronome_set_bpm(0, 90.0), -1);
         assert_eq!(metronome_set_volume(0, 0.5), -1);
         assert_eq!(metronome_set_subdivisions(0, std::ptr::null(), 0, 0), -1);
         assert_eq!(metronome_set_pattern(0, std::ptr::null(), 0), -1);
 
-        // Synthesizer handles are similarly defensive for handle==0
         assert_eq!(synth_start(0), 0);
         assert_eq!(synth_stop(0), -1);
         assert_eq!(synth_play_live(0, 440.0, 1.0), -1);
@@ -76,28 +78,26 @@ mod ffi_tests {
         assert_eq!(synth_pause(0), -1);
         assert_eq!(synth_resume(0), -1);
 
-        // Drone stub returns 0 as a TODO placeholder
         assert_eq!(drone_start(440.0), 0);
     }
 
+    /// Test that pause and shutdown functions don't panic with null handles.
     #[test]
     fn pause_and_shutdown_no_panic() {
-        // pause_command is a global noop (returns 0)
         assert_eq!(pause_command(0), 0);
-
-        // Shutdown with handle 0 should be safe (no panic)
         shutdown_pipeline(0);
     }
 }
 
+/// Interactive CLI simulation for testing FFI functionality.
 pub fn run_cli_simulation() {
-    println!("\n🎼  Cadenza CLI Simulation Layer (FFI Mode)");
+    println!("\nCadenza CLI Simulation Layer (FFI Mode)");
     println!("Initializing Audio Pipeline...");
 
     // 1. Initialize the pipeline via FFI
     let pipeline_handle = init_pipeline();
     if pipeline_handle == 0 {
-        eprintln!("❌ Failed to initialize pipeline.");
+        eprintln!("Failed to initialize pipeline.");
         return;
     }
 
@@ -124,23 +124,22 @@ pub fn run_cli_simulation() {
         let command = input.trim().to_lowercase();
 
         match command.as_str() {
-            "play" => {
+            "audio play" => {
                 if play_start(pipeline_handle) == 0 {
-                    println!("▶️  Playback started");
+                    println!("Playback started.");
                 } else {
-                    eprintln!("❌ Error starting playback");
+                    eprintln!("Error starting playback");
                 }
             }
-            "pause" => {
+            "audio pause" => {
                 pause_command(pipeline_handle);
-                println!("⏸️  Paused");
+                println!("Paused.");
             }
-            "record" => {
-                // Simulate creating a temporary path
+            "recorder start" => {
                 let filename = format!("test_rec_{}.wav", rec_counter);
                 let c_path = CString::new(filename.clone()).unwrap();
 
-                println!("🎙️  Starting recorder to file: {}", filename);
+                println!("Starting recorder to file: {}", filename);
 
                 // Call FFI: record_start
                 let handle = record_start(pipeline_handle, c_path.as_ptr());
@@ -151,11 +150,11 @@ pub fn run_cli_simulation() {
                     worker_start(handle);
                     rec_counter += 1;
                 } else {
-                    eprintln!("❌ Error spawning recorder");
+                    eprintln!("Error spawning recorder");
                 }
             }
-            "tune" => {
-                println!("🎵  Starting Tuner...");
+            "tuner start" => {
+                println!("Starting tuner...");
                 // Call FFI: tune_start with our static callback
                 let handle = tune_start(pipeline_handle, cli_tuner_callback);
 
@@ -163,16 +162,15 @@ pub fn run_cli_simulation() {
                     workers.insert("tune".to_string(), handle);
                     worker_start(handle);
                 } else {
-                    eprintln!("❌ Error spawning tuner");
+                    eprintln!("Error spawning tuner");
                 }
             }
-            "stop record" => {
+            "recorder stop" => {
                 let mut to_remove = Vec::new();
                 for (name, handle) in &workers {
                     if name.starts_with("rec") {
-                        // Stop and release logic
                         worker_stop(*handle);
-                        println!("🛑 Stopped {}", name);
+                        println!("Stopped {}", name);
                         to_remove.push(name.clone());
                     }
                 }
@@ -180,15 +178,15 @@ pub fn run_cli_simulation() {
                     workers.remove(&name);
                 }
             }
-            "stop tune" => {
+            "tuner stop" => {
                 if let Some(handle) = workers.remove("tune") {
                     worker_stop(handle);
-                    println!("\n🛑 Tuner stopped");
+                    println!("\nTuner stopped.");
                 } else {
                     println!("Tuner is not running.");
                 }
             }
-            "pause record" => {
+            "recorder pause" => {
                 for (name, handle) in &workers {
                     if name.starts_with("rec") {
                         worker_pause(*handle);
@@ -196,7 +194,7 @@ pub fn run_cli_simulation() {
                     }
                 }
             }
-            "start record" => {
+            "recorder resume" => {
                 for (name, handle) in &workers {
                     if name.starts_with("rec") {
                         worker_start(*handle);
@@ -204,28 +202,36 @@ pub fn run_cli_simulation() {
                     }
                 }
             }
-            "pause tune" => {
+            "tuner pause" => {
                 if let Some(handle) = workers.get("tune") {
                     worker_pause(*handle);
-                    println!("\nPaused Tuner");
+                    println!("\nTuner paused.");
                 }
             }
-            "start tune" => {
+            "tuner resume" => {
                 if let Some(handle) = workers.get("tune") {
                     worker_start(*handle);
-                    println!("Resumed Tuner");
+                    println!("Tuner resumed.");
                 }
             }
-            "metronome" => {
-                println!("Test metronome");
-                met_handles.push(metronome_start(pipeline_handle, 60.0));
+            "metronome start" => {
+                println!("Starting metronome.");
+                met_handles.push(metronome_start(
+                    pipeline_handle,
+                    0.0,
+                    vec![].as_ptr(),
+                    0,
+                    vec![Vec::new().as_ptr()].as_ptr(),
+                    vec![].as_ptr(),
+                    false,
+                ));
             }
-            "stop met" => {
+            "metronome stop" => {
                 if let Some(h) = met_handles.pop() {
                     metronome_stop(h);
                 }
             }
-            "set bpm" => {
+            "metronome bpm" => {
                 if let Some(h) = met_handles.first() {
                     println!("bpm? ");
                     let mut bpm = String::new();
@@ -238,7 +244,7 @@ pub fn run_cli_simulation() {
                     }
                 }
             }
-            "set polys" => {
+            "metronome polys" => {
                 if let Some(h) = met_handles.first() {
                     println!("polys? ");
                     let mut polys = String::new();
@@ -262,9 +268,10 @@ pub fn run_cli_simulation() {
                     metronome_set_subdivisions(*h, polys.as_ptr(), polys.len(), idx);
                 }
             }
-            "drone" => {
+            "synth drone" => {
                 println!("note? ");
                 let mut note = String::new();
+
                 if io::stdin().read_line(&mut note).is_err() {
                     println!("Error reading input.");
                     continue;
@@ -278,16 +285,16 @@ pub fn run_cli_simulation() {
             "synth start" => {
                 let h = synth_start(pipeline_handle);
                 if h != 0 {
-                    println!("🎹 Synth started: {}", h);
+                    println!("Synth started: {}", h);
                     synth_handles.push(h);
                 } else {
-                    eprintln!("❌ Failed to spawn synth");
+                    eprintln!("Failed to spawn synth");
                 }
             }
             "synth stop" => {
                 if let Some(h) = synth_handles.pop() {
                     synth_stop(h);
-                    println!("🎹 Synth stopped: {}", h);
+                    println!("Synth stopped: {}", h);
                 } else {
                     println!("No synths running.");
                 }
@@ -310,7 +317,7 @@ pub fn run_cli_simulation() {
                     }
                 }
             }
-            "synth off" => {
+            "synth note-off" => {
                 println!("note? (0-127)");
                 let mut note = String::new();
                 if io::stdin().read_line(&mut note).is_err() {
@@ -320,7 +327,6 @@ pub fn run_cli_simulation() {
                 if let Ok(note) = note.trim().parse::<u8>() {
                     if let Some(&h) = synth_handles.last() {
                         let freq = MidiNote::new(note, 0.0).to_freq(None);
-                        // note off
                         synth_play_live(h, freq, 0.0);
                         println!("Stopped note {} -> {} Hz", note, freq);
                     } else {
@@ -368,22 +374,22 @@ pub fn run_cli_simulation() {
             "synth clear" => {
                 if let Some(&h) = synth_handles.last() {
                     synth_clear(h);
-                    println!("🎹 Synth {} cleared", h);
+                    println!("Synth cleared.");
                 }
             }
             "synth pause" => {
                 if let Some(&h) = synth_handles.last() {
                     synth_pause(h);
-                    println!("🎹 Synth {} paused", h);
+                    println!("Synth paused.");
                 }
             }
             "synth resume" => {
                 if let Some(&h) = synth_handles.last() {
                     synth_resume(h);
-                    println!("🎹 Synth {} resumed", h);
+                    println!("Synth resumed.");
                 }
             }
-            "set synth vol" => {
+            "synth volume" => {
                 if let Some(h) = synth_handles.first() {
                     println!("volume? (0.0-1.0)");
                     let mut v = String::new();
@@ -396,14 +402,14 @@ pub fn run_cli_simulation() {
                     }
                 }
             }
-            "start input" => {
+            "input start" => {
                 if start_input(pipeline_handle) == 0 {
-                    println!("🎧 Input started");
+                    println!("Input started.");
                 } else {
-                    eprintln!("❌ Failed to start input");
+                    eprintln!("Failed to start input");
                 }
             }
-            "set met pattern" => {
+            "metronome pattern" => {
                 if let Some(h) = met_handles.first() {
                     println!("pattern? (e.g. 3 1 1 2)");
                     let mut pat = String::new();
@@ -419,7 +425,7 @@ pub fn run_cli_simulation() {
                     metronome_set_pattern(*h, vals.as_ptr(), vals.len());
                 }
             }
-            "set met vol" => {
+            "metronome volume" => {
                 if let Some(h) = met_handles.first() {
                     println!("volume? (0.0-1.0)");
                     let mut v = String::new();
@@ -438,7 +444,7 @@ pub fn run_cli_simulation() {
                     println!("🎧 Player started: {}", h);
                     player_handles.push(h);
                 } else {
-                    eprintln!("❌ Failed to spawn player");
+                    eprintln!("Failed to spawn player");
                 }
             }
             "player load" => {
@@ -463,19 +469,19 @@ pub fn run_cli_simulation() {
             "player play" => {
                 if let Some(&h) = player_handles.last() {
                     player_play(h);
-                    println!("▶️ Player playing");
+                    println!("Player playing.");
                 }
             }
             "player pause" => {
                 if let Some(&h) = player_handles.last() {
                     player_pause(h);
-                    println!("⏸️ Player paused");
+                    println!("Player paused.");
                 }
             }
             "player stop" => {
                 if let Some(&h) = player_handles.last() {
                     player_stop(h);
-                    println!("⏹️ Player stopped");
+                    println!("Player stopped.");
                 }
             }
             "player seek" => {
@@ -496,11 +502,47 @@ pub fn run_cli_simulation() {
                     player_destroy(h);
                 }
             }
-            "stop" => {
-                println!("🛑 Stopping all workers...");
-                for (name, handle) in workers.drain() {
+            "onset start" => {
+                if !workers.contains_key("onset") {
+                    let handle = onset_start(pipeline_handle);
+
+                    if handle != 0 {
+                        workers.insert(String::from("onset"), handle);
+                        worker_start(handle);
+                    } else {
+                        eprintln!("Error spawning recorder");
+                    }
+                }
+            }
+            "onset stop" => {
+                if let Some(handle) = workers.remove("onset") {
                     worker_stop(handle);
-                    println!("   Released {}", name);
+                    println!("\nOnset stopped.");
+                } else {
+                    println!("Onset is not running.");
+                }
+            }
+            "onset pause" => {
+                if let Some(handle) = workers.get("onset") {
+                    worker_pause(*handle);
+                    println!("\nOnset paused.");
+                } else {
+                    println!("Onset is not running.");
+                }
+            }
+            "onset resume" => {
+                if let Some(handle) = workers.get("onset") {
+                    worker_start(*handle);
+                    println!("\nOnset resumed.");
+                } else {
+                    println!("Onset is not running.");
+                }
+            }
+            "all stop" => {
+                println!("Stopping all workers...");
+                for (name, handle) in workers.drain() {
+                    println!("Released {}", name);
+                    worker_stop(handle);
                 }
                 for h in met_handles.drain(..) {
                     metronome_stop(h);
@@ -512,8 +554,8 @@ pub fn run_cli_simulation() {
                     player_destroy(h);
                 }
             }
-            "exit" => {
-                println!("👋  Exiting simulation.");
+            "all exit" => {
+                println!("Exiting simulation.");
                 for (_, handle) in workers.drain() {
                     worker_stop(handle);
                 }
@@ -531,7 +573,7 @@ pub fn run_cli_simulation() {
             }
             _ => {
                 println!(
-                    "Unknown command. Try: play, pause, record, tune, stop record, stop tune, stop, exit"
+                    "Unknown command. Try: audio play, audio pause, recorder start, recorder stop, tuner start, tuner stop, metronome start, synth start, player start, input start, all stop, all exit"
                 )
             }
         }

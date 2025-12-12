@@ -9,23 +9,22 @@ use hound;
 use rtrb::{Consumer, Producer, RingBuffer};
 use spin;
 use std::cell::UnsafeCell;
+use std::f32::consts::PI;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::thread;
 use std::time::Duration;
 
 use crate::AnalysisCallback;
-use crate::generators::metronome::{Metronome, MetronomeCommand};
+use crate::analysis::onset::OnsetDetector;
+use crate::generators::metronome::{BeatStrength, Metronome, MetronomeCommand};
 use crate::generators::player::{AudioPlayer, PlayerController};
 use crate::generators::synth::{SynthCommand, Synthesizer};
 use output::{Mixer, MusicalTransport, OutputController};
 
-// ============================================================================
-//  SLOT POOL (Shared Memory)
-// ============================================================================
-
+/// Manages a pool of reusable audio buffers with atomic reference counting.
 pub struct SlotPool {
-    slots: Vec<UnsafeCell<Box<[f32]>>>,
+    pub slots: Vec<UnsafeCell<Box<[f32]>>>,
     use_counts: Vec<AtomicUsize>,
 }
 
@@ -33,6 +32,7 @@ unsafe impl Send for SlotPool {}
 unsafe impl Sync for SlotPool {}
 
 impl SlotPool {
+    /// Creates a new slot pool with the specified size and slot length.
     fn new(pool_size: usize, slot_len: usize) -> Arc<Self> {
         let mut slots = Vec::with_capacity(pool_size);
         let mut counts = Vec::with_capacity(pool_size);
@@ -51,8 +51,9 @@ impl SlotPool {
         self.use_counts[idx].store(consumers, Ordering::SeqCst);
     }
 
+    /// Decrements the use count for a slot. Returns true if the count reaches zero.
     #[inline]
-    fn release(&self, idx: usize) -> bool {
+    pub fn release(&self, idx: usize) -> bool {
         let res = self.use_counts[idx].fetch_update(Ordering::SeqCst, Ordering::SeqCst, |v| {
             if v == 0 { None } else { Some(v - 1) }
         });
@@ -71,9 +72,7 @@ impl SlotPool {
     }
 }
 
-// ============================================================================
-//  AUDIO META
-// ============================================================================
+/// Probes and stores audio device configuration and capabilities.
 pub struct AudioMeta {
     host: cpal::Host,
     in_dev: cpal::Device,
@@ -84,12 +83,12 @@ pub struct AudioMeta {
     pub out_sr: u32,
     in_channels: u16,
     out_channels: u16,
-    frames: usize,
     pool: usize,
     slot_len: usize,
 }
 
 impl AudioMeta {
+    /// Probes available audio input and output devices and their configurations.
     pub fn probe() -> Result<Self> {
         let host = cpal::default_host();
 
@@ -120,7 +119,7 @@ impl AudioMeta {
         let out_channels = out_conf.channels();
 
         let frames = 2048;
-        let pool = 32;
+        let pool = 1024;
         let slot_len = frames;
 
         Ok(Self {
@@ -133,11 +132,11 @@ impl AudioMeta {
             out_sr,
             in_channels,
             out_channels,
-            frames,
             pool,
             slot_len,
         })
     }
+    /// Updates input device configuration.
     pub fn update_input(&mut self) -> anyhow::Result<()> {
         self.in_dev = self
             .host
@@ -153,6 +152,7 @@ impl AudioMeta {
         self.in_channels = self.in_conf.channels();
         Ok(())
     }
+    /// Updates output device configuration.
     pub fn update_output(&mut self) -> anyhow::Result<()> {
         self.out_dev = self
             .host
@@ -170,21 +170,15 @@ impl AudioMeta {
     }
 }
 
-// ============================================================================
-//  AUDIO PIPELINE
-// ============================================================================
-
+/// Main audio processing pipeline managing input/output streams, buffers, and workers.
 pub struct AudioPipeline {
     meta: AudioMeta,
     pub slots: Arc<SlotPool>,
 
-    // Global State
     pub transport: Arc<MusicalTransport>,
 
-    // Input Logic State (Separate from Global Running)
     input_logic_running: Arc<AtomicBool>,
 
-    // Input State
     input_error: Arc<AtomicBool>,
     free_cons: Option<Consumer<usize>>,
     reducer_prod: Option<Producer<usize>>,
@@ -192,26 +186,22 @@ pub struct AudioPipeline {
     reducer_add_tx: Sender<(u8, Producer<usize>)>,
     reducer_remove_tx: Sender<u8>,
 
-    // Tracks active worker IDs
     active_workers: Vec<u8>,
-    // Stack of free IDs to recycle
     available_handles: Vec<u8>,
 
-    // Output State
-    running: Arc<AtomicBool>, // Still controls global output callbacks
+    running: Arc<AtomicBool>,
     output_error: Arc<AtomicBool>,
     mixer: Arc<spin::Mutex<Mixer>>,
 
-    // Threads
     reclaimer_handle: Option<thread::JoinHandle<()>>,
     reducer_handle: Option<thread::JoinHandle<()>>,
 
-    // Streams
     input_stream: Option<cpal::Stream>,
     output_stream: Option<cpal::Stream>,
 }
 
 impl AudioPipeline {
+    /// Creates a new audio pipeline with default device probing and initialization.
     pub fn new() -> Result<Self> {
         let meta = AudioMeta::probe()?;
         let slots = SlotPool::new(meta.pool, meta.slot_len);
@@ -220,7 +210,6 @@ impl AudioPipeline {
 
         let mixer = Arc::new(spin::Mutex::new(Mixer::new(meta.out_channels as usize)));
 
-        // Channels for communication (Placeholders, overwritten in init_input)
         let (reclaim_tx, _reclaim_rx) = unbounded();
         let (reducer_add_tx, _reducer_add_rx) = unbounded::<(u8, Producer<usize>)>();
         let (reducer_remove_tx, _reducer_remove_rx) = unbounded::<u8>();
@@ -238,7 +227,7 @@ impl AudioPipeline {
             reducer_add_tx,
             reducer_remove_tx,
             active_workers: Vec::new(),
-            available_handles: (0..u8::MAX).collect(), // Initialize stack of 0-255
+            available_handles: (0..u8::MAX).collect(),
             output_error: Arc::new(AtomicBool::new(false)),
             mixer,
             reclaimer_handle: None,
@@ -247,21 +236,18 @@ impl AudioPipeline {
             output_stream: None,
         };
 
-        // Initialize input internals immediately so they are ready
         pipeline.init_input_infrastructure();
 
         Ok(pipeline)
     }
 
     /// Initializes the Ring Buffers and Helper Threads for the input side.
-    /// This allows us to "reboot" the input logic without destroying the Output or Transport.
+    /// This allows restarting the input logic without destroying the Output or Transport.
     fn init_input_infrastructure(&mut self) {
         if self.reclaimer_handle.is_some() || self.reducer_handle.is_some() {
-            // Already running
             return;
         }
 
-        // 1. Create Ring Buffers
         let (mut free_prod, free_cons) = RingBuffer::<usize>::new(self.meta.pool);
         for i in 0..self.meta.pool {
             let _ = free_prod.push(i);
@@ -269,26 +255,21 @@ impl AudioPipeline {
 
         let (reducer_prod, mut reducer_cons) = RingBuffer::<usize>::new(self.meta.pool);
 
-        // 2. Create Channels
         let (reclaim_tx, reclaim_rx) = unbounded();
         let (reducer_add_tx, reducer_add_rx) = unbounded::<(u8, Producer<usize>)>();
         let (reducer_remove_tx, reducer_remove_rx) = unbounded::<u8>();
 
-        // Store transmission sides in struct
         self.reclaim_tx = reclaim_tx;
         self.reducer_add_tx = reducer_add_tx;
         self.reducer_remove_tx = reducer_remove_tx;
         self.free_cons = Some(free_cons);
         self.reducer_prod = Some(reducer_prod);
 
-        // 3. Flags
         self.input_logic_running.store(true, Ordering::SeqCst);
         let running_reclaim = self.input_logic_running.clone();
 
-        // 4. Spawn Reclaimer Thread
         let reclaimer_handle = thread::spawn(move || {
             while running_reclaim.load(Ordering::SeqCst) {
-                // We use a short timeout so we can check the exit flag
                 if let Ok(idx) = reclaim_rx.recv_timeout(Duration::from_millis(50)) {
                     while free_prod.push(idx).is_err() {
                         thread::sleep(Duration::from_micros(200));
@@ -297,16 +278,64 @@ impl AudioPipeline {
             }
         });
 
-        // 5. Spawn Reducer Thread
         let slots_clone = self.slots.clone();
         let running_reducer = self.input_logic_running.clone();
-        let reclaim_tx_reducer = self.reclaim_tx.clone(); // Use the NEW tx
+        let reclaim_tx_reducer = self.reclaim_tx.clone();
+        let in_sr = self.meta.in_sr;
 
         let reducer_handle = thread::spawn(move || {
             let mut consumers: Vec<(u8, Producer<usize>)> = Vec::new();
 
+            let sample_rate = in_sr as f32;
+
+            let calc_biquad = |freq: f32, is_lpf: bool| -> (f32, f32, f32, f32, f32) {
+                let w0 = 2.0 * PI * freq / sample_rate;
+                let cos_w0 = w0.cos();
+                let sin_w0 = w0.sin();
+                let alpha = sin_w0 / (2.0 * 0.707);
+
+                let (b0, b1, b2, a0, a1, a2) = if is_lpf {
+                    (
+                        (1.0 - cos_w0) / 2.0,
+                        1.0 - cos_w0,
+                        (1.0 - cos_w0) / 2.0,
+                        1.0 + alpha,
+                        -2.0 * cos_w0,
+                        1.0 - alpha,
+                    )
+                } else {
+                    (
+                        (1.0 + cos_w0) / 2.0,
+                        -(1.0 + cos_w0),
+                        (1.0 + cos_w0) / 2.0,
+                        1.0 + alpha,
+                        -2.0 * cos_w0,
+                        1.0 - alpha,
+                    )
+                };
+                (b0 / a0, b1 / a0, b2 / a0, a1 / a0, a2 / a0)
+            };
+
+            let (hp_b0, hp_b1, hp_b2, hp_a1, hp_a2) = calc_biquad(80.0, false);
+            let (lp_b0, lp_b1, lp_b2, lp_a1, lp_a2) = calc_biquad(12000.0, true);
+
+            let mut hp_x1 = 0.0;
+            let mut hp_x2 = 0.0;
+            let mut hp_y1 = 0.0;
+            let mut hp_y2 = 0.0;
+
+            let mut lp_x1 = 0.0;
+            let mut lp_x2 = 0.0;
+            let mut lp_y1 = 0.0;
+            let mut lp_y2 = 0.0;
+
+            let gate_threshold_db: f32 = -60.0;
+            let gate_threshold_linear: f32 = 10.0f32.powf(gate_threshold_db / 20.0);
+            let mut envelope: f32 = 0.0;
+
+            let release_coeff = (-1.0 / (0.100 * sample_rate)).exp();
+
             loop {
-                // Handle control messages
                 while let Ok((name, prod)) = reducer_add_rx.try_recv() {
                     consumers.push((name, prod));
                 }
@@ -318,9 +347,44 @@ impl AudioPipeline {
                     Ok(idx) => {
                         unsafe {
                             let slot = &mut *slots_clone.slots[idx].get();
-                            // Simple smoothing (Low-pass)
-                            for i in 1..slot.len() {
-                                slot[i] = 0.6 * slot[i - 1] + 0.4 * slot[i];
+
+                            for i in 0..slot.len() {
+                                let mut x = slot[i];
+
+                                let hp_out = hp_b0 * x + hp_b1 * hp_x1 + hp_b2 * hp_x2
+                                    - hp_a1 * hp_y1
+                                    - hp_a2 * hp_y2;
+                                hp_x2 = hp_x1;
+                                hp_x1 = x;
+                                hp_y2 = hp_y1;
+                                hp_y1 = hp_out;
+                                x = hp_out;
+
+                                let lp_out = lp_b0 * x + lp_b1 * lp_x1 + lp_b2 * lp_x2
+                                    - lp_a1 * lp_y1
+                                    - lp_a2 * lp_y2;
+                                lp_x2 = lp_x1;
+                                lp_x1 = x;
+                                lp_y2 = lp_y1;
+                                lp_y1 = lp_out;
+                                x = lp_out;
+
+                                let abs_in = x.abs();
+
+                                if abs_in > envelope {
+                                    envelope = abs_in;
+                                } else {
+                                    envelope =
+                                        release_coeff * envelope + (1.0 - release_coeff) * abs_in;
+                                }
+
+                                let mut gain = 1.0;
+                                if envelope < gate_threshold_linear {
+                                    let ratio = envelope / gate_threshold_linear;
+                                    gain = ratio * ratio;
+                                }
+
+                                slot[i] = x * gain;
                             }
                         }
 
@@ -350,7 +414,6 @@ impl AudioPipeline {
                 }
             }
 
-            // Drain remaining on shutdown
             while let Ok(idx) = reducer_cons.pop() {
                 if slots_clone.release(idx) {
                     let _ = reclaim_tx_reducer.send(idx);
@@ -362,32 +425,26 @@ impl AudioPipeline {
         self.reducer_handle = Some(reducer_handle);
     }
 
+    /// Gets an output controller for adding audio sources.
     pub fn output_controller(&self) -> OutputController {
         OutputController::new(self.mixer.clone())
     }
 
-    /// Safely shutdown global pipeline, including output.
+    /// Safely shuts down the entire pipeline including input and output streams.
     pub fn shutdown(mut self) {
         self.running.store(false, Ordering::SeqCst);
-        self.stop_input(); // Helper to kill input threads
+        self.stop_input();
         self.output_stream = None;
         println!("Pipeline shutdown complete.");
     }
 
-    /// Forces the input stream and infrastructure to stop.
-    /// This is called on Shutdown OR on critical Error (e.g. Device Unplugged).
-    /// It does NOT check `active_workers` because if the device is gone, the workers are dead anyway.
+    /// Stops the input stream and background processing threads.
     pub fn stop_input(&mut self) {
-        // FIX: Removed the early return check (self.active_workers.len() > 0).
-        // If this function is called, it means we MUST stop (either error or shutdown).
-
-        // 1. Drop the CPAL Stream (Stops microphone)
         if let Some(stream) = self.input_stream.take() {
             drop(stream);
             println!("Input stream stopped and dropped.");
         }
 
-        // 2. Stop the Helper Threads (Save CPU)
         self.input_logic_running.store(false, Ordering::SeqCst);
 
         if let Some(h) = self.reclaimer_handle.take() {
@@ -397,19 +454,16 @@ impl AudioPipeline {
             h.join().ok();
         }
 
-        // 3. Clean up infrastructure
         self.free_cons = None;
         self.reducer_prod = None;
 
-        // FIX: Reset worker tracking. If the infrastructure died, old workers are zombies.
-        // We reset the handle pool so the NEXT workers get fresh IDs.
         self.active_workers.clear();
         self.available_handles = (0..u8::MAX).collect();
 
         println!("Input logic threads stopped and worker handles reset.");
     }
 
-    /// Checks if there are any active workers. If none, saves CPU by stopping input.
+    /// Auto-stops input stream if no active workers remain.
     fn try_auto_stop_input(&mut self) {
         if self.active_workers.is_empty() {
             println!("No active input workers. Stopping input stream to save resources.");
@@ -417,6 +471,7 @@ impl AudioPipeline {
         }
     }
 
+    /// Stops the output stream.
     pub fn stop_output(&mut self) {
         if let Some(stream) = self.output_stream.take() {
             drop(stream);
@@ -424,14 +479,12 @@ impl AudioPipeline {
         }
     }
 
+    /// Starts the input stream if not already running.
     pub fn start_input(&mut self) -> Result<()> {
-        // 1. Check for async errors or invalid device
         if self.input_error.load(Ordering::Relaxed)
             || self.meta.in_dev.default_input_config().is_err()
         {
             println!("⚠️  Detected async input error. Restarting input...");
-            // This calls stop_input, which now CORRECTLY tears everything down
-            // regardless of whether workers "think" they are active.
             self.stop_input();
         }
 
@@ -439,14 +492,12 @@ impl AudioPipeline {
             return Ok(());
         }
 
-        // 2. Check if infrastructure is missing (was stopped)
         if self.free_cons.is_none() {
             println!("Input infrastructure missing. Reinitializing...");
             self.meta.update_input()?;
             self.init_input_infrastructure();
         }
 
-        // 3. Build Stream
         match self.build_input_stream_internal() {
             Ok(s) => {
                 s.play()?;
@@ -456,7 +507,6 @@ impl AudioPipeline {
             }
             Err(e) => {
                 println!("⚠️  Input stream build failed: {}.", e);
-                // Attempt one clean retry
                 self.stop_input();
                 self.init_input_infrastructure();
                 let s = self.build_input_stream_internal()?;
@@ -467,6 +517,7 @@ impl AudioPipeline {
         }
     }
 
+    /// Starts the output stream if not already running.
     pub fn start_output(&mut self) -> Result<()> {
         if self.output_error.load(Ordering::Relaxed)
             || self.meta.out_dev.default_output_config().is_err()
@@ -489,7 +540,6 @@ impl AudioPipeline {
             }
             Err(e) => {
                 println!("⚠️  Output stream build failed: {}", e);
-                // Retry once
                 self.stop_output();
                 let s = self.build_output_stream_internal()?;
                 s.play()?;
@@ -499,9 +549,8 @@ impl AudioPipeline {
         }
     }
 
+    /// Build input stream for audio device formats f32, i16, and u16
     fn build_input_stream_internal(&mut self) -> Result<cpal::Stream> {
-        // We take these out. If the stream dies, they are dropped.
-        // But stop_input() clears them anyway, and start_input() calls init() to recreate them.
         let free_cons = self
             .free_cons
             .take()
@@ -514,7 +563,7 @@ impl AudioPipeline {
         let config: cpal::StreamConfig = self.meta.in_conf.clone().into();
         let err_flag = self.input_error.clone();
         let transport = self.transport.clone();
-        let running = self.input_logic_running.clone(); // Use input-specific flag
+        let running = self.input_logic_running.clone();
 
         let err_fn = move |err| {
             log::error!("Input stream error: {}", err);
@@ -563,6 +612,7 @@ impl AudioPipeline {
         Ok(stream)
     }
 
+    /// Builds an input stream with channel limiting to max 2 channels.
     fn build_input_stream_impl<T>(
         device: &cpal::Device,
         config: &cpal::StreamConfig,
@@ -594,6 +644,8 @@ impl AudioPipeline {
                 let (ref mut current_idx, ref mut write_pos) = state;
                 let mut frame_offset = 0;
 
+                let channels_to_use = std::cmp::min(channels, 2);
+
                 while frame_offset < data.len() {
                     if current_idx.is_none() {
                         match free_cons.pop() {
@@ -614,11 +666,13 @@ impl AudioPipeline {
 
                         for f in 0..frames_to_write {
                             let start = frame_offset + f * channels;
-                            let frame = &data[start..start + channels];
+
+                            let frame = &data[start..start + channels_to_use];
+
                             let mixed = frame
                                 .iter()
                                 .fold(0.0f32, |acc, s| acc + s.to_sample::<f32>())
-                                / channels as f32;
+                                / channels_to_use as f32;
                             slot_slice[*write_pos + f] = mixed;
                         }
 
@@ -640,6 +694,7 @@ impl AudioPipeline {
         Ok(stream)
     }
 
+    /// Build output stream for audio device formats f32, i16, and u16
     fn build_output_stream_internal(&mut self) -> Result<cpal::Stream> {
         let config: cpal::StreamConfig = self.meta.out_conf.clone().into();
         let err_flag = self.output_error.clone();
@@ -690,6 +745,7 @@ impl AudioPipeline {
         Ok(stream)
     }
 
+    /// Creates the output stream in the included sample format and initializes the mixer
     fn build_output_stream_impl<T>(
         device: &cpal::Device,
         config: &cpal::StreamConfig,
@@ -738,28 +794,26 @@ impl AudioPipeline {
         Ok(stream)
     }
 
+    /// Adds a consumer to use the audio input stream given a handle
     pub fn add_consumer(&mut self, handle: u8) -> Consumer<usize> {
         let (prod, cons) = RingBuffer::<usize>::new(self.meta.pool);
         self.reducer_add_tx.send((handle, prod)).unwrap();
         cons
     }
 
+    /// Removes a consumer and recycles its handle. Auto-stops input if no workers remain.
     pub fn remove_consumer(&mut self, handle: u8) {
-        // Send removal signal
         let _ = self.reducer_remove_tx.send(handle);
 
-        // Remove from tracking
         self.active_workers.retain(|&h| h != handle);
 
-        // Recycle the ID for future use
         self.available_handles.push(handle);
 
-        // FIX: Check if we can power down inputs now
         self.try_auto_stop_input();
     }
 
+    /// Spawns a new audio recorder that saves input to a WAV file.
     pub fn spawn_recorder(&mut self, path: &str) -> Result<recorder::Recorder> {
-        // FIX: Use stack to get ID. Pop returns None if empty (max consumers reached).
         let handle = self
             .available_handles
             .pop()
@@ -785,8 +839,8 @@ impl AudioPipeline {
         ))
     }
 
+    /// Spawns a pitch detection transformer using STFT analysis.
     pub fn spawn_transformer(&mut self, callback: AnalysisCallback) -> Result<stft::STFT> {
-        // FIX: Use stack to get ID.
         let handle = self
             .available_handles
             .pop()
@@ -796,7 +850,7 @@ impl AudioPipeline {
         let cons = self.add_consumer(handle);
 
         let mut stft = stft::STFT::new(handle);
-        stft.pitch(
+        stft.detect_pitches(
             self.slots.clone(),
             self.meta.slot_len,
             cons,
@@ -807,17 +861,63 @@ impl AudioPipeline {
         Ok(stft)
     }
 
-    pub fn spawn_metronome(&mut self, bpm: f32) -> Producer<MetronomeCommand> {
+    /// Spawns an onset detector for beat/note tracking.
+    pub fn spawn_onset(&mut self) -> Result<OnsetDetector> {
+        if let Err(e) = self.start_input() {
+            eprintln!("Failed to start input stream for recording: {}", e);
+            return Err(e);
+        }
+        if let Err(e) = self.start_output() {
+            eprintln!("Failed to start output stream for onset: {}", e);
+            return Err(e);
+        }
+        let handle = match self.available_handles.pop() {
+            Some(h) => h,
+            None => return Err(anyhow!("No available handles")),
+        };
+        self.active_workers.push(handle);
+        let cons = self.add_consumer(handle);
+        let mut onset = OnsetDetector::new(handle);
+        let (onset_tx, _onset_rx) = RingBuffer::new(32);
+        onset.detect_onsets(
+            self.transport.clone(),
+            self.slots.clone(),
+            cons,
+            self.reclaim_tx.clone(),
+            onset_tx,
+        );
+        Ok(onset)
+    }
+
+    /// Spawns a metronome with configurable BPM and beat patterns.
+    pub fn spawn_metronome(
+        &mut self,
+        bpm: Option<f32>,
+        pattern: Option<Vec<BeatStrength>>,
+        polys: Option<Vec<Vec<usize>>>,
+        restart: bool,
+    ) -> Producer<MetronomeCommand> {
         let controller = self.output_controller();
-        let (met, met_controller) = Metronome::new(self.meta.out_sr, bpm, self.transport.clone());
+        let (met, met_controller) = Metronome::new(
+            self.meta.out_sr,
+            bpm,
+            pattern,
+            polys,
+            restart,
+            self.transport.clone(),
+        );
         controller.add_source(Box::new(met));
         met_controller
     }
+
+    /// Spawns a synthesizer for sound generation.
     pub fn spawn_synthesizer(&mut self) -> Producer<SynthCommand> {
         let (synth, producer) = Synthesizer::new(self.meta.out_sr, self.transport.clone());
         self.output_controller().add_source(Box::new(synth));
         producer
     }
+
+    /// Spawns an audio player for playback control.
     pub fn spawn_player(&mut self) -> PlayerController {
         let (player, controller) = AudioPlayer::new(self.meta.out_sr);
         self.output_controller().add_source(Box::new(player));

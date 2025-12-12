@@ -1,3 +1,4 @@
+extern crate audio_analyzer_rs;
 use audio_analyzer_rs::testing::run_cli_simulation;
 use std::fs::File;
 use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt};

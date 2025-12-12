@@ -9,28 +9,31 @@ use std::{
     time::Duration,
 };
 
+use crate::audio_io::SlotPool;
 use crossbeam_channel::Sender;
 use hound::WavSpec;
 use rtrb::Consumer;
 
-use crate::audio_io::SlotPool;
-
-// static CALLBACK_COUNT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-
+/// Records audio from the shared `SlotPool` into a WAV file on a background thread.
 pub struct Recorder {
     state: Arc<AtomicI8>,
     handle: u8,
 }
 
 impl crate::traits::Worker for Recorder {
+    /// Stop the recorder and return its handle.
     fn stop(&mut self) -> u8 {
         self.state.store(-1, Ordering::Relaxed);
         self.handle
     }
+
+    /// Pause the recorder and return its handle.
     fn pause(&mut self) -> u8 {
         self.state.store(0, Ordering::Relaxed);
         self.handle
     }
+
+    /// Start or resume the recorder and return its handle.
     fn start(&mut self) -> u8 {
         self.state.store(1, Ordering::Relaxed);
         self.handle
@@ -38,6 +41,12 @@ impl crate::traits::Worker for Recorder {
 }
 
 impl Recorder {
+    /// Spawn a recorder that writes incoming slots to `path` as WAV with `spec`.
+    ///
+    /// - `slots` is the shared buffer pool.
+    /// - `cons` receives indices of filled slots.
+    /// - `handle` is the worker id for this recorder.
+    /// - `reclaim` is used to return freed slots.
     pub fn start_record(
         slots: Arc<SlotPool>,
         mut cons: Consumer<usize>,
@@ -56,17 +65,11 @@ impl Recorder {
             let file = File::create(path).unwrap();
             let bufw = BufWriter::new(file);
             let mut writer = hound::WavWriter::new(bufw, spec).unwrap();
-            // batch write parameters
             let mut slots_written = 0usize;
             while state.load(Ordering::Relaxed) != -1 || !cons.is_empty() {
                 if state.load(Ordering::Relaxed) == 0 {
                     match cons.pop() {
                         Ok(idx) => {
-                            // log::trace!(
-                            //     "[CONSUMER DEBUG] consumer {} popping slot {}",
-                            //     handle,
-                            //     idx
-                            // );
                             if slots.release(idx) {
                                 let _ = reclaim.send(idx);
                             }
@@ -76,22 +79,9 @@ impl Recorder {
                 } else {
                     match cons.pop() {
                         Ok(idx) => {
-                            // log::trace!(
-                            //     "[CONSUMER DEBUG] consumer {} popping slot {}",
-                            //     handle,
-                            //     idx
-                            // );
                             debug_assert!(idx < slots.slots.len());
                             unsafe {
                                 let slot_slice: &mut [f32] = &mut *slots.slots[idx].get();
-                                // let count = CALLBACK_COUNT.load(Ordering::Relaxed);
-                                // if count % 50000 == 0 {
-                                //     let min =
-                                //         slot_slice.iter().fold(f32::INFINITY, |a, &s| a.min(s));
-                                //     let max =
-                                //         slot_slice.iter().fold(f32::NEG_INFINITY, |a, &s| a.max(s));
-                                //     log::debug!("Amplitude range = {min:.3}..{max:.3}, channels=1");
-                                // }
                                 for &s in slot_slice.iter() {
                                     let s_i16 = (s.max(-1.0).min(1.0) * i16::MAX as f32) as i16;
                                     writer.write_sample(s_i16).ok();
@@ -99,14 +89,8 @@ impl Recorder {
                             }
                             slots_written += 1;
                             if slots.release(idx) {
-                                // log::trace!(
-                                //     "[CONSUMER DEBUG] consumer {} released slot {}",
-                                //     handle,
-                                //     idx
-                                // );
                                 let _ = reclaim.send(idx);
                             }
-                            // periodic flush policy: flush every few slots
                             if slots_written >= 8 {
                                 writer.flush().ok();
                                 slots_written = 0;

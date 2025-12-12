@@ -3,10 +3,7 @@ use spin;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicI64, AtomicU32, AtomicU64, Ordering};
 
-// ============================================================================
-//  MODULE: TIMING (Transport)
-// ============================================================================
-
+/// Thread-safe musical transport for tracking beats and frame counts.
 pub struct MusicalTransport {
     output_frames: AtomicI64,
     input_frames: AtomicI64,
@@ -15,6 +12,7 @@ pub struct MusicalTransport {
 }
 
 impl MusicalTransport {
+    /// Create a new transport with an initial BPM.
     pub fn new(initial_bpm: f32) -> Arc<Self> {
         Arc::new(Self {
             output_frames: AtomicI64::new(0),
@@ -24,6 +22,7 @@ impl MusicalTransport {
         })
     }
 
+    /// Advance output frame counters and update accumulated beat time.
     pub fn tick_output(&self, frames: i64, sample_rate: f32) {
         self.output_frames.fetch_add(frames, Ordering::Relaxed);
 
@@ -47,44 +46,48 @@ impl MusicalTransport {
         }
     }
 
+    /// Advance input frame counters.
     pub fn tick_input(&self, frames: i64) {
         self.input_frames.fetch_add(frames, Ordering::Relaxed);
     }
 
+    /// Return difference between input and output frame counters (drift in samples).
     pub fn get_drift_samples(&self) -> i64 {
         let in_t = self.input_frames.load(Ordering::Relaxed);
         let out_t = self.output_frames.load(Ordering::Relaxed);
         in_t - out_t
     }
 
+    /// Set the current BPM.
     pub fn set_bpm(&self, bpm: f32) {
         self.bpm_bits.store(bpm.to_bits(), Ordering::Relaxed);
     }
 
+    /// Get the current BPM.
     pub fn get_bpm(&self) -> f32 {
         f32::from_bits(self.bpm_bits.load(Ordering::Relaxed))
     }
 
+    /// Read accumulated beat time as floating-point beats.
     pub fn get_accumulated_beats(&self) -> f64 {
         f64::from_bits(self.accumulated_beats_bits.load(Ordering::Relaxed))
     }
 
+    /// Reset accumulated beats to a specific value.
     pub fn reset_to_beats(&self, beats: f64) {
         self.accumulated_beats_bits
             .store(beats.to_bits(), Ordering::SeqCst);
     }
 }
 
-// ============================================================================
-//  MODULE: MIXER & OUTPUT
-// ============================================================================
-
+/// Mixer that aggregates `AudioSource` inputs into a single output buffer.
 pub struct Mixer {
     sources: Vec<Box<dyn AudioSource + Send>>,
     scratch_buf: Vec<f32>,
 }
 
 impl Mixer {
+    /// Create a new mixer configured for `channels` channels.
     pub fn new(channels: usize) -> Self {
         Self {
             sources: Vec::new(),
@@ -92,10 +95,12 @@ impl Mixer {
         }
     }
 
+    /// Add a new audio source to the mixer.
     pub fn add_source(&mut self, source: Box<dyn AudioSource + Send>) {
         self.sources.push(source);
     }
 
+    /// Mix active sources into `out_buffer`. `channels` is the number of output channels.
     pub fn process(&mut self, out_buffer: &mut [f32], channels: usize) {
         self.sources.retain(|s| !s.is_finished());
         out_buffer.fill(0.0);
@@ -113,7 +118,6 @@ impl Mixer {
             }
         }
 
-        // Final Safety Clamp
         for sample in out_buffer.iter_mut() {
             *sample = sample.clamp(-1.0, 1.0);
         }
@@ -121,14 +125,18 @@ impl Mixer {
 }
 
 #[derive(Clone)]
+/// Lightweight controller exposing mixer operations to other modules.
 pub struct OutputController {
     mixer: Arc<spin::Mutex<Mixer>>,
 }
 
 impl OutputController {
+    /// Construct an `OutputController` that operates on the provided `mixer`.
     pub fn new(mixer: Arc<spin::Mutex<Mixer>>) -> Self {
         Self { mixer }
     }
+
+    /// Add an `AudioSource` into the controlled mixer.
     pub fn add_source(&self, source: Box<dyn AudioSource + Send>) {
         self.mixer.lock().add_source(source);
     }

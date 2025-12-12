@@ -1,27 +1,27 @@
 pub mod metronome;
 pub mod player;
 pub mod synth;
+
 use std::fmt;
 use std::path::Path;
 use std::{f32::consts::PI, fs};
 
+use crate::audio_io::stft::TuningSystem;
 use metronome::BeatStrength;
 use midly::{MidiMessage, Smf, Timing, TrackEventKind};
 
-// ============================================================================
-//  CONSTANTS & UTILS
-// ============================================================================
-
+/// Two pi constant used by generators.
 const TWO_PI: f32 = 2.0 * PI;
+/// Minimum envelope threshold for tick/voice retention.
 const MIN_ENVELOPE: f32 = 0.001;
-// Standard MIDI max velocity
+/// Standard MIDI max velocity.
 const MAX_MIDI_VELOCITY: f32 = 127.0;
 
 #[derive(Clone, Copy, Debug)]
+/// High-level synthesizer instrument choices.
 pub enum Instrument {
     Piano,
     Violin,
-    // Add more instruments here later (e.g., Flute, Bass, etc.)
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -42,17 +42,21 @@ pub struct SynthNote {
     pub instrument: Instrument,
 }
 
+/// Instrument-specific synthesis parameters.
 struct InstrumentParams {
-    // Envelope times (in seconds)
+    /// Attack time in seconds.
     attack_sec: f32,
+    /// Decay time in seconds.
     decay_sec: f32,
-    sustain_level: f32, // The target level after decay (0.0 to 1.0)
+    /// Sustain level (0.0 - 1.0).
+    sustain_level: f32,
+    /// Release time in seconds.
     release_sec: f32,
-
-    // Timbre characteristics
-    timbre_mix: f32, // A value used to mix fundamental and harmonics/noise
+    /// Mix amount used to blend timbral components.
+    timbre_mix: f32,
 }
 
+/// ADSR envelope states used by voices.
 enum EnvState {
     Attack,
     Decay,
@@ -62,11 +66,12 @@ enum EnvState {
 }
 
 #[derive(Clone, Debug)]
+/// A sequencer measure containing notes and timing info.
 pub struct Measure {
     pub notes: Vec<SynthNote>,
-    pub time_signature: (u8, u8), // (numerator, denominator)
+    pub time_signature: (u8, u8),
     pub bpm: f32,
-    pub global_start_beat: f64, // Absolute beat where this measure starts
+    pub global_start_beat: f64,
 }
 
 impl Measure {
@@ -74,15 +79,11 @@ impl Measure {
         (self.time_signature.0 as f64) * 4.0 / (self.time_signature.1 as f64)
     }
 
-    /// Returns the metronome pattern for this measure
+    /// Return a simple metronome pattern for the measure (downbeat strong).
     pub fn get_pattern(&self) -> Vec<BeatStrength> {
         let (num, _denom) = self.time_signature;
         let mut p = Vec::new();
-
-        // Standard logic: Downbeat is Strong.
         p.push(BeatStrength::Strong);
-
-        // Simple logic for remaining beats
         for _ in 1..num {
             p.push(BeatStrength::Weak);
         }
@@ -90,7 +91,8 @@ impl Measure {
     }
 }
 
-pub fn load_midi_file(path: &Path) -> Result<Vec<Measure>, String> {
+/// Parse a MIDI file and convert tracks into sequencer `Measure`s.
+pub fn load_midi_file(path: &Path, instrument: Instrument) -> Result<Vec<Measure>, String> {
     let bytes = fs::read(path).map_err(|e| e.to_string())?;
     let smf = Smf::parse(&bytes).map_err(|e| e.to_string())?;
 
@@ -99,7 +101,6 @@ pub fn load_midi_file(path: &Path) -> Result<Vec<Measure>, String> {
         _ => return Err("Timecode timing not supported, only Metrical".to_string()),
     };
 
-    // 1. Flatten all tracks into a single event list with absolute ticks
     struct AbsEvent<'a> {
         abs_tick: u64,
         kind: TrackEventKind<'a>,
@@ -116,20 +117,13 @@ pub fn load_midi_file(path: &Path) -> Result<Vec<Measure>, String> {
             });
         }
     }
-    // Sort by time so we process in order
     events.sort_by_key(|e| e.abs_tick);
 
-    // 2. Process Events into Notes and Measures
     let mut measures = Vec::new();
-
-    // Default Context
     let mut current_time_sig = (4, 4);
     let mut current_bpm = 120.0;
 
-    // Temporary storage for active Note-Ons to pair with Note-Offs
-    // Key: MIDI Note Number, Value: (Start Tick, Velocity)
     let mut active_notes: [Option<(u64, u8)>; 128] = [None; 128];
-
     struct AbsNote {
         note: u8,
         start_beat: f64,
@@ -138,24 +132,20 @@ pub fn load_midi_file(path: &Path) -> Result<Vec<Measure>, String> {
     }
     let mut final_notes_abs = Vec::new();
 
-    // Map Changes
     struct MapChange {
         beat: f64,
         new_val: f32,
-    } // Used for BPM
+    }
     struct SigChange {
         beat: f64,
         num: u8,
         den: u8,
     }
-
     let mut sig_changes = Vec::new();
     let mut bpm_changes = Vec::new();
 
-    // Pass 1: Extract Notes and Map Changes
     for event in events {
         let beat = event.abs_tick as f64 / ticks_per_beat;
-
         match event.kind {
             TrackEventKind::Meta(midly::MetaMessage::Tempo(micros)) => {
                 let bpm = 60_000_000.0 / micros.as_int() as f32;
@@ -169,48 +159,42 @@ pub fn load_midi_file(path: &Path) -> Result<Vec<Measure>, String> {
                     den: denom,
                 });
             }
-            TrackEventKind::Midi { message, .. } => {
-                match message {
-                    MidiMessage::NoteOn { key, vel } => {
-                        let k = key.as_int() as usize;
-                        let v = vel.as_int();
-                        if v > 0 {
-                            active_notes[k] = Some((event.abs_tick, v));
-                        } else {
-                            // Velocity 0 is Note Off
-                            if let Some((start_tick, start_vel)) = active_notes[k] {
-                                let start_b = start_tick as f64 / ticks_per_beat;
-                                final_notes_abs.push(AbsNote {
-                                    note: key.as_int(),
-                                    start_beat: start_b,
-                                    end_beat: beat,
-                                    velocity: start_vel as f32 / 127.0,
-                                });
-                                active_notes[k] = None;
-                            }
-                        }
+            TrackEventKind::Midi { message, .. } => match message {
+                MidiMessage::NoteOn { key, vel } => {
+                    let k = key.as_int() as usize;
+                    let v = vel.as_int();
+                    if v > 0 {
+                        active_notes[k] = Some((event.abs_tick, v));
+                    } else if let Some((start_tick, start_vel)) = active_notes[k] {
+                        let start_b = start_tick as f64 / ticks_per_beat;
+                        final_notes_abs.push(AbsNote {
+                            note: key.as_int(),
+                            start_beat: start_b,
+                            end_beat: beat,
+                            velocity: start_vel as f32 / 127.0,
+                        });
+                        active_notes[k] = None;
                     }
-                    MidiMessage::NoteOff { key, .. } => {
-                        let k = key.as_int() as usize;
-                        if let Some((start_tick, start_vel)) = active_notes[k] {
-                            let start_b = start_tick as f64 / ticks_per_beat;
-                            final_notes_abs.push(AbsNote {
-                                note: key.as_int(),
-                                start_beat: start_b,
-                                end_beat: beat,
-                                velocity: start_vel as f32 / 127.0,
-                            });
-                            active_notes[k] = None;
-                        }
-                    }
-                    _ => {}
                 }
-            }
+                MidiMessage::NoteOff { key, .. } => {
+                    let k = key.as_int() as usize;
+                    if let Some((start_tick, start_vel)) = active_notes[k] {
+                        let start_b = start_tick as f64 / ticks_per_beat;
+                        final_notes_abs.push(AbsNote {
+                            note: key.as_int(),
+                            start_beat: start_b,
+                            end_beat: beat,
+                            velocity: start_vel as f32 / 127.0,
+                        });
+                        active_notes[k] = None;
+                    }
+                }
+                _ => {}
+            },
             _ => {}
         }
     }
 
-    // Pass 2: Slice into Measures
     let max_beat = final_notes_abs
         .iter()
         .map(|n| n.end_beat)
@@ -219,14 +203,11 @@ pub fn load_midi_file(path: &Path) -> Result<Vec<Measure>, String> {
     let mut sig_idx = 0;
     let mut bpm_idx = 0;
 
-    // While we haven't covered the full duration
     while cursor < max_beat || cursor == 0.0 {
-        // Update Time Sig if needed
         if sig_idx < sig_changes.len() && sig_changes[sig_idx].beat <= cursor + 0.001 {
             current_time_sig = (sig_changes[sig_idx].num, sig_changes[sig_idx].den);
             sig_idx += 1;
         }
-        // Update BPM if needed
         if bpm_idx < bpm_changes.len() && bpm_changes[bpm_idx].beat <= cursor + 0.001 {
             current_bpm = bpm_changes[bpm_idx].new_val;
             bpm_idx += 1;
@@ -234,11 +215,8 @@ pub fn load_midi_file(path: &Path) -> Result<Vec<Measure>, String> {
 
         let beats_in_measure = (current_time_sig.0 as f64) * 4.0 / (current_time_sig.1 as f64);
         let end_of_measure = cursor + beats_in_measure;
-        let instrument = Instrument::Piano;
-        // Collect notes that start within this measure
         let mut measure_notes = Vec::new();
         for n in &final_notes_abs {
-            // Note belongs to this measure if it starts here
             if n.start_beat >= cursor && n.start_beat < end_of_measure {
                 let freq = 440.0 * 2.0_f32.powf((n.note as f32 - 69.0) / 12.0);
                 measure_notes.push(SynthNote {
@@ -259,14 +237,18 @@ pub fn load_midi_file(path: &Path) -> Result<Vec<Measure>, String> {
         });
 
         cursor = end_of_measure;
-
-        // Safety break for infinite loops if file is empty or calc error
         if beats_in_measure <= 0.0 {
             break;
         }
     }
 
     Ok(measures)
+}
+
+#[derive(PartialEq)]
+pub enum TunerMode {
+    MultiPitch,
+    SinglePitch,
 }
 
 pub struct MidiNote {
@@ -588,100 +570,202 @@ impl fmt::Display for Note {
     }
 }
 
-pub struct ADSR {
-    pub attack: f32,  // seconds
-    pub decay: f32,   // seconds
-    pub sustain: f32, // sustain level (0.0 - 1.0)
-    pub release: f32, // seconds
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum IntervalQuality {
+    Major,
+    Minor,
+    Perfect,
+    Augmented,
+    Diminished,
 }
 
-impl ADSR {
-    pub fn amplitude(&self, t: f32, duration: f32) -> f32 {
-        if t < self.attack {
-            // Linear ramp attack
-            t / self.attack
-        } else if t < self.attack + self.decay {
-            // Decay toward sustain
-            let d = (t - self.attack) / self.decay;
-            1.0 + (self.sustain - 1.0) * d
-        } else if t < duration - self.release {
-            // Sustain
-            self.sustain
-        } else if t < duration {
-            // Release
-            let d = (t - (duration - self.release)) / self.release;
-            self.sustain * (1.0 - d)
-        } else {
-            0.0
+pub struct Interval {
+    pub bass_note: Note,
+    pub top_note: Note,
+    pub size: u8,
+    pub quality: IntervalQuality,
+    pub semis: u8,
+    pub accuracy: f32,
+}
+
+impl Interval {
+    pub fn new(
+        freqs: Vec<f32>,
+        base_freq: Option<f32>,
+        system: Option<TuningSystem>,
+    ) -> Option<Self> {
+        Self::from_freqs(freqs, base_freq, system)
+    }
+
+    pub fn from_freqs(
+        freqs: Vec<f32>,
+        base_freq: Option<f32>,
+        _system: Option<TuningSystem>,
+    ) -> Option<Self> {
+        if freqs.len() != 2 {
+            return None;
         }
+
+        let bass = freqs[0];
+        let top = freqs[1];
+
+        // Ensure bass is lower than top, swap if needed for interval logic
+        let (bass, top) = if bass < top { (bass, top) } else { (top, bass) };
+
+        let bass_note = Note::from_freq(bass, base_freq);
+        let top_note = Note::from_freq(top, base_freq);
+
+        // 1. Calculate Semitones
+        // Formula: 12 * log2(f2 / f1)
+        let semitone_float = 12.0 * (top / bass).log2();
+        let semis = semitone_float.round() as u8;
+
+        // 2. Determine Size and Quality based on semitones (Standard 12-TET mapping)
+        // Note: This matches standard Western theory. Tritone is mapped to Diminished 5th here.
+        let (size, quality) = match semis % 12 {
+            0 => (1, IntervalQuality::Perfect),    // Unison
+            1 => (2, IntervalQuality::Minor),      // m2
+            2 => (2, IntervalQuality::Major),      // M2
+            3 => (3, IntervalQuality::Minor),      // m3
+            4 => (3, IntervalQuality::Major),      // M3
+            5 => (4, IntervalQuality::Perfect),    // P4
+            6 => (5, IntervalQuality::Diminished), // d5 (Tritone)
+            7 => (5, IntervalQuality::Perfect),    // P5
+            8 => (6, IntervalQuality::Minor),      // m6
+            9 => (6, IntervalQuality::Major),      // M6
+            10 => (7, IntervalQuality::Minor),     // m7
+            11 => (7, IntervalQuality::Major),     // M7
+            _ => (8, IntervalQuality::Perfect), // Octave (should be caught by mod, but for safety)
+        };
+
+        // Adjust size for octaves (e.g. 13 semitones is a m2 + octave, so size is 9)
+        let octave_shift = (semis / 12) * 7;
+        let adjusted_size = size + octave_shift;
+
+        // 3. Calculate Accuracy
+        // We calculate deviation in "cents". 1 semitone = 100 cents.
+        // If the note is perfectly on the grid, diff is 0.0.
+        // Accuracy score: 1.0 is perfect, 0.0 is 50 cents off (quarter tone).
+        let diff_semis = (semitone_float - semis as f32).abs();
+        let accuracy = (1.0 - (diff_semis * 2.0)).max(0.0);
+
+        Some(Self {
+            bass_note,
+            top_note,
+            size: adjusted_size,
+            quality,
+            semis,
+            accuracy,
+        })
+    }
+
+    pub fn get_accuracy(&self) -> f32 {
+        self.accuracy
+    }
+
+    pub fn get_name(&self) -> String {
+        let s = match (self.size - 1) % 7 {
+            0 => "Oct", // Or Unison if semis is 0
+            1 => "2nd",
+            2 => "3rd",
+            3 => "4th",
+            4 => "5th",
+            5 => "6th",
+            6 => "7th",
+            _ => "Unison",
+        };
+
+        // Handling Unison edge case
+        let s = if self.size == 1 { "Uni" } else { s };
+
+        let q = match self.quality {
+            IntervalQuality::Augmented => "+",
+            IntervalQuality::Diminished => "o",
+            IntervalQuality::Major => "M",
+            IntervalQuality::Minor => "m",
+            IntervalQuality::Perfect => "P",
+        };
+        format!("{q} {s}")
     }
 }
 
-fn osc_sample(waveform: Waveform, phase: f32, harmonics: usize) -> f32 {
-    match waveform {
-        Waveform::Sine => phase.sin(),
-        Waveform::Square => {
-            // Fourier series for square wave
-            (1..=harmonics)
-                .step_by(2) // odd harmonics only
-                .map(|k| (phase * k as f32).sin() / k as f32)
-                .sum::<f32>()
-                * (4.0 / std::f32::consts::PI)
-        }
-        Waveform::Sawtooth => {
-            // Fourier series for sawtooth
-            (1..=harmonics)
-                .map(|k| -(phase * k as f32).sin() / k as f32)
-                .sum::<f32>()
-                * (2.0 / std::f32::consts::PI)
-        }
-        Waveform::Triangle => {
-            // Fourier series for triangle wave
-            (1..=harmonics)
-                .step_by(2) // odd harmonics
-                .map(|k| {
-                    (phase * k as f32).sin() * (-1.0_f32).powi(((k - 1) / 2) as i32)
-                        / (k * k) as f32
-                })
-                .sum::<f32>()
-                * (8.0 / (std::f32::consts::PI * std::f32::consts::PI))
-        }
-    }
+// ==========================================
+//               CHORD LOGIC
+// ==========================================
+
+pub struct Chord {
+    pub name: String,
+    pub root_note: Note,
+    pub intervals: Vec<Interval>,
+    pub quality: String, // e.g. "Major Triad", "Minor 7", "Inverted"
 }
 
-pub fn create_wave(
-    waveform: Waveform,
-    freq: f32,
-    amplitude: f32,
-    duration_secs: f32,
-    sample_rate: u32,
-    channels: u16,
-    adsr: Option<&ADSR>,
-    harmonics: usize, // used for non-sine waves
-) {
-    let total_frames = (duration_secs * sample_rate as f32).round() as usize;
-    let mut samples = Vec::with_capacity(total_frames * channels as usize);
-
-    let mut phase = 0.0;
-    let phase_inc = 2.0 * std::f32::consts::PI * freq / sample_rate as f32;
-
-    for n in 0..total_frames {
-        let t = n as f32 / sample_rate as f32;
-        let mut sample = osc_sample(waveform, phase, harmonics);
-
-        // Envelope
-        if let Some(env) = &adsr {
-            sample *= env.amplitude(t, duration_secs);
+impl Chord {
+    /// Constructs a chord from a sorted vector of frequencies.
+    /// It calculates intervals between neighbors (0->1, 1->2, etc.)
+    /// and matches the sequence of intervals to known chord shapes.
+    pub fn new(mut freqs: Vec<f32>) -> Option<Self> {
+        if freqs.len() < 3 {
+            return None; // Need at least 3 notes for a chord (triad)
         }
 
-        sample *= amplitude;
-        phase += phase_inc;
-        if phase > 2.0 * std::f32::consts::PI {
-            phase -= 2.0 * std::f32::consts::PI;
+        // Sort frequencies low to high
+        freqs.sort_by(|a, b| a.partial_cmp(b).unwrap());
+
+        // Create the stack of intervals
+        let mut intervals = Vec::new();
+        let mut semitone_stack = Vec::new();
+
+        for i in 0..freqs.len() - 1 {
+            let pair = vec![freqs[i], freqs[i + 1]];
+            if let Some(interval) = Interval::from_freqs(pair, None, None) {
+                semitone_stack.push(interval.semis);
+                intervals.push(interval);
+            }
         }
 
-        for _ in 0..channels {
-            samples.push(sample);
-        }
+        // Identify Chord based on semitone stack
+        // The tuple result is (Chord Name, Index of Root Note in the freq list)
+        let (quality_name, root_index) = match semitone_stack.as_slice() {
+            // --- TRIADS ---
+            [4, 3] => ("Major", 0),           // Root Pos: M3, m3 (C E G)
+            [3, 5] => ("Major / 1st Inv", 2), // 1st Inv: m3, P4 (E G C) -> Root is Top (index 2)
+            [5, 4] => ("Major / 2nd Inv", 1), // 2nd Inv: P4, M3 (G C E) -> Root is Mid (index 1)
+
+            [3, 4] => ("Minor", 0),           // Root Pos: m3, M3 (C Eb G)
+            [4, 5] => ("Minor / 1st Inv", 2), // 1st Inv: M3, P4 (Eb G C) -> Root is Top (index 2)
+            [5, 3] => ("Minor / 2nd Inv", 1), // 2nd Inv: P4, m3 (G C Eb) -> Root is Mid (index 1)
+
+            [3, 3] => ("Diminished", 0), // m3, m3
+
+            // --- 7th CHORDS (4 Notes) ---
+            [4, 3, 4] => ("Major 7", 0),    // M3, m3, M3 (C E G B)
+            [3, 4, 3] => ("Minor 7", 0),    // m3, M3, m3 (C Eb G Bb)
+            [4, 3, 3] => ("Dominant 7", 0), // M3, m3, m3 (C E G Bb)
+
+            // --- SPECIFIC EXAMPLE FROM PROMPT ---
+            // "P4 then m6 is a minor chord on whatever the middle frequency is"
+            // P4 = 5 semis, m6 = 8 semis.
+            // Notes: 0, 5, 13. (e.g., G, C, Ab).
+            // Usually this is Fm(add9) no 5th, or some quartal harmony,
+            // but we map it per user request:
+            [5, 8] => ("User Defined Minor", 1),
+
+            _ => ("Unknown", 0),
+        };
+
+        // Determine the actual root note based on the index returned
+        // The root_index refers to the index in the sorted `freqs` vector
+        let root_freq = freqs[root_index];
+        let root_note = Note::from_freq(root_freq, None);
+
+        let name = format!("{} {}", root_note.get_name(), quality_name);
+
+        Some(Self {
+            name,
+            root_note,
+            intervals,
+            quality: quality_name.to_string(),
+        })
     }
 }
