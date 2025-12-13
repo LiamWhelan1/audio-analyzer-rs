@@ -1,7 +1,9 @@
 extern crate audio_analyzer_rs;
-use audio_analyzer_rs::testing::run_cli_simulation;
 use std::fs::File;
+
+use audio_analyzer_rs::testing::run_cli_simulation;
 use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt};
+
 fn main() -> anyhow::Result<()> {
     let file = File::create("output.log").expect("failed to create log file");
     let file_layer = fmt::layer()

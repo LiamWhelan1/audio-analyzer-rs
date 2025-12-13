@@ -166,7 +166,7 @@ impl Metronome {
 
     /// Spawn one or more tick generators for the given `BeatStrength`.
     fn spawn_tick(&mut self, strength: &BeatStrength) {
-        log::trace!("Tick at {}", self.transport.get_accumulated_beats());
+        log::trace!("Tick at {:.4}", self.transport.get_accumulated_beats());
         if self.muted {
             return;
         }

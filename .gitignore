@@ -2,3 +2,5 @@
 test_rec_0.wav
 theory.rs
 spectrogram.rs
+test.wav
+freq_output.csv

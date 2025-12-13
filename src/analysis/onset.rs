@@ -127,8 +127,8 @@ impl OnsetDetector {
             let min_inter_onset_samples = 4500;
             let mut samples_since_onset = min_inter_onset_samples;
 
-            while state.load(Ordering::Relaxed) != -1 {
-                if state.load(Ordering::Relaxed) == 0 {
+            while state.load(Ordering::Relaxed) != -1 || !cons.is_empty() {
+                if state.load(Ordering::Relaxed) == 0 || state.load(Ordering::Relaxed) == -1 {
                     match cons.pop() {
                         Ok(idx) => {
                             if slots.release(idx) {

@@ -271,9 +271,7 @@ impl AudioPipeline {
         let reclaimer_handle = thread::spawn(move || {
             while running_reclaim.load(Ordering::SeqCst) {
                 if let Ok(idx) = reclaim_rx.recv_timeout(Duration::from_millis(50)) {
-                    while free_prod.push(idx).is_err() {
-                        thread::sleep(Duration::from_micros(200));
-                    }
+                    let _ = free_prod.push(idx);
                 }
             }
         });
@@ -433,8 +431,8 @@ impl AudioPipeline {
     /// Safely shuts down the entire pipeline including input and output streams.
     pub fn shutdown(mut self) {
         self.running.store(false, Ordering::SeqCst);
+        self.stop_output();
         self.stop_input();
-        self.output_stream = None;
         println!("Pipeline shutdown complete.");
     }
 

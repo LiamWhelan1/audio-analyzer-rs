@@ -102,8 +102,8 @@ impl STFT {
 
             let mut active_tracks: Vec<NoteTrack> = Vec::with_capacity(12);
 
-            while state.load(Ordering::Relaxed) != -1 {
-                if state.load(Ordering::Relaxed) == 0 {
+            while state.load(Ordering::Relaxed) != -1 || !cons.is_empty() {
+                if state.load(Ordering::Relaxed) == 0 || state.load(Ordering::Relaxed) == -1 {
                     while let Ok(idx) = cons.pop() {
                         if idx < slots.slots.len() {
                             slots.release(idx);

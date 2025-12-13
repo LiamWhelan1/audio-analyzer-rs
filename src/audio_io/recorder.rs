@@ -67,7 +67,7 @@ impl Recorder {
             let mut writer = hound::WavWriter::new(bufw, spec).unwrap();
             let mut slots_written = 0usize;
             while state.load(Ordering::Relaxed) != -1 || !cons.is_empty() {
-                if state.load(Ordering::Relaxed) == 0 {
+                if state.load(Ordering::Relaxed) == 0 || state.load(Ordering::Relaxed) == -1 {
                     match cons.pop() {
                         Ok(idx) => {
                             if slots.release(idx) {
