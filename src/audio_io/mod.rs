@@ -1,6 +1,7 @@
 pub mod output;
 pub mod recorder;
 pub mod stft;
+pub mod tuner;
 
 use anyhow::{Result, anyhow};
 use cpal::traits::*;
@@ -838,7 +839,7 @@ impl AudioPipeline {
     }
 
     /// Spawns a pitch detection transformer using STFT analysis.
-    pub fn spawn_transformer(&mut self, callback: AnalysisCallback) -> Result<stft::STFT> {
+    pub fn spawn_transformer(&mut self, callback: &dyn AnalysisCallback) -> Result<stft::STFT> {
         let handle = self
             .available_handles
             .pop()

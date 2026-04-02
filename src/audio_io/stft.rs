@@ -1,5 +1,4 @@
 use std::{
-    ffi::CString,
     sync::{
         Arc,
         atomic::{AtomicI8, Ordering},
@@ -9,10 +8,9 @@ use std::{
 };
 
 use crossbeam_channel::Sender;
-use libc::c_char;
 use rustfft::num_complex::Complex;
 
-use crate::{AnalysisCallback, generators::Note};
+use crate::AnalysisCallback;
 use crate::{audio_io::SlotPool, dsp::fft::FftProcessor, traits::Worker};
 
 /// Short-time Fourier transform worker for pitch detection.
@@ -73,7 +71,7 @@ impl STFT {
         mut cons: rtrb::Consumer<usize>,
         reclaim: Sender<usize>,
         sr: u32,
-        callback: AnalysisCallback,
+        callback: &dyn AnalysisCallback,
     ) {
         self.state.store(1, Ordering::Relaxed);
         let state = self.state.clone();
@@ -296,18 +294,7 @@ impl STFT {
                         .map(|t| (t.freq, t.hits))
                         .collect();
 
-                    output
-                        .sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
-                    let output: Vec<CString> = output
-                        .iter()
-                        .map(|(x, _)| CString::new(Note::from_freq(*x, None).to_string()).unwrap())
-                        .collect();
-
-                    if !output.is_empty() {
-                        let to_send: Vec<*const c_char> =
-                            output.iter().map(|s| s.as_ptr()).collect();
-                        callback(to_send.as_ptr(), to_send.len())
-                    }
+                    output.sort_by(|a, b| a.0.total_cmp(&b.0));
 
                     ring_read_pos = (ring_read_pos + hop_size) % ring_buffer_len;
                     available_samples -= hop_size;
@@ -366,122 +353,3 @@ impl STFT {
             .collect()
     }
 }
-
-// pub struct Tuner {
-//     key: Key,
-//     base: f32,
-//     mode: TunerMode,
-//     system: TuningSystem,
-//     callback: AnalysisCallback,
-//     note_rx: Consumer<Vec<(f32, i32)>>,
-//     commands_rx: Consumer<TunerCommand>,
-// }
-
-// impl Tuner {
-//     pub fn new(
-//         callback: AnalysisCallback,
-//         note_rx: Consumer<Vec<(f32, i32)>>,
-//         commands_rx: Consumer<TunerCommand>,
-//     ) -> Self {
-//         Self {
-//             key: Key::new("C major"),
-//             base: 440.0,
-//             mode: TunerMode::MultiPitch,
-//             system: TuningSystem::EqualTemperament,
-//             callback,
-//             note_rx,
-//             commands_rx,
-//         }
-//     }
-
-//     fn send_notes(
-//         mut self,
-//         mut note_rx: Consumer<Vec<(f32, i32)>>,
-//         commands_rx: Consumer<TunerCommand>,
-//     ) {
-//         thread::spawn(move || {
-//             while !note_rx.is_abandoned() && !commands_rx.is_abandoned() {
-//                 self.handle_commands();
-//                 if let Ok(n) = note_rx.pop() {
-//                     let mut notes: Vec<String> = vec![];
-//                     let mut string_out = String::new();
-//                     let mut accuracy_out = 0.0f32;
-//                     let mut accuracies: Vec<f32> = vec![];
-//                     if n.is_empty() {
-//                         continue;
-//                     }
-//                     if n.len() == 1 || self.mode == TunerMode::SinglePitch {
-//                         let note = Note::from_freq(
-//                             n.iter().max_by(|a, b| a.1.cmp(&b.1)).unwrap().0,
-//                             Some(self.base),
-//                         );
-//                         notes.push(note.get_name());
-//                         accuracies.push(note.get_cents());
-//                         string_out = note.get_name();
-//                         accuracy_out = note.get_cents();
-//                     } else if n.len() == 2 {
-//                         let (n, _): (Vec<f32>, Vec<i32>) = n.into_iter().unzip();
-//                         let interval =
-//                             Interval::new(n, Some(self.base), Some(self.system)).unwrap();
-//                         notes.append(&mut vec![
-//                             interval.bass_note.get_name(),
-//                             interval.top_note.get_name(),
-//                         ]);
-//                         accuracies.append(&mut vec![
-//                             interval.bass_note.get_cents(),
-//                             interval.top_note.get_cents(),
-//                         ]);
-//                         string_out = interval.get_name();
-//                         accuracy_out = interval.get_accuracy();
-//                     } else {
-//                         // implement the chord piece
-//                     }
-//                     let string_out = CString::new(string_out).unwrap();
-//                     let notes: Vec<CString> = notes
-//                         .iter()
-//                         .map(|n| CString::new(n.as_bytes()).unwrap())
-//                         .collect();
-//                     let notes_out: Vec<*const i8> = notes.iter().map(|n| n.as_ptr()).collect();
-//                     (self.callback)(
-//                         string_out.as_ptr(),
-//                         accuracy_out,
-//                         notes_out.as_ptr(),
-//                         notes.len(),
-//                         accuracies.as_ptr(),
-//                         accuracies.len(),
-//                     );
-//                 }
-//             }
-//         });
-//     }
-
-//     fn handle_commands(&mut self) {
-//         while let Ok(cmd) = self.commands_rx.pop() {
-//             match cmd {
-//                 TunerCommand::SetBaseFreq(b) => self.base = b,
-//                 TunerCommand::SetKey(k) => self.key = Key::new(&k),
-//                 TunerCommand::SetMode(m) => self.mode = m,
-//                 TunerCommand::SetSystem(s) => self.system = s,
-//             }
-//         }
-//     }
-// }
-
-// pub enum TunerCommand {
-//     SetKey(String),
-//     SetBaseFreq(f32),
-//     SetMode(TunerMode),
-//     SetSystem(TuningSystem),
-// }
-
-#[derive(PartialEq, Copy, Clone)]
-pub enum TuningSystem {
-    EqualTemperament,
-    JustIntonation,
-}
-
-// #[derive(PartialEq, Clone, Copy)]
-// pub enum TunerMode {
-//     MultiPitch,
-//     SinglePitch,
-// }
