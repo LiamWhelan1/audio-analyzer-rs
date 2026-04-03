@@ -2,9 +2,11 @@ pub mod analysis;
 pub mod audio_io;
 pub mod dsp;
 pub mod generators;
+pub mod practice;
 pub mod testing;
 pub mod traits;
 
+use crate::analysis::tuner::{TunerCommand, TunerMode, TunerOutput, TuningSystem};
 use crate::audio_io::AudioPipeline;
 use crate::generators::player::PlayerController;
 use crate::generators::{
@@ -12,18 +14,50 @@ use crate::generators::{
     synth::SynthCommand,
 };
 use crate::traits::Worker;
+use rtrb::Producer;
 use std::sync::{Arc, Mutex};
 
 uniffi::setup_scaffolding!();
 
-// --- Callback Interfaces ---
-
-#[uniffi::export(callback_interface)]
-pub trait AnalysisCallback: Send + Sync {
-    fn on_analysis_result(&self, names: Vec<String>);
+#[derive(uniffi::Object)]
+pub struct Tuner {
+    producer: Mutex<Producer<TunerCommand>>,
+    output: Arc<parking_lot::RwLock<TunerOutput>>,
 }
 
-// --- Specific Worker Objects ---
+#[uniffi::export]
+impl Tuner {
+    pub fn poll_output(&self) -> String {
+        serde_json::to_string(&*self.output.read()).unwrap_or_else(|_| "{}".into())
+    }
+    pub fn set_base_freq(&self, freq: f32) {
+        push_command(self, TunerCommand::SetBaseFreq(freq));
+    }
+    pub fn set_key(&self, key: String) {
+        push_command(self, TunerCommand::SetKey(key));
+    }
+    pub fn set_mode(&self, mode: String) {
+        let m = match mode.as_str() {
+            "SinglePitch" => TunerMode::SinglePitch,
+            _ => TunerMode::MultiPitch,
+        };
+        push_command(self, TunerCommand::SetMode(m));
+    }
+    pub fn set_system(&self, system: String) {
+        let s = match system.as_str() {
+            "JustIntonation" => TuningSystem::JustIntonation,
+            _ => TuningSystem::EqualTemperament,
+        };
+        push_command(self, TunerCommand::SetSystem(s));
+    }
+    pub fn end(&self) {
+        push_command(self, TunerCommand::End);
+    }
+}
+
+fn push_command(tuner: &Tuner, cmd: TunerCommand) {
+    let _ = tuner.producer.lock().unwrap().push(cmd);
+}
 
 #[derive(uniffi::Object)]
 pub struct Metronome {
@@ -75,6 +109,14 @@ impl Metronome {
             .is_ok()
     }
 
+    pub fn set_muted(&self, muted: bool) -> bool {
+        self.producer
+            .lock()
+            .unwrap()
+            .push(MetronomeCommand::SetMuted(muted))
+            .is_ok()
+    }
+
     pub fn stop(&self) {
         let _ = self.producer.lock().unwrap().push(MetronomeCommand::Stop);
     }
@@ -87,7 +129,7 @@ pub struct Synth {
 
 #[uniffi::export]
 impl Synth {
-    pub fn play_live(&self, freq: f32, velocity: f32) -> bool {
+    pub fn play_note(&self, freq: f32, velocity: f32) -> bool {
         let cmd = if velocity > 0.0 {
             SynthCommand::NoteOn {
                 freq,
@@ -136,6 +178,9 @@ impl Synth {
             .lock()
             .unwrap()
             .push(SynthCommand::SetVolume(volume));
+    }
+    pub fn stop(&self) {
+        let _ = self.producer.lock().unwrap().push(SynthCommand::Stop);
     }
 }
 
@@ -229,10 +274,21 @@ impl AudioEngine {
 
     pub fn start_onset_detection(&self) -> bool {
         let mut pipe = self.pipeline.lock().unwrap();
+        let _ = pipe.start_input();
         if let Ok(mut onset) = pipe.spawn_onset() {
             onset.start();
             return true;
         }
         false
+    }
+
+    pub fn start_tuner(&self) -> Arc<Tuner> {
+        let mut pipe = self.pipeline.lock().unwrap();
+        let _ = pipe.start_input();
+        let (producer, output) = pipe.spawn_tuner();
+        Arc::new(Tuner {
+            producer: Mutex::new(producer),
+            output,
+        })
     }
 }

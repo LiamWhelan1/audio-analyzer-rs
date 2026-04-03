@@ -1,18 +1,9 @@
-use crate::{AnalysisCallback, AudioEngine, Metronome, Player, Synth};
-use std::collections::HashMap;
+use crate::{AudioEngine, Metronome, Player, Synth, Tuner};
 use std::io::{self, Write};
 use std::sync::Arc;
 
 /// Implementation of the UniFFI callback interface for the Tuner.
 /// In a real React Native app, this interface would be implemented in Swift or Kotlin.
-struct CliTunerCallback;
-
-impl AnalysisCallback for CliTunerCallback {
-    fn on_analysis_result(&self, names: Vec<String>) {
-        print!("\x1B[2K\r[Tuner] Notes: {:?}", names);
-        io::stdout().flush().unwrap();
-    }
-}
 
 #[cfg(test)]
 mod ffi_tests {
@@ -50,11 +41,7 @@ pub fn run_cli_simulation() {
     let mut metronome: Option<Arc<Metronome>> = None;
     let mut synth: Option<Arc<Synth>> = None;
     let mut player: Option<Arc<Player>> = None;
-
-    // Simple flags for non-controlled workers
-    let mut is_recording = false;
-    let mut is_detecting_onsets = false;
-    let mut is_tuning = false;
+    let mut tuner: Option<Arc<Tuner>> = None;
 
     println!(
         "Commands: audio play, audio pause, rec start, rec stop, tuner start, tuner stop, \
@@ -72,14 +59,6 @@ pub fn run_cli_simulation() {
         let command = input.trim().to_lowercase();
 
         match command.as_str() {
-            "audio play" => {
-                engine.start_output();
-                println!("Output started.");
-            }
-            "audio pause" => {
-                println!("Pipeline pause requested (Global).");
-            }
-
             // --- Metronome ---
             "met start" => {
                 metronome = Some(engine.create_metronome(120.0));
@@ -112,7 +91,7 @@ pub fn run_cli_simulation() {
             "synth note" => {
                 if let Some(s) = &synth {
                     // Logic for a middle C (261.63 Hz) at full velocity
-                    s.play_live(261.63, 1.0);
+                    s.play_note(261.63, 1.0);
                     println!("Playing Middle C...");
                 }
             }
@@ -140,18 +119,48 @@ pub fn run_cli_simulation() {
             // --- Recording & Analysis ---
             "rec start" => {
                 if engine.start_recording("test_output.wav".to_string()) {
-                    is_recording = true;
                     println!("Recording to test_output.wav");
                 }
             }
             "onset start" => {
                 if engine.start_onset_detection() {
-                    is_detecting_onsets = true;
                     println!("Onset detection active.");
                 }
             }
+            "tuner start" => {
+                tuner = Some(engine.start_tuner());
+                let move_tuner = Arc::downgrade(tuner.as_ref().unwrap());
+                std::thread::spawn(move || {
+                    loop {
+                        if let Some(tuner) = move_tuner.upgrade() {
+                            let response = tuner.poll_output();
+                            println!("Tuner output: {}", response);
+                        } else {
+                            break;
+                        }
+                        std::thread::sleep(std::time::Duration::from_millis(100));
+                    }
+                });
+            }
+            "tuner mode: single" => {
+                if let Some(tuner) = &tuner {
+                    tuner.set_mode("SinglePitch".to_string());
+                }
+            }
+            "tuner mode: multi" => {
+                if let Some(tuner) = &tuner {
+                    tuner.set_mode("MultiPitch".to_string());
+                }
+            }
+            "tuner stop" => {
+                if let Some(tuner) = &tuner {
+                    tuner.end();
+                }
+                tuner = None;
+                println!("Tuner dropped.");
+            }
 
-            "all exit" => {
+            "exit" => {
                 println!("Shutting down engine.");
                 break;
             }

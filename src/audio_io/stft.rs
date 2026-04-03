@@ -8,12 +8,17 @@ use std::{
 };
 
 use crossbeam_channel::Sender;
+use rtrb::Producer;
 use rustfft::num_complex::Complex;
 
-use crate::AnalysisCallback;
 use crate::{audio_io::SlotPool, dsp::fft::FftProcessor, traits::Worker};
 
 /// Short-time Fourier transform worker for pitch detection.
+///
+/// The STFT no longer converts frequencies to note names or invokes an
+/// FFI callback.  Instead it pushes raw `Vec<(f32, i32)>` (frequency,
+/// hit count) frames into an `rtrb` ring buffer that the [`Tuner`]
+/// consumes on its own thread.
 pub struct STFT {
     state: Arc<AtomicI8>,
     handle: u8,
@@ -58,12 +63,21 @@ impl STFT {
 
     /// Spawn pitch detection processing on a background thread.
     ///
-    /// - `slots` is the shared buffer pool.
-    /// - `slot_len` is the number of samples per slot.
-    /// - `cons` receives filled slot indices.
-    /// - `reclaim` returns freed slots.
-    /// - `sr` is the sampling rate.
-    /// - `callback` receives C string pointers of detected notes.
+    /// Instead of the old `AnalysisCallback` that pushed C-strings over
+    /// FFI, the STFT now writes each analysis frame as a
+    /// `Vec<(f32, i32)>` — raw frequency + hysteresis hit count — into
+    /// `note_tx`.  The [`Tuner`] reads the other end of this channel,
+    /// applies its own key/mode/system settings, and publishes a
+    /// [`TunerOutput`] for the React frontend to poll.
+    ///
+    /// # Arguments
+    ///
+    /// * `slots`    – shared sample buffer pool
+    /// * `slot_len` – number of samples per slot
+    /// * `cons`     – receives filled slot indices from the audio thread
+    /// * `reclaim`  – returns freed slot indices to the audio thread
+    /// * `sr`       – sampling rate in Hz
+    /// * `note_tx`  – producer end of the STFT → Tuner channel
     pub fn detect_pitches(
         &mut self,
         slots: Arc<SlotPool>,
@@ -71,7 +85,7 @@ impl STFT {
         mut cons: rtrb::Consumer<usize>,
         reclaim: Sender<usize>,
         sr: u32,
-        callback: &dyn AnalysisCallback,
+        note_tx: Producer<Vec<(f32, i32)>>,
     ) {
         self.state.store(1, Ordering::Relaxed);
         let state = self.state.clone();
@@ -87,6 +101,10 @@ impl STFT {
         const CONFIDENCE_THRESH: f32 = 0.60;
 
         thread::spawn(move || {
+            // We need note_tx inside the closure but must also let the
+            // compiler know when the producer is dropped (on thread exit).
+            let mut note_tx = note_tx;
+
             let hann = Self::hann_window(window_size);
             let mut fft_processor = FftProcessor::new(window_size);
 
@@ -288,13 +306,29 @@ impl STFT {
 
                     active_tracks.retain(|t| t.misses < 4);
 
-                    let mut output: Vec<(f32, i32)> = active_tracks
+                    // ── NEW: send raw (freq, hits) to the Tuner ─────
+                    //
+                    // Previously this is where the STFT would convert
+                    // frequencies to Note names via Note::from_freq,
+                    // build CStrings, and fire the AnalysisCallback.
+                    //
+                    // Now we just forward the tracked frequencies and
+                    // their confidence (hit count) as-is.  The Tuner
+                    // applies key, mode, system, and base pitch on its
+                    // own thread before publishing to the UI.
+
+                    let output: Vec<(f32, i32)> = active_tracks
                         .iter()
                         .filter(|t| t.hits >= 3)
                         .map(|t| (t.freq, t.hits))
                         .collect();
 
-                    output.sort_by(|a, b| a.0.total_cmp(&b.0));
+                    if !output.is_empty() {
+                        // try_push: if the Tuner is behind we silently
+                        // drop the oldest frame — acceptable for a
+                        // real-time display that only needs the latest.
+                        let _ = note_tx.push(output);
+                    }
 
                     ring_read_pos = (ring_read_pos + hop_size) % ring_buffer_len;
                     available_samples -= hop_size;

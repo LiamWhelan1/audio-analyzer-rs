@@ -11,7 +11,7 @@ use crossbeam_channel::Sender;
 use rtrb::{Consumer, Producer};
 
 use crate::{
-    audio_io::SlotPool, audio_io::output::MusicalTransport, dsp::fft::FftProcessor, traits::Worker,
+    audio_io::SlotPool, audio_io::timing::MusicalTransport, dsp::fft::FftProcessor, traits::Worker,
 };
 
 /// Detects onsets from incoming audio buffers and reports beat timestamps.

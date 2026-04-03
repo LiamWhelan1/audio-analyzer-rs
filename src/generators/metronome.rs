@@ -1,5 +1,5 @@
 use super::{MIN_ENVELOPE, TWO_PI};
-use crate::{audio_io::output::MusicalTransport, traits::AudioSource};
+use crate::{audio_io::timing::MusicalTransport, traits::AudioSource};
 use log;
 use rtrb::{Consumer, Producer, RingBuffer};
 use std::sync::Arc;

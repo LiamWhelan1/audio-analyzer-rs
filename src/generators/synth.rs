@@ -1,7 +1,7 @@
 use super::{MAX_MIDI_VELOCITY, TWO_PI};
 use crate::generators::{EnvState, Instrument, InstrumentParams, Measure, load_midi_file};
 use crate::traits::AudioSource;
-use crate::{audio_io::output::MusicalTransport, generators::metronome::MetronomeCommand};
+use crate::{audio_io::timing::MusicalTransport, generators::metronome::MetronomeCommand};
 use rtrb::{Consumer, Producer, RingBuffer};
 use std::path::Path;
 use std::{f32::consts::PI, sync::Arc};
@@ -27,6 +27,7 @@ pub enum SynthCommand {
     },
     SetVolume(f32),
     SetMuted(bool),
+    End,
 }
 
 /// Single-voice state for synthesis (oscillator + ADSR).
@@ -265,6 +266,7 @@ impl Synthesizer {
                     self.transport.reset_to_beats(0.0);
                 }
                 SynthCommand::SetMuted(m) => self.muted = m,
+                SynthCommand::End => self.finished = true,
             }
         }
     }

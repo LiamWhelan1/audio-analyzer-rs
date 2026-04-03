@@ -1,7 +1,7 @@
 pub mod output;
 pub mod recorder;
 pub mod stft;
-pub mod tuner;
+pub mod timing;
 
 use anyhow::{Result, anyhow};
 use cpal::traits::*;
@@ -16,12 +16,13 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::thread;
 use std::time::Duration;
 
-use crate::AnalysisCallback;
 use crate::analysis::onset::OnsetDetector;
+use crate::analysis::tuner;
 use crate::generators::metronome::{BeatStrength, Metronome, MetronomeCommand};
 use crate::generators::player::{AudioPlayer, PlayerController};
 use crate::generators::synth::{SynthCommand, Synthesizer};
-use output::{Mixer, MusicalTransport, OutputController};
+use output::{Mixer, OutputController};
+use timing::MusicalTransport;
 
 /// Manages a pool of reusable audio buffers with atomic reference counting.
 pub struct SlotPool {
@@ -839,7 +840,12 @@ impl AudioPipeline {
     }
 
     /// Spawns a pitch detection transformer using STFT analysis.
-    pub fn spawn_transformer(&mut self, callback: &dyn AnalysisCallback) -> Result<stft::STFT> {
+    pub fn spawn_tuner(
+        &mut self,
+    ) -> (
+        Producer<tuner::TunerCommand>,
+        Arc<parking_lot::RwLock<tuner::TunerOutput>>,
+    ) {
         let handle = self
             .available_handles
             .pop()
@@ -847,17 +853,32 @@ impl AudioPipeline {
 
         self.active_workers.push(handle);
         let cons = self.add_consumer(handle);
+        // 1. Create the STFT → Tuner channel.
+        //    Capacity 64 is generous — at 44100 Hz with a 2048-sample hop
+        //    the STFT produces ~21 frames/sec; the Tuner drains them in
+        //    under 1 ms each.
+        let (note_tx, note_rx) = RingBuffer::<Vec<(f32, i32)>>::new(64);
 
-        let mut stft = stft::STFT::new(handle);
+        // 2. Create the Tuner and get back:
+        //    • cmd_tx  — for the UI to send parameter changes
+        //    • output  — for the UI to poll the latest analysis
+        let (tuner, cmd_tx, output) = tuner::Tuner::new(note_rx);
+
+        // 4. Start the Tuner thread (consumes `tuner`).
+        tuner.run();
+
+        // 5. Start the STFT — note: no more AnalysisCallback parameter.
+        //    It now takes `note_tx: Producer<Vec<(f32, i32)>>` instead.
+        let mut stft = stft::STFT::new(0);
         stft.detect_pitches(
             self.slots.clone(),
             self.meta.slot_len,
             cons,
             self.reclaim_tx.clone(),
             self.meta.in_sr,
-            callback,
+            note_tx, // ← replaces `callback: AnalysisCallback`
         );
-        Ok(stft)
+        (cmd_tx, output)
     }
 
     /// Spawns an onset detector for beat/note tracking.

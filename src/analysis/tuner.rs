@@ -2,7 +2,7 @@ use rtrb::{Consumer, Producer, RingBuffer};
 use serde::Serialize;
 use std::{sync::Arc, thread, time::Duration};
 
-use crate::{analysis::theory::Interval, generators::Note};
+use crate::analysis::theory::{Interval, Note};
 
 // ─── Tuner enums ────────────────────────────────────────────────────
 
@@ -22,11 +22,13 @@ pub enum TunerMode {
 
 // ─── Commands: sent from any thread (UI, FFI, etc.) into the Tuner ──
 
+#[derive(Debug)]
 pub enum TunerCommand {
     SetKey(String),
     SetBaseFreq(f32),
     SetMode(TunerMode),
     SetSystem(TuningSystem),
+    End,
 }
 
 // ─── Output payload: what the React frontend reads ──────────────────
@@ -79,6 +81,7 @@ pub struct Tuner {
 
     // Shared output that any reader (React, FFI callback, etc.) can poll
     output: Arc<parking_lot::RwLock<TunerOutput>>,
+    finished: bool,
 }
 
 impl Tuner {
@@ -108,6 +111,7 @@ impl Tuner {
             command_rx: cmd_rx,
             note_rx,
             output: Arc::clone(&output),
+            finished: false,
         };
 
         (tuner, cmd_tx, output)
@@ -122,6 +126,7 @@ impl Tuner {
                 TunerCommand::SetKey(k) => self.key = k,
                 TunerCommand::SetMode(m) => self.mode = m,
                 TunerCommand::SetSystem(s) => self.system = s,
+                TunerCommand::End => self.finished = true,
             }
         }
     }
@@ -133,7 +138,7 @@ impl Tuner {
     /// the shared `TunerOutput`.
     pub fn run(mut self) {
         thread::spawn(move || {
-            while !self.note_rx.is_abandoned() {
+            while !self.note_rx.is_abandoned() && !self.finished {
                 // 1. Apply any parameter changes from the UI thread
                 self.handle_commands();
 
@@ -206,66 +211,3 @@ impl Tuner {
         });
     }
 }
-
-// ─── Example: wiring it all together ────────────────────────────────
-//
-// In main / lib init:
-//
-//   let (note_tx, note_rx) = RingBuffer::<Vec<(f32, i32)>>::new(64);
-//
-//   // STFT writes confirmed_candidates into note_tx instead of
-//   // building CStrings and calling the FFI callback directly.
-//
-//   let (tuner, cmd_tx, tuner_output) = Tuner::new(note_rx);
-//   tuner.run();   // spawns its own thread
-//
-//   // Hand `cmd_tx` to the FFI / wasm-bindgen layer that talks to JS.
-//   // Hand `tuner_output` to the polling bridge (see below).
-//
-// ─── React bridge (FFI or wasm-bindgen) ─────────────────────────────
-//
-// ### Option A — FFI callback at ~60 Hz (matches requestAnimationFrame)
-//
-//   A dedicated timer thread reads `tuner_output` and invokes a C
-//   callback that the React native bridge registered:
-//
-//     fn start_ui_pump(
-//         output: Arc<parking_lot::RwLock<TunerOutput>>,
-//         cb: extern "C" fn(*const c_char),  // receives JSON
-//     ) {
-//         thread::spawn(move || loop {
-//             {
-//                 let snap = output.read();
-//                 let json = serde_json::to_string(&*snap).unwrap();
-//                 let c = CString::new(json).unwrap();
-//                 cb(c.as_ptr());
-//             }
-//             thread::sleep(Duration::from_millis(16)); // ~60 fps
-//         });
-//     }
-//
-// ### Option B — wasm-bindgen (WebAssembly in the browser)
-//
-//   Expose a `poll_tuner()` function that JS calls every frame:
-//
-//     #[wasm_bindgen]
-//     pub fn poll_tuner() -> JsValue {
-//         let snap = TUNER_OUTPUT.read();        // global Arc
-//         serde_wasm_bindgen::to_value(&*snap).unwrap()
-//     }
-//
-//     #[wasm_bindgen]
-//     pub fn set_tuner_base_freq(freq: f32) {
-//         CMD_TX.lock().push(TunerCommand::SetBaseFreq(freq)).ok();
-//     }
-//
-//   React side:
-//
-//     useEffect(() => {
-//       let id = requestAnimationFrame(function tick() {
-//         const data = wasm.poll_tuner();
-//         setTunerData(data);
-//         id = requestAnimationFrame(tick);
-//       });
-//       return () => cancelAnimationFrame(id);
-//     }, []);
