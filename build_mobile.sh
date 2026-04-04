@@ -80,6 +80,7 @@ build_android() {
     step "Building Android targets (all ABIs)"
     # API level 26+ required for cpal/AAudio; set via [package.metadata.ndk] in Cargo.toml
     cargo ndk \
+        --platform 26 \
         -t aarch64-linux-android \
         -t armv7-linux-androideabi \
         -t i686-linux-android \
