@@ -11,7 +11,7 @@ use crossbeam_channel::Sender;
 use rtrb::Producer;
 use rustfft::num_complex::Complex;
 
-use crate::{audio_io::SlotPool, dsp::fft::FftProcessor, traits::Worker};
+use crate::{audio_io::SlotPool, dsp::fft::FftProcessor};
 
 /// Short-time Fourier transform worker for pitch detection.
 ///
@@ -22,25 +22,26 @@ use crate::{audio_io::SlotPool, dsp::fft::FftProcessor, traits::Worker};
 pub struct STFT {
     state: Arc<AtomicI8>,
     handle: u8,
+    reducer_remove_tx: Sender<u8>,
 }
 
-impl Worker for STFT {
-    /// Stop the worker and return its handle.
-    fn stop(&mut self) -> u8 {
+impl STFT {
+    pub fn stop(&mut self) {
         self.state.store(-1, Ordering::Relaxed);
-        self.handle
     }
-
-    /// Pause the worker and return its handle.
-    fn pause(&mut self) -> u8 {
+    pub fn pause(&mut self) {
         self.state.store(0, Ordering::Relaxed);
-        self.handle
     }
-
-    /// Start or resume the worker and return its handle.
-    fn start(&mut self) -> u8 {
+    pub fn resume(&mut self) {
         self.state.store(1, Ordering::Relaxed);
-        self.handle
+    }
+}
+
+impl Drop for STFT {
+    fn drop(&mut self) {
+        println!("Dropped stft");
+        let _ = self.reducer_remove_tx.send(self.handle);
+        self.stop();
     }
 }
 
@@ -54,10 +55,11 @@ struct NoteTrack {
 
 impl STFT {
     /// Create a new STFT worker with the given handle.
-    pub fn new(handle: u8) -> Self {
+    pub fn new(handle: u8, reducer_remove_tx: Sender<u8>) -> Self {
         STFT {
-            state: Arc::new(AtomicI8::new(0)),
             handle,
+            reducer_remove_tx,
+            state: Arc::new(AtomicI8::new(0)),
         }
     }
 

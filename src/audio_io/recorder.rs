@@ -18,25 +18,19 @@ use rtrb::Consumer;
 pub struct Recorder {
     state: Arc<AtomicI8>,
     handle: u8,
+    reducer_remove_tx: Sender<u8>,
 }
 
-impl crate::traits::Worker for Recorder {
-    /// Stop the recorder and return its handle.
-    fn stop(&mut self) -> u8 {
+impl Recorder {
+    pub fn stop(&mut self)   { self.state.store(-1, Ordering::Relaxed); }
+    pub fn pause(&mut self)  { self.state.store(0,  Ordering::Relaxed); }
+    pub fn resume(&mut self) { self.state.store(1,  Ordering::Relaxed); }
+}
+
+impl Drop for Recorder {
+    fn drop(&mut self) {
         self.state.store(-1, Ordering::Relaxed);
-        self.handle
-    }
-
-    /// Pause the recorder and return its handle.
-    fn pause(&mut self) -> u8 {
-        self.state.store(0, Ordering::Relaxed);
-        self.handle
-    }
-
-    /// Start or resume the recorder and return its handle.
-    fn start(&mut self) -> u8 {
-        self.state.store(1, Ordering::Relaxed);
-        self.handle
+        let _ = self.reducer_remove_tx.send(self.handle);
     }
 }
 
@@ -47,17 +41,20 @@ impl Recorder {
     /// - `cons` receives indices of filled slots.
     /// - `handle` is the worker id for this recorder.
     /// - `reclaim` is used to return freed slots.
+    /// - `reducer_remove_tx` notifies the reducer to remove this consumer on drop.
     pub fn start_record(
         slots: Arc<SlotPool>,
         mut cons: Consumer<usize>,
         handle: u8,
         reclaim: Sender<usize>,
+        reducer_remove_tx: Sender<u8>,
         spec: WavSpec,
         path: String,
     ) -> Self {
         let recorder = Recorder {
             state: Arc::new(AtomicI8::new(1)),
             handle,
+            reducer_remove_tx,
         };
         let state = recorder.state.clone();
         println!("recorder initialized");

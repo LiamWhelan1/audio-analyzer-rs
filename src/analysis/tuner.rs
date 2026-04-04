@@ -2,7 +2,10 @@ use rtrb::{Consumer, Producer, RingBuffer};
 use serde::Serialize;
 use std::{sync::Arc, thread, time::Duration};
 
-use crate::analysis::theory::{Interval, Note};
+use crate::{
+    analysis::theory::{Interval, Note},
+    audio_io::stft::STFT,
+};
 
 // ─── Tuner enums ────────────────────────────────────────────────────
 
@@ -81,6 +84,9 @@ pub struct Tuner {
 
     // Shared output that any reader (React, FFI callback, etc.) can poll
     output: Arc<parking_lot::RwLock<TunerOutput>>,
+
+    // Hold stft thread
+    _active_stft: STFT,
     finished: bool,
 }
 
@@ -95,6 +101,7 @@ impl Tuner {
     ///   so JS can poll it via `requestAnimationFrame`.
     pub fn new(
         note_rx: Consumer<Vec<(f32, i32)>>,
+        stft: STFT,
     ) -> (
         Self,
         Producer<TunerCommand>,
@@ -111,6 +118,7 @@ impl Tuner {
             command_rx: cmd_rx,
             note_rx,
             output: Arc::clone(&output),
+            _active_stft: stft,
             finished: false,
         };
 

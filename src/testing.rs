@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use crate::{AudioEngine, Metronome, Player, Synth, Tuner};
+use crate::AudioEngine;
 use std::io::{self, Write};
 use std::sync::Arc;
 
@@ -27,7 +27,7 @@ mod ffi_tests {
         assert!(metronome.set_volume(0.8));
 
         // 5. Cleanup is automatic when the Arc goes out of scope
-        metronome.stop();
+        engine.stop_metronome();
     }
 }
 
@@ -38,12 +38,6 @@ pub fn run_cli_simulation() {
 
     // Initialize the engine
     let engine = AudioEngine::new();
-
-    // Store objects in Arcs
-    let mut metronome: Option<Arc<Metronome>> = None;
-    let mut synth: Option<Arc<Synth>> = None;
-    let mut player: Option<Arc<Player>> = None;
-    let mut tuner: Option<Arc<Tuner>> = None;
 
     println!(
         "Commands: audio play, audio pause, rec start, rec stop, tuner start, tuner stop, \
@@ -63,18 +57,15 @@ pub fn run_cli_simulation() {
         match command.as_str() {
             // --- Metronome ---
             "met start" => {
-                metronome = Some(engine.create_metronome(120.0));
+                engine.create_metronome(120.0);
                 println!("Metronome created at 120 BPM.");
             }
             "met stop" => {
-                if let Some(m) = &metronome {
-                    m.stop();
-                }
-                metronome = None;
+                engine.stop_metronome();
                 println!("Metronome dropped.");
             }
             "met bpm" => {
-                if let Some(m) = &metronome {
+                if let Some(m) = engine.active_metronome.lock().unwrap().as_ref() {
                     print!("New BPM: ");
                     io::stdout().flush().unwrap();
                     let mut b = String::new();
@@ -96,28 +87,28 @@ pub fn run_cli_simulation() {
             }
             // --- Synth ---
             "synth start" => {
-                synth = Some(engine.create_synth());
+                engine.create_synth();
                 println!("Synth created.");
             }
             "synth note" => {
-                if let Some(s) = &synth {
+                if let Some(s) = engine.active_synth.lock().unwrap().as_ref() {
                     // Logic for a middle C (261.63 Hz) at full velocity
                     s.play_note(261.63, 1.0);
                     println!("Playing Middle C...");
                 }
             }
             "synth stop" => {
-                synth = None;
+                engine.stop_synth();
                 println!("Synth dropped.");
             }
 
             // --- Player ---
             "player start" => {
-                player = Some(engine.create_player());
+                engine.create_player();
                 println!("Player created.");
             }
             "player load" => {
-                if let Some(p) = &player {
+                if let Some(p) = engine.active_player.lock().unwrap().as_ref() {
                     print!("File path: ");
                     io::stdout().flush().unwrap();
                     let mut path = String::new();
@@ -129,45 +120,54 @@ pub fn run_cli_simulation() {
 
             // --- Recording & Analysis ---
             "rec start" => {
-                if engine.start_recording("test_output.wav".to_string()) {
+                if engine
+                    .start_recording("test_output.wav".to_string())
+                    .is_some()
+                {
                     println!("Recording to test_output.wav");
                 }
             }
+            "rec stop" => {
+                engine.stop_recording();
+                println!("Rec dropped.");
+            }
             "onset start" => {
-                if engine.start_onset_detection() {
+                if engine.start_onset_detection().is_some() {
                     println!("Onset detection active.");
                 }
             }
+            "onset stop" => {
+                engine.stop_onset_detection();
+                println!("Onset dropped.");
+            }
             "tuner start" => {
-                tuner = Some(engine.start_tuner());
-                let move_tuner = Arc::downgrade(tuner.as_ref().unwrap());
-                std::thread::spawn(move || {
-                    loop {
-                        if let Some(tuner) = move_tuner.upgrade() {
-                            let response = tuner.poll_output();
-                            println!("Tuner output: {}", response);
-                        } else {
-                            break;
+                if let Some(tuner) = engine.start_tuner() {
+                    let move_tuner = Arc::downgrade(&tuner);
+                    std::thread::spawn(move || {
+                        loop {
+                            if let Some(tuner) = move_tuner.upgrade() {
+                                let response = tuner.poll_output();
+                                println!("Tuner output: {}", response);
+                            } else {
+                                break;
+                            }
+                            std::thread::sleep(std::time::Duration::from_millis(100));
                         }
-                        std::thread::sleep(std::time::Duration::from_millis(100));
-                    }
-                });
+                    });
+                }
             }
             "tuner mode: single" => {
-                if let Some(tuner) = &tuner {
+                if let Some(tuner) = engine.active_tuner.lock().unwrap().as_ref() {
                     tuner.set_mode("SinglePitch".to_string());
                 }
             }
             "tuner mode: multi" => {
-                if let Some(tuner) = &tuner {
+                if let Some(tuner) = engine.active_tuner.lock().unwrap().as_ref() {
                     tuner.set_mode("MultiPitch".to_string());
                 }
             }
             "tuner stop" => {
-                if let Some(tuner) = &tuner {
-                    tuner.end();
-                }
-                tuner = None;
+                engine.stop_tuner();
                 println!("Tuner dropped.");
             }
 

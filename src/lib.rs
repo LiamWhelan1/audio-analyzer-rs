@@ -8,16 +8,18 @@ pub mod traits;
 
 use crate::analysis::tuner::{TunerCommand, TunerMode, TunerOutput, TuningSystem};
 use crate::audio_io::AudioPipeline;
+use crate::audio_io::timing::OnsetEvent;
 use crate::generators::player::PlayerController;
 use crate::generators::{
     metronome::{BeatStrength, MetronomeCommand},
     synth::SynthCommand,
 };
-use crate::traits::Worker;
 use rtrb::Producer;
 use std::sync::{Arc, Mutex};
 
 uniffi::setup_scaffolding!();
+
+// --- Exported Objects ---
 
 #[derive(uniffi::Object)]
 pub struct Tuner {
@@ -31,37 +33,41 @@ impl Tuner {
         serde_json::to_string(&*self.output.read()).unwrap_or_else(|_| "{}".into())
     }
     pub fn set_base_freq(&self, freq: f32) {
-        push_command(self, TunerCommand::SetBaseFreq(freq));
+        let _ = self
+            .producer
+            .lock()
+            .unwrap()
+            .push(TunerCommand::SetBaseFreq(freq));
     }
     pub fn set_key(&self, key: String) {
-        push_command(self, TunerCommand::SetKey(key));
+        let _ = self
+            .producer
+            .lock()
+            .unwrap()
+            .push(TunerCommand::SetKey(key));
     }
     pub fn set_mode(&self, mode: String) {
         let m = match mode.as_str() {
             "SinglePitch" => TunerMode::SinglePitch,
             _ => TunerMode::MultiPitch,
         };
-        push_command(self, TunerCommand::SetMode(m));
+        let _ = self.producer.lock().unwrap().push(TunerCommand::SetMode(m));
     }
     pub fn set_system(&self, system: String) {
         let s = match system.as_str() {
             "JustIntonation" => TuningSystem::JustIntonation,
             _ => TuningSystem::EqualTemperament,
         };
-        push_command(self, TunerCommand::SetSystem(s));
+        let _ = self
+            .producer
+            .lock()
+            .unwrap()
+            .push(TunerCommand::SetSystem(s));
     }
-    pub fn end(&self) {
-        push_command(self, TunerCommand::End);
-    }
-}
-
-fn push_command(tuner: &Tuner, cmd: TunerCommand) {
-    let _ = tuner.producer.lock().unwrap().push(cmd);
 }
 
 #[derive(uniffi::Object)]
 pub struct Metronome {
-    // Wrapped in Mutex to satisfy Sync requirement for UniFFI/Arc
     producer: Mutex<rtrb::Producer<MetronomeCommand>>,
 }
 
@@ -74,7 +80,6 @@ impl Metronome {
             .push(MetronomeCommand::SetBpm(bpm))
             .is_ok()
     }
-
     pub fn set_volume(&self, volume: f32) -> bool {
         self.producer
             .lock()
@@ -82,7 +87,6 @@ impl Metronome {
             .push(MetronomeCommand::SetVolume(volume))
             .is_ok()
     }
-
     pub fn set_pattern(&self, pattern: Vec<i32>) -> bool {
         let strengths = pattern
             .into_iter()
@@ -99,26 +103,12 @@ impl Metronome {
             .push(MetronomeCommand::SetPattern(strengths))
             .is_ok()
     }
-
-    pub fn set_subdivisions(&self, subdivisions: Vec<u32>, beat_index: u32) -> bool {
-        let divs = subdivisions.into_iter().map(|s| s as usize).collect();
-        self.producer
-            .lock()
-            .unwrap()
-            .push(MetronomeCommand::SetPolyrhythm((divs, beat_index as usize)))
-            .is_ok()
-    }
-
     pub fn set_muted(&self, muted: bool) -> bool {
         self.producer
             .lock()
             .unwrap()
             .push(MetronomeCommand::SetMuted(muted))
             .is_ok()
-    }
-
-    pub fn stop(&self) {
-        let _ = self.producer.lock().unwrap().push(MetronomeCommand::Stop);
     }
 }
 
@@ -141,36 +131,11 @@ impl Synth {
         };
         self.producer.lock().unwrap().push(cmd).is_ok()
     }
-
-    pub fn load_midi(&self, path: String) -> bool {
-        self.producer
-            .lock()
-            .unwrap()
-            .push(SynthCommand::LoadFile(
-                path,
-                crate::generators::Instrument::Piano,
-            ))
-            .is_ok()
-    }
-
-    pub fn play_from_measure(&self, measure: u32) -> bool {
-        self.producer
-            .lock()
-            .unwrap()
-            .push(SynthCommand::Play {
-                start_measure_idx: measure as usize,
-            })
-            .is_ok()
-    }
-
     pub fn pause(&self) {
         let _ = self.producer.lock().unwrap().push(SynthCommand::Pause);
     }
     pub fn resume(&self) {
         let _ = self.producer.lock().unwrap().push(SynthCommand::Resume);
-    }
-    pub fn clear(&self) {
-        let _ = self.producer.lock().unwrap().push(SynthCommand::Clear);
     }
     pub fn set_volume(&self, volume: f32) {
         let _ = self
@@ -179,14 +144,10 @@ impl Synth {
             .unwrap()
             .push(SynthCommand::SetVolume(volume));
     }
-    pub fn stop(&self) {
-        let _ = self.producer.lock().unwrap().push(SynthCommand::Stop);
-    }
 }
 
 #[derive(uniffi::Object)]
 pub struct Player {
-    // PlayerController likely has internal state, Mutex protects it
     controller: Mutex<PlayerController>,
 }
 
@@ -201,11 +162,50 @@ impl Player {
     pub fn pause(&self) {
         self.controller.lock().unwrap().pause();
     }
-    pub fn stop(&self) {
-        self.controller.lock().unwrap().stop();
-    }
     pub fn seek(&self, seconds: f64) {
         self.controller.lock().unwrap().seek(seconds);
+    }
+}
+
+#[derive(uniffi::Object)]
+pub struct Recording {
+    recorder: Mutex<crate::audio_io::recorder::Recorder>,
+}
+
+#[uniffi::export]
+impl Recording {
+    pub fn pause(&self) {
+        self.recorder.lock().unwrap().pause();
+    }
+    pub fn resume(&self) {
+        self.recorder.lock().unwrap().resume();
+    }
+}
+
+#[derive(uniffi::Object)]
+pub struct OnsetDetection {
+    detector: Mutex<crate::analysis::onset::OnsetDetector>,
+    onset_rx: Mutex<rtrb::Consumer<OnsetEvent>>,
+}
+
+#[uniffi::export]
+impl OnsetDetection {
+    pub fn poll_onsets(&self) -> String {
+        let mut rx = self.onset_rx.lock().unwrap();
+        let mut items = Vec::new();
+        while let Ok(e) = rx.pop() {
+            items.push(format!(
+                r#"{{"beat_position":{:.6},"raw_sample_offset":{},"velocity":{:.4}}}"#,
+                e.beat_position, e.raw_sample_offset, e.velocity
+            ));
+        }
+        format!("[{}]", items.join(","))
+    }
+    pub fn pause(&self) {
+        self.detector.lock().unwrap().pause();
+    }
+    pub fn resume(&self) {
+        self.detector.lock().unwrap().resume();
     }
 }
 
@@ -213,8 +213,13 @@ impl Player {
 
 #[derive(uniffi::Object)]
 pub struct AudioEngine {
-    // Wrap the pipeline as well to ensure the entire Engine is Sync
     pipeline: Mutex<AudioPipeline>,
+    active_tuner: Mutex<Option<Arc<Tuner>>>,
+    active_metronome: Mutex<Option<Arc<Metronome>>>,
+    active_synth: Mutex<Option<Arc<Synth>>>,
+    active_player: Mutex<Option<Arc<Player>>>,
+    active_recording: Mutex<Option<Arc<Recording>>>,
+    active_onset: Mutex<Option<Arc<OnsetDetection>>>,
 }
 
 #[uniffi::export]
@@ -224,55 +229,133 @@ impl AudioEngine {
         let pipeline = AudioPipeline::new().expect("Failed to initialize audio pipeline");
         Arc::new(AudioEngine {
             pipeline: Mutex::new(pipeline),
+            active_tuner: Mutex::new(None),
+            active_metronome: Mutex::new(None),
+            active_synth: Mutex::new(None),
+            active_player: Mutex::new(None),
+            active_recording: Mutex::new(None),
+            active_onset: Mutex::new(None),
         })
     }
 
     pub fn start_input(&self) -> bool {
         self.pipeline.lock().unwrap().start_input().is_ok()
     }
-
     pub fn start_output(&self) -> bool {
         self.pipeline.lock().unwrap().start_output().is_ok()
     }
+
+    // --- Creators ---
 
     pub fn create_metronome(&self, bpm: f32) -> Arc<Metronome> {
         let mut pipe = self.pipeline.lock().unwrap();
         let producer = pipe
             .spawn_metronome(Some(bpm), None, None, false)
-            .expect("output stream failed");
-        Arc::new(Metronome {
+            .expect("metronome failed");
+        let metronome = Arc::new(Metronome {
             producer: Mutex::new(producer),
-        })
+        });
+        *self.active_metronome.lock().unwrap() = Some(metronome.clone());
+        metronome
     }
 
     pub fn create_synth(&self) -> Arc<Synth> {
         let mut pipe = self.pipeline.lock().unwrap();
-        let producer = pipe.spawn_synthesizer().expect("output stream failed");
-        Arc::new(Synth {
+        let producer = pipe.spawn_synthesizer().expect("synth failed");
+        let synth = Arc::new(Synth {
             producer: Mutex::new(producer),
-        })
+        });
+        *self.active_synth.lock().unwrap() = Some(synth.clone());
+        synth
     }
 
     pub fn create_player(&self) -> Arc<Player> {
         let mut pipe = self.pipeline.lock().unwrap();
-        let controller = pipe.spawn_player().expect("output stream failed");
-        Arc::new(Player {
+        let controller = pipe.spawn_player().expect("player failed");
+        let player = Arc::new(Player {
             controller: Mutex::new(controller),
-        })
+        });
+        *self.active_player.lock().unwrap() = Some(player.clone());
+        player
     }
 
-    pub fn start_recording(&self, path: String) -> bool {
+    pub fn start_recording(&self, path: String) -> Option<Arc<Recording>> {
         let mut pipe = self.pipeline.lock().unwrap();
-        if let Ok(mut recorder) = pipe.spawn_recorder(&path) {
-            recorder.start();
-            return true;
+        if let Ok(recorder) = pipe.spawn_recorder(&path) {
+            let rec = Arc::new(Recording {
+                recorder: Mutex::new(recorder),
+            });
+            *self.active_recording.lock().unwrap() = Some(rec.clone());
+            return Some(rec);
         }
-        false
+        None
     }
 
-    /// Returns a JSON string with the current dynamics/AGC state:
-    /// `{ "level": "mf", "rms_db": -24.1, "gain_db": 6.1,
-    ///    "session_median_db": -30.2, "noise_floor_db": -58.0 }`
+    pub fn start_onset_detection(&self) -> Option<Arc<OnsetDetection>> {
+        let mut pipe = self.pipeline.lock().unwrap();
+        if let Ok((detector, onset_rx)) = pipe.spawn_onset() {
+            let onset = Arc::new(OnsetDetection {
+                detector: Mutex::new(detector),
+                onset_rx: Mutex::new(onset_rx),
+            });
+            *self.active_onset.lock().unwrap() = Some(onset.clone());
+            return Some(onset);
+        }
+        None
+    }
+
+    pub fn start_tuner(&self) -> Option<Arc<Tuner>> {
+        let mut pipe = self.pipeline.lock().unwrap();
+        let (producer, output) = pipe.spawn_tuner().expect("tuner failed");
+        let tuner = Arc::new(Tuner {
+            producer: Mutex::new(producer),
+            output,
+        });
+        *self.active_tuner.lock().unwrap() = Some(tuner.clone());
+        Some(tuner)
+    }
+
+    // --- Stop Functions (Clears Mutex and Drops Engine's Arc) ---
+
+    pub fn stop_metronome(&self) {
+        if let Some(m) = self.active_metronome.lock().unwrap().take() {
+            let _ = m.producer.lock().unwrap().push(MetronomeCommand::Stop);
+        }
+    }
+
+    pub fn stop_synth(&self) {
+        if let Some(s) = self.active_synth.lock().unwrap().take() {
+            let _ = s.producer.lock().unwrap().push(SynthCommand::Stop);
+        }
+    }
+
+    pub fn stop_player(&self) {
+        if let Some(p) = self.active_player.lock().unwrap().take() {
+            p.controller.lock().unwrap().stop();
+        }
+    }
+
+    pub fn stop_recording(&self) {
+        if let Some(r) = self.active_recording.lock().unwrap().take() {
+            r.recorder.lock().unwrap().stop();
+        }
+        self.clean_input();
+    }
+
+    pub fn stop_onset_detection(&self) {
+        if let Some(o) = self.active_onset.lock().unwrap().take() {
+            o.detector.lock().unwrap().stop();
+        }
+        self.clean_input();
+    }
+
+    pub fn stop_tuner(&self) {
+        if let Some(t) = self.active_tuner.lock().unwrap().take() {
+            let _ = t.producer.lock().unwrap().push(TunerCommand::End);
+        }
+        self.clean_input();
+    }
+
     pub fn poll_dynamics(&self) -> String {
         let pipe = self.pipeline.lock().unwrap();
         let out = pipe.dynamics_output.read();
@@ -282,21 +365,7 @@ impl AudioEngine {
         )
     }
 
-    pub fn start_onset_detection(&self) -> bool {
-        let mut pipe = self.pipeline.lock().unwrap();
-        if let Ok(mut onset) = pipe.spawn_onset() {
-            onset.start();
-            return true;
-        }
-        false
-    }
-
-    pub fn start_tuner(&self) -> Arc<Tuner> {
-        let mut pipe = self.pipeline.lock().unwrap();
-        let (producer, output) = pipe.spawn_tuner().expect("input stream failed");
-        Arc::new(Tuner {
-            producer: Mutex::new(producer),
-            output,
-        })
+    pub fn clean_input(&self) {
+        self.pipeline.lock().unwrap().try_auto_stop_input();
     }
 }

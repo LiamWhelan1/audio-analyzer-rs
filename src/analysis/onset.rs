@@ -14,32 +14,25 @@ use crate::{
     audio_io::SlotPool,
     audio_io::timing::{MusicalTransport, OnsetEvent},
     dsp::fft::FftProcessor,
-    traits::Worker,
 };
 
 /// Detects onsets from incoming audio buffers and reports beat timestamps.
 pub struct OnsetDetector {
     state: Arc<AtomicI8>,
     handle: u8,
+    reducer_remove_tx: Sender<u8>,
 }
 
-impl Worker for OnsetDetector {
-    /// Stop the detector and return its handle.
-    fn stop(&mut self) -> u8 {
+impl OnsetDetector {
+    pub fn stop(&mut self)   { self.state.store(-1, Ordering::Relaxed); }
+    pub fn pause(&mut self)  { self.state.store(0,  Ordering::Relaxed); }
+    pub fn resume(&mut self) { self.state.store(1,  Ordering::Relaxed); }
+}
+
+impl Drop for OnsetDetector {
+    fn drop(&mut self) {
         self.state.store(-1, Ordering::Relaxed);
-        self.handle
-    }
-
-    /// Pause the detector and return its handle.
-    fn pause(&mut self) -> u8 {
-        self.state.store(0, Ordering::Relaxed);
-        self.handle
-    }
-
-    /// Start or resume the detector and return its handle.
-    fn start(&mut self) -> u8 {
-        self.state.store(1, Ordering::Relaxed);
-        self.handle
+        let _ = self.reducer_remove_tx.send(self.handle);
     }
 }
 
@@ -84,10 +77,11 @@ impl FluxTracker {
 
 impl OnsetDetector {
     /// Construct a new `OnsetDetector` with the provided worker handle.
-    pub fn new(handle: u8) -> Self {
+    pub fn new(handle: u8, reducer_remove_tx: Sender<u8>) -> Self {
         OnsetDetector {
             state: Arc::new(AtomicI8::new(0)),
             handle,
+            reducer_remove_tx,
         }
     }
 

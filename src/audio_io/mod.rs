@@ -192,8 +192,8 @@ pub struct AudioPipeline {
     reducer_add_tx: Sender<(u8, Producer<usize>)>,
     reducer_remove_tx: Sender<u8>,
 
-    active_workers: Vec<u8>,
-    available_handles: Vec<u8>,
+    active_workers: Arc<std::sync::Mutex<Vec<u8>>>,
+    available_handles: Arc<std::sync::Mutex<Vec<u8>>>,
 
     running: Arc<AtomicBool>,
     output_error: Arc<AtomicBool>,
@@ -244,8 +244,8 @@ impl AudioPipeline {
             reclaim_tx,
             reducer_add_tx,
             reducer_remove_tx,
-            active_workers: Vec::new(),
-            available_handles: (0..u8::MAX).collect(),
+            active_workers: Arc::new(std::sync::Mutex::new(Vec::new())),
+            available_handles: Arc::new(std::sync::Mutex::new((0..u8::MAX).collect())),
             output_error: Arc::new(AtomicBool::new(false)),
             mixer,
             reclaimer_handle: None,
@@ -314,6 +314,9 @@ impl AudioPipeline {
         let in_sr = self.meta.in_sr;
         let dynamics_output_reducer = self.dynamics_output.clone();
         let slot_len_reducer = self.meta.slot_len;
+        let active_workers = self.active_workers.clone();
+        let available_handles = self.available_handles.clone();
+        // self.try_auto_stop_input();
 
         let reducer_handle = thread::spawn(move || {
             let mut consumers: Vec<(u8, Producer<usize>)> = Vec::new();
@@ -326,7 +329,7 @@ impl AudioPipeline {
                 -18.0, // target dBFS (measured against p95 of active-frame RMS)
                 36.0,  // max boost dB
                 15.0,  // gain smoothing TC (seconds) — long TC keeps gain
-                       // session-stable rather than phrase-by-phrase
+                // session-stable rather than phrase-by-phrase
                 dynamics_output_reducer,
             );
 
@@ -392,6 +395,8 @@ impl AudioPipeline {
                     consumers.push((name, prod));
                 }
                 while let Ok(name) = reducer_remove_rx.try_recv() {
+                    active_workers.lock().unwrap().retain(|&h| h != name);
+                    available_handles.lock().unwrap().push(name);
                     consumers.retain(|(n, _)| n != &name);
                 }
 
@@ -526,15 +531,20 @@ impl AudioPipeline {
         self.free_cons = None;
         self.reducer_prod = None;
 
-        self.active_workers.clear();
-        self.available_handles = (0..u8::MAX).collect();
+        if let Ok(workers) = self.active_workers.lock().as_mut() {
+            workers.clear()
+        };
+        if let Ok(handles) = self.available_handles.lock().as_mut() {
+            handles.clear();
+            handles.append(&mut (0..u8::MAX).collect());
+        }
 
         println!("Input logic threads stopped and worker handles reset.");
     }
 
     /// Auto-stops input stream if no active workers remain.
-    fn try_auto_stop_input(&mut self) {
-        if self.active_workers.is_empty() {
+    pub fn try_auto_stop_input(&mut self) {
+        if self.active_workers.lock().unwrap().is_empty() {
             println!("No active input workers. Stopping input stream to save resources.");
             self.stop_input();
         }
@@ -889,22 +899,24 @@ impl AudioPipeline {
     }
 
     /// Removes a consumer and recycles its handle.
-    pub fn remove_consumer(&mut self, handle: u8) {
-        let _ = self.reducer_remove_tx.send(handle);
-        self.active_workers.retain(|&h| h != handle);
-        self.available_handles.push(handle);
-        self.try_auto_stop_input();
-    }
+    // pub fn remove_consumer(&mut self, handle: u8) {
+    //     let _ = self.reducer_remove_tx.send(handle);
+    //     self.active_workers.retain(|&h| h != handle);
+    //     self.available_handles.push(handle);
+    //     self.try_auto_stop_input();
+    // }
 
     /// Spawns a new audio recorder that saves input to a WAV file.
     pub fn spawn_recorder(&mut self, path: &str) -> Result<recorder::Recorder> {
         self.start_input()?;
         let handle = self
             .available_handles
+            .lock()
+            .unwrap()
             .pop()
             .expect("Max consumers reached (255)");
 
-        self.active_workers.push(handle);
+        self.active_workers.lock().unwrap().push(handle);
         let cons = self.add_consumer(handle);
 
         let spec = hound::WavSpec {
@@ -919,6 +931,7 @@ impl AudioPipeline {
             cons,
             handle,
             self.reclaim_tx.clone(),
+            self.reducer_remove_tx.clone(),
             spec,
             path.to_string(),
         ))
@@ -934,15 +947,15 @@ impl AudioPipeline {
         self.start_input()?;
         let handle = self
             .available_handles
+            .lock()
+            .unwrap()
             .pop()
             .expect("Max consumers reached (255)");
 
-        self.active_workers.push(handle);
+        self.active_workers.lock().unwrap().push(handle);
         let cons = self.add_consumer(handle);
         let (note_tx, note_rx) = RingBuffer::<Vec<(f32, i32)>>::new(64);
-        let (tuner, cmd_tx, output) = tuner::Tuner::new(note_rx);
-        tuner.run();
-        let mut stft = stft::STFT::new(0);
+        let mut stft = stft::STFT::new(handle, self.reducer_remove_tx.clone());
         stft.detect_pitches(
             self.slots.clone(),
             self.meta.slot_len,
@@ -951,15 +964,21 @@ impl AudioPipeline {
             self.meta.in_sr,
             note_tx,
         );
+        let (tuner, cmd_tx, output) = tuner::Tuner::new(note_rx, stft);
+        tuner.run();
         Ok((cmd_tx, output))
     }
 
     /// Spawns an onset detector for beat/note tracking.
     ///
-    /// **Changed**: the onset ring buffer now carries `OnsetEvent` instead
-    /// of bare `f64`, giving consumers access to latency-compensated beat
-    /// positions and velocity.
-    pub fn spawn_onset(&mut self) -> Result<OnsetDetector> {
+    /// Returns the detector handle (for lifecycle control) and the consumer
+    /// end of the onset ring buffer so the caller can poll for `OnsetEvent`s.
+    pub fn spawn_onset(
+        &mut self,
+    ) -> Result<(
+        OnsetDetector,
+        rtrb::Consumer<crate::audio_io::timing::OnsetEvent>,
+    )> {
         use crate::audio_io::timing::OnsetEvent;
 
         if let Err(e) = self.start_input() {
@@ -970,16 +989,15 @@ impl AudioPipeline {
             eprintln!("Failed to start output stream for onset: {}", e);
             return Err(e);
         }
-        let handle = match self.available_handles.pop() {
+        let handle = match self.available_handles.lock().unwrap().pop() {
             Some(h) => h,
             None => return Err(anyhow!("No available handles")),
         };
-        self.active_workers.push(handle);
+        self.active_workers.lock().unwrap().push(handle);
         let cons = self.add_consumer(handle);
-        let mut onset = OnsetDetector::new(handle);
+        let mut onset = OnsetDetector::new(handle, self.reducer_remove_tx.clone());
 
-        // Ring buffer now carries OnsetEvent instead of f64
-        let (onset_tx, _onset_rx) = RingBuffer::<OnsetEvent>::new(32);
+        let (onset_tx, onset_rx) = RingBuffer::<OnsetEvent>::new(32);
         onset.detect_onsets(
             self.transport.clone(),
             self.slots.clone(),
@@ -987,7 +1005,7 @@ impl AudioPipeline {
             self.reclaim_tx.clone(),
             onset_tx,
         );
-        Ok(onset)
+        Ok((onset, onset_rx))
     }
 
     /// Spawns a metronome with configurable BPM and beat patterns.
