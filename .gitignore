@@ -1,8 +1,9 @@
 /target
 /.vs
-test_rec_0.wav
 spectrogram.rs
-test.wav
 freq_output.csv
 output.log
-test_output.wav
+*.wav
+# From uniffi-bindgen-react-native
+rust_modules/
+*.a
