@@ -237,8 +237,9 @@ impl AudioEngine {
 
     pub fn create_metronome(&self, bpm: f32) -> Arc<Metronome> {
         let mut pipe = self.pipeline.lock().unwrap();
-        let _ = pipe.start_output();
-        let producer = pipe.spawn_metronome(Some(bpm), None, None, false);
+        let producer = pipe
+            .spawn_metronome(Some(bpm), None, None, false)
+            .expect("output stream failed");
         Arc::new(Metronome {
             producer: Mutex::new(producer),
         })
@@ -246,8 +247,7 @@ impl AudioEngine {
 
     pub fn create_synth(&self) -> Arc<Synth> {
         let mut pipe = self.pipeline.lock().unwrap();
-        let _ = pipe.start_output();
-        let producer = pipe.spawn_synthesizer();
+        let producer = pipe.spawn_synthesizer().expect("output stream failed");
         Arc::new(Synth {
             producer: Mutex::new(producer),
         })
@@ -255,8 +255,7 @@ impl AudioEngine {
 
     pub fn create_player(&self) -> Arc<Player> {
         let mut pipe = self.pipeline.lock().unwrap();
-        let _ = pipe.start_output();
-        let controller = pipe.spawn_player();
+        let controller = pipe.spawn_player().expect("output stream failed");
         Arc::new(Player {
             controller: Mutex::new(controller),
         })
@@ -264,7 +263,6 @@ impl AudioEngine {
 
     pub fn start_recording(&self, path: String) -> bool {
         let mut pipe = self.pipeline.lock().unwrap();
-        let _ = pipe.start_input();
         if let Ok(mut recorder) = pipe.spawn_recorder(&path) {
             recorder.start();
             return true;
@@ -272,9 +270,20 @@ impl AudioEngine {
         false
     }
 
+    /// Returns a JSON string with the current dynamics/AGC state:
+    /// `{ "level": "mf", "rms_db": -24.1, "gain_db": 6.1,
+    ///    "session_median_db": -30.2, "noise_floor_db": -58.0 }`
+    pub fn poll_dynamics(&self) -> String {
+        let pipe = self.pipeline.lock().unwrap();
+        let out = pipe.dynamics_output.read();
+        format!(
+            r#"{{"level":"{}","rms_db":{:.1},"gain_db":{:.1},"session_median_db":{:.1},"noise_floor_db":{:.1}}}"#,
+            out.level, out.rms_db, out.gain_db, out.session_median_db, out.noise_floor_db
+        )
+    }
+
     pub fn start_onset_detection(&self) -> bool {
         let mut pipe = self.pipeline.lock().unwrap();
-        let _ = pipe.start_input();
         if let Ok(mut onset) = pipe.spawn_onset() {
             onset.start();
             return true;
@@ -284,8 +293,7 @@ impl AudioEngine {
 
     pub fn start_tuner(&self) -> Arc<Tuner> {
         let mut pipe = self.pipeline.lock().unwrap();
-        let _ = pipe.start_input();
-        let (producer, output) = pipe.spawn_tuner();
+        let (producer, output) = pipe.spawn_tuner().expect("input stream failed");
         Arc::new(Tuner {
             producer: Mutex::new(producer),
             output,

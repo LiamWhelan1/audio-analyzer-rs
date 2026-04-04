@@ -34,11 +34,22 @@ struct TickGenerator {
     decay_rate: f32,
     is_noise: bool,
     noise_seed: u32,
+    /// Sample offset within the current buffer where this tick should start.
+    /// Used for sample-accurate placement when a beat crossing happens
+    /// partway through a buffer.
+    pending_delay_samples: i64,
 }
 
 impl TickGenerator {
     /// Produce the next sample and advance the internal envelope.
     fn process(&mut self, sample_rate: f32) -> f32 {
+        // If this tick was spawned with a delay, stay silent until the
+        // delay is exhausted.
+        if self.pending_delay_samples > 0 {
+            self.pending_delay_samples -= 1;
+            return 0.0;
+        }
+
         let output;
 
         if self.is_noise {
@@ -58,7 +69,9 @@ impl TickGenerator {
     }
 }
 
-/// Stateful metronome audio source that emits ticks according to a pattern and BPM.
+/// Stateful metronome audio source that emits ticks according to a pattern
+/// and BPM, using the central `MusicalTransport` for sample-accurate beat
+/// detection.
 pub struct Metronome {
     sample_rate: f32,
     transport: Arc<MusicalTransport>,
@@ -68,12 +81,12 @@ pub struct Metronome {
     pattern: Vec<BeatStrength>,
     beat_polyrhythms: Vec<Vec<usize>>,
 
+    /// Tracks which pattern index the *next* beat crossing should trigger.
     current_beat_index: usize,
-    samples_per_beat: u64,
-    main_beat_counter: u64,
 
-    /// (division_amount, current_counter_value) for the current beat
+    /// Subdivision state: (division_amount, phase_counter) for the current beat.
     active_subdivision_counters: Vec<(usize, u64)>,
+    samples_per_beat: u64,
 
     active_ticks: Vec<TickGenerator>,
     command_rx: Consumer<MetronomeCommand>,
@@ -91,29 +104,23 @@ impl Metronome {
         transport: Arc<MusicalTransport>,
     ) -> (Self, Producer<MetronomeCommand>) {
         let (prod, cons) = RingBuffer::new(128);
-        let bpm = if let Some(b) = bpm {
-            b
-        } else {
-            transport.get_bpm()
-        };
+        let bpm = bpm.unwrap_or_else(|| transport.get_bpm());
 
-        let initial_pattern = if let Some(p) = pattern {
-            p
-        } else {
+        let initial_pattern = pattern.unwrap_or_else(|| {
             vec![
                 BeatStrength::Strong,
                 BeatStrength::Weak,
                 BeatStrength::Weak,
                 BeatStrength::Weak,
             ]
-        };
+        });
         let patt_len = initial_pattern.len();
         let beat_polyrhythms = if let Some(p) = polys.as_mut() {
             let poly_len = p.len();
             if poly_len < patt_len {
                 p.append(&mut vec![Vec::new(); patt_len - poly_len]);
             } else if poly_len > patt_len {
-                while poly_len > patt_len {
+                while p.len() > patt_len {
                     p.pop();
                 }
             }
@@ -121,10 +128,17 @@ impl Metronome {
         } else {
             vec![Vec::new(); initial_pattern.len()]
         };
+
         let samples_per_beat = ((sample_rate as f32 * 60.0) / bpm) as u64;
+
+        // Sync the starting beat index to the transport's current position
+        // so we pick up mid-bar if the transport is already running.
         let beats = transport.get_accumulated_beats();
-        let current_beat_index = (beats % patt_len as f64).floor() as usize;
-        let main_beat_counter = ((beats % 1.0) * samples_per_beat as f64) as u64;
+        let current_beat_index = if patt_len > 0 {
+            (beats.max(0.0) as usize) % patt_len
+        } else {
+            0
+        };
 
         let mut met = Self {
             sample_rate: sample_rate as f32,
@@ -134,7 +148,6 @@ impl Metronome {
             pattern: initial_pattern,
             beat_polyrhythms,
             samples_per_beat,
-            main_beat_counter,
             current_beat_index,
             active_subdivision_counters: Vec::with_capacity(patt_len),
             active_ticks: Vec::with_capacity(16),
@@ -150,11 +163,10 @@ impl Metronome {
 
     /// Reset transport position and internal counters to the start.
     pub fn reset_beat(&mut self) {
-        self.transport.reset_to_beats(0.0);
+        self.transport.seek_to_beat(0.0);
         self.active_subdivision_counters.clear();
         self.active_ticks.clear();
         self.current_beat_index = 0;
-        self.main_beat_counter = 0;
     }
 
     /// Update BPM and recompute samples-per-beat.
@@ -164,9 +176,10 @@ impl Metronome {
         self.transport.set_bpm(bpm);
     }
 
-    /// Spawn one or more tick generators for the given `BeatStrength`.
-    fn spawn_tick(&mut self, strength: &BeatStrength) {
-        // log::trace!("Tick at {:.4}", self.transport.get_accumulated_beats());
+    /// Spawn one or more tick generators for the given `BeatStrength`,
+    /// with an optional sample-offset delay for sub-buffer accuracy.
+    fn spawn_tick(&mut self, strength: &BeatStrength, delay_samples: i64) {
+        log::trace!("Tick at {:.4}", self.transport.get_accumulated_beats());
         if self.muted {
             return;
         }
@@ -179,8 +192,8 @@ impl Metronome {
             BeatStrength::None => return,
         };
 
-        let decay_samples = self.sample_rate * (decay_ms / 1000.0);
-        let decay_rate = (MIN_ENVELOPE).powf(1.0 / decay_samples);
+        let decay_samples_count = self.sample_rate * (decay_ms / 1000.0);
+        let decay_rate = (MIN_ENVELOPE).powf(1.0 / decay_samples_count);
 
         self.active_ticks.push(TickGenerator {
             phase: 0.0,
@@ -190,6 +203,7 @@ impl Metronome {
             decay_rate,
             is_noise: false,
             noise_seed: 0,
+            pending_delay_samples: delay_samples,
         });
 
         if matches!(strength, BeatStrength::Strong | BeatStrength::Medium) {
@@ -202,6 +216,7 @@ impl Metronome {
                 decay_rate: click_decay_rate,
                 is_noise: true,
                 noise_seed: 12345,
+                pending_delay_samples: delay_samples,
             });
         }
     }
@@ -251,37 +266,55 @@ impl AudioSource for Metronome {
     }
 
     /// Fill `buffer` with generated tick samples, advancing internal state.
+    ///
+    /// Beat crossings are detected via `transport.did_cross_beat()` which
+    /// returns the exact sample offset within the buffer, giving us
+    /// sample-accurate tick placement rather than per-buffer jitter.
     fn process(&mut self, buffer: &mut [f32], channels: usize) {
         self.handle_commands();
         if self.finished {
             return;
         }
 
-        for frame_idx in (0..buffer.len()).step_by(channels) {
-            self.main_beat_counter += 1;
+        let total_frames = buffer.len() / channels;
 
-            if self.main_beat_counter >= self.samples_per_beat {
-                self.main_beat_counter -= self.samples_per_beat;
+        // ── Detect beat crossing for this buffer ───────────────────────
+        // did_cross_beat looks at the accumulated beats position (which
+        // was already advanced by tick_output in the audio callback) and
+        // tells us if a beat boundary fell inside this buffer, and where.
+        if let Some(crossing) = self.transport.did_cross_beat(total_frames as i64) {
+            if !self.pattern.is_empty() {
+                let strength = self.pattern[self.current_beat_index].clone();
 
-                if !self.pattern.is_empty() {
-                    let s = self.pattern[self.current_beat_index].clone();
-                    self.spawn_tick(&s);
-                    self.load_active_subdivisions();
-                    self.current_beat_index = (self.current_beat_index + 1) % self.pattern.len();
-                }
+                // The crossing's sample_offset_in_buffer tells us exactly
+                // where in this buffer the beat lands.  We pass that as a
+                // delay so the tick generator stays silent for the first N
+                // samples, then starts its envelope precisely on the beat.
+                self.spawn_tick(&strength, crossing.sample_offset_in_buffer);
+                self.load_active_subdivisions();
+                self.current_beat_index = (self.current_beat_index + 1) % self.pattern.len();
             }
+        }
 
+        // ── Per-sample rendering ───────────────────────────────────────
+        for frame_idx in (0..buffer.len()).step_by(channels) {
+            // Subdivision counters still run per-sample since they are
+            // sub-divisions of the beat, not aligned to transport beats.
             for i in 0..self.active_subdivision_counters.len() {
                 let (div, ref mut counter) = self.active_subdivision_counters[i];
-
                 let samples_per_sub = self.samples_per_beat / (div as u64);
                 *counter += 1;
-
                 if *counter >= samples_per_sub {
                     *counter -= samples_per_sub;
-
-                    if self.main_beat_counter > self.sample_rate as u64 / 100 {
-                        self.spawn_tick(&BeatStrength::Subdivision(div));
+                    // Avoid firing a subdivision tick right on top of the
+                    // main beat tick (first ~10ms of the beat).
+                    let guard_samples = (self.sample_rate / 100.0) as u64;
+                    let beat_phase_samples = {
+                        let phase = self.transport.get_accumulated_beats().fract();
+                        (phase * self.samples_per_beat as f64) as u64
+                    };
+                    if beat_phase_samples > guard_samples {
+                        self.spawn_tick(&BeatStrength::Subdivision(div), 0);
                     }
                 }
             }

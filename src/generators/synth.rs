@@ -160,6 +160,8 @@ pub struct Synthesizer {
 
     is_playing_seq: bool,
     current_measure_index: usize,
+    /// Local cursor tracking playback position in "global beats" space.
+    /// Driven by the transport's accumulated beats each frame.
     playback_cursor_global_beats: f64,
     start_measure_global_offset: f64,
     count_in_duration: f64,
@@ -249,21 +251,32 @@ impl Synthesizer {
                         let start_measure = &self.measures[start_measure_idx];
                         self.start_measure_global_offset = start_measure.global_start_beat;
                         self.count_in_duration = start_measure.duration_beats();
-                        self.playback_cursor_global_beats = -self.count_in_duration;
-                        self.transport.reset_to_beats(-self.count_in_duration);
-                        self.sync_metronome(start_measure_idx);
 
+                        // Use the transport's seek method and play/stop
+                        // control instead of calling reset_to_beats directly.
+                        self.transport.seek_to_beat(-self.count_in_duration);
+                        self.transport.play();
+                        self.playback_cursor_global_beats = -self.count_in_duration;
+
+                        self.sync_metronome(start_measure_idx);
                         self.current_measure_index = start_measure_idx;
                         self.is_playing_seq = true;
                     }
                 }
-                SynthCommand::Pause => self.is_playing_seq = false,
-                SynthCommand::Resume => self.is_playing_seq = true,
+                SynthCommand::Pause => {
+                    self.is_playing_seq = false;
+                    // Don't stop the transport — other sources (metronome)
+                    // may still need it running.  The synth just stops
+                    // advancing its own cursor.
+                }
+                SynthCommand::Resume => {
+                    self.is_playing_seq = true;
+                }
                 SynthCommand::Stop => {
                     self.is_playing_seq = false;
                     self.voices.clear();
                     self.playback_cursor_global_beats = 0.0;
-                    self.transport.reset_to_beats(0.0);
+                    self.transport.seek_to_beat(0.0);
                 }
                 SynthCommand::SetMuted(m) => self.muted = m,
                 SynthCommand::End => self.finished = true,
@@ -278,6 +291,10 @@ impl AudioSource for Synthesizer {
     }
 
     /// Process synthesizer audio: sequencer, voices, and mixing.
+    ///
+    /// The synth reads the transport's accumulated beat position each
+    /// sample to stay locked to the same clock as the metronome and onset
+    /// detector.
     fn process(&mut self, buffer: &mut [f32], channels: usize) {
         self.handle_commands();
         if self.finished {
@@ -290,14 +307,26 @@ impl AudioSource for Synthesizer {
         for frame_idx in (0..buffer.len()).step_by(channels) {
             if self.is_playing_seq {
                 let prev_cursor = self.playback_cursor_global_beats;
-                self.playback_cursor_global_beats += beats_per_sample as f64;
+
+                // Read the transport's authoritative beat position rather
+                // than accumulating our own.  This keeps the synth, metro,
+                // and onset detector all on the exact same clock.
+                //
+                // We still maintain playback_cursor_global_beats as a
+                // local shadow so we can detect note-trigger crossings
+                // (prev vs current), but we re-derive it from the
+                // transport every sample to prevent drift.
+                let transport_beats = self.transport.get_accumulated_beats() as f64;
+                self.playback_cursor_global_beats = transport_beats;
                 let curr_cursor = self.playback_cursor_global_beats;
 
                 if curr_cursor < 0.0 {
+                    // Count-in phase — keep metronome audible.
                     if let Some(tx) = &mut self.metro_cmd_tx {
                         let _ = tx.push(MetronomeCommand::SetMuted(false));
                     }
                 } else {
+                    // Check for measure boundary crossing.
                     if self.current_measure_index < self.measures.len() {
                         let m = &self.measures[self.current_measure_index];
                         let measure_end = m.global_start_beat + m.duration_beats();
@@ -310,6 +339,8 @@ impl AudioSource for Synthesizer {
                     }
                 }
 
+                // Trigger notes whose start beat falls between prev and
+                // current cursor position.
                 if curr_cursor >= 0.0 && self.current_measure_index < self.measures.len() {
                     let m = &self.measures[self.current_measure_index];
                     let beat_in_measure =

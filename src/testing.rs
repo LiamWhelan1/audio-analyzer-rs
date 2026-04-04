@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use crate::{AudioEngine, Metronome, Player, Synth, Tuner};
 use std::io::{self, Write};
 use std::sync::Arc;
@@ -82,7 +84,16 @@ pub fn run_cli_simulation() {
                     }
                 }
             }
-
+            "poll dynamics" => {
+                let engine_dyn = engine.clone();
+                std::thread::spawn(move || {
+                    loop {
+                        let response = engine_dyn.poll_dynamics();
+                        println!("{}", response);
+                        std::thread::sleep(Duration::from_millis(1000));
+                    }
+                });
+            }
             // --- Synth ---
             "synth start" => {
                 synth = Some(engine.create_synth());

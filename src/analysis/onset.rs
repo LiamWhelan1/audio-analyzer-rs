@@ -11,7 +11,10 @@ use crossbeam_channel::Sender;
 use rtrb::{Consumer, Producer};
 
 use crate::{
-    audio_io::SlotPool, audio_io::timing::MusicalTransport, dsp::fft::FftProcessor, traits::Worker,
+    audio_io::SlotPool,
+    audio_io::timing::{MusicalTransport, OnsetEvent},
+    dsp::fft::FftProcessor,
+    traits::Worker,
 };
 
 /// Detects onsets from incoming audio buffers and reports beat timestamps.
@@ -88,20 +91,21 @@ impl OnsetDetector {
         }
     }
 
-    /// Spawn the detection thread which reads audio slots and pushes beat timestamps.
+    /// Spawn the detection thread which reads audio slots and pushes
+    /// latency-compensated `OnsetEvent`s.
     ///
-    /// - `transport` provides timing information.
+    /// - `transport` provides timing information and latency compensation.
     /// - `slots` is the shared buffer pool.
     /// - `cons` receives available slot indices.
     /// - `reclaim` is used to return slots to the free pool.
-    /// - `onset_tx` receives detected beat timestamps as `f64`.
+    /// - `onset_tx` receives detected onsets as `OnsetEvent`.
     pub fn detect_onsets(
         &mut self,
         transport: Arc<MusicalTransport>,
         slots: Arc<SlotPool>,
         mut cons: Consumer<usize>,
         reclaim: Sender<usize>,
-        mut onset_tx: Producer<f64>,
+        mut onset_tx: Producer<OnsetEvent>,
     ) {
         self.state.store(1, Ordering::Relaxed);
         let state = self.state.clone();
@@ -124,7 +128,7 @@ impl OnsetDetector {
 
             let mut tracker = FluxTracker::new(1.5, 0.70, 0.80);
 
-            let min_inter_onset_samples = 4500;
+            let min_inter_onset_samples = 2048;
             let mut samples_since_onset = min_inter_onset_samples;
 
             while state.load(Ordering::Relaxed) != -1 || !cons.is_empty() {
@@ -201,18 +205,36 @@ impl OnsetDetector {
                         prev_magnitude[i] = mag;
                     }
 
+                    // Silence gate: suppress flux on pure-noise frames.
+                    // After AGC the signal is boosted, so this threshold is
+                    // kept low (5.0) to avoid blanking soft-note onsets during
+                    // the AGC warm-up period or on quiet playing.
                     if frame_energy < 10.0 {
                         current_flux = 0.0;
                     }
 
                     if samples_since_onset >= min_inter_onset_samples {
                         if tracker.update(current_flux) {
-                            let current_beat = (transport.get_accumulated_beats()
-                                - 0.17 * (transport.get_bpm() as f64 / 60.0))
-                                .max(0.0);
-                            log::trace!("{current_beat:.4}");
-                            if let Err(_) = onset_tx.push(current_beat) {}
+                            // Use the transport's latency-compensated onset
+                            // stamping instead of a hardcoded delay.  The
+                            // sample_offset is the centre of the current
+                            // analysis window relative to the most recent
+                            // input buffer boundary.
+                            let window_centre_offset = window_size as i64 / 2;
 
+                            // Estimate a velocity from the flux magnitude
+                            // (clamped to 0.0–1.0).
+                            let velocity = (current_flux / 50.0).clamp(0.0, 1.0);
+
+                            let event = transport.stamp_onset(window_centre_offset, velocity);
+
+                            log::trace!(
+                                "onset @ beat {:.4} (raw offset {})",
+                                event.beat_position,
+                                event.raw_sample_offset,
+                            );
+
+                            let _ = onset_tx.push(event);
                             samples_since_onset = 0;
                         }
                     } else {

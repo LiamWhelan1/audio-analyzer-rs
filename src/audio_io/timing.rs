@@ -187,7 +187,6 @@ impl MusicalTransport {
         if !self.is_playing.load(Ordering::Relaxed) {
             return;
         }
-
         let bpm = self.get_bpm();
         let sr = self.get_sample_rate();
         let seconds = frames as f64 / sr as f64;

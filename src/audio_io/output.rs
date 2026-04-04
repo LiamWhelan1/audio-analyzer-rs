@@ -1,7 +1,6 @@
 use crate::traits::AudioSource;
 use spin;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicI64, AtomicU32, AtomicU64, Ordering};
 
 /// Mixer that aggregates `AudioSource` inputs into a single output buffer.
 pub struct Mixer {
