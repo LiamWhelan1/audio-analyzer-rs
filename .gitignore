@@ -7,3 +7,7 @@ output.log
 # From uniffi-bindgen-react-native
 rust_modules/
 *.a
+cpp/generated/
+src/generated/
+ios/AudioEngine.xcframework
+android/src/main/jniLibs/
