@@ -83,6 +83,7 @@ build_android() {
         -t armv7-linux-androideabi \
         -t i686-linux-android \
         -t x86_64-linux-android \
+        -p 26 \
         -o "$ANDROID_OUT_DIR" \
         build $BUILD_FLAG
 

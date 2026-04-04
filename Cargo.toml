@@ -14,19 +14,20 @@ required-features = ["bindgen"]
 
 [features]
 bindgen = ["uniffi/cli"]
+dev-tools = ["tracing-subscriber", "log", "rerun"]
 
 [dependencies]
-cpal = "0.16"                                       # audio input/output host
-rtrb = "0.3.3"                                      # realtime-safe SPSC ring buffer
-rubato = "0.16.2"                                   # streaming resampler
-rustfft = "6"                                       # FFT (complex)
-realfft = "3.5.0"                                   # real->complex convenience (optional)
-crossbeam-channel = "0.5"                           # for control & analysis messages
+cpal = "0.16"                                                # audio input/output host
+rtrb = "0.3.3"                                               # realtime-safe SPSC ring buffer
+rubato = "0.16.2"                                            # streaming resampler
+rustfft = "6"                                                # FFT (complex)
+realfft = "3.5.0"                                            # real->complex convenience (optional)
+crossbeam-channel = "0.5"                                    # for control & analysis messages
 anyhow = "1.0"
 thiserror = "2.0.17"
 hound = "3.5.1"
-tracing-subscriber = "0.3.22"
-log = "0.4.29"
+tracing-subscriber = { version = "0.3.22", optional = true }
+log = { version = "0.4.29", optional = true }
 spin = "0.10.0"
 symphonia = { version = "0.5", features = ["all"] }
 midly = "0.5.0"
@@ -34,7 +35,7 @@ rust-music-theory = "0.3.0"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 libc = "0.2.178"
-rerun = "0.30.0"
+rerun = { version = "0.30.0", optional = true }
 parking_lot = "0.12.5"
 uniffi = "0.31.0"
 
