@@ -207,6 +207,12 @@ pub struct AudioPipeline {
     output_stream: Option<cpal::Stream>,
 }
 
+// cpal::Stream on CoreAudio is !Send due to Box<dyn FnMut()> inside
+// PropertyListenerCallbackWrapper, but CoreAudio manages that callback
+// on its own OS thread — we never call it ourselves. Streams are safe
+// to move/drop across threads.
+unsafe impl Send for AudioPipeline {}
+
 impl AudioPipeline {
     /// Creates a new audio pipeline with default device probing and initialization.
     pub fn new() -> Result<Self> {
