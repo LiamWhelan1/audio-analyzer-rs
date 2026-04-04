@@ -94,7 +94,7 @@ build_android() {
         error "Expected Android library not found: $ANDROID_LIB"
     fi
 
-    cargo run --bin uniffi-bindgen generate \
+    cargo run --features bindgen --bin uniffi-bindgen generate \
         --library "$ANDROID_LIB" \
         --language kotlin \
         --out-dir "$KOTLIN_BINDINGS_DIR"
@@ -139,7 +139,7 @@ build_ios() {
         -output "target/ios-sim-universal/${BUILD_SUBDIR}/lib${CRATE_LIB_NAME}.a"
 
     step "Generating Swift bindings (needed for XCFramework headers)"
-    cargo run --bin uniffi-bindgen generate \
+    cargo run --features bindgen --bin uniffi-bindgen generate \
         --library "target/aarch64-apple-ios/${BUILD_SUBDIR}/lib${CRATE_LIB_NAME}.a" \
         --language swift \
         --out-dir "$SWIFT_BINDINGS_DIR"

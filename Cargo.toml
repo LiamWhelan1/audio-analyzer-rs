@@ -10,6 +10,10 @@ crate-type = ["cdylib", "staticlib", "rlib"]
 [[bin]]
 name = "uniffi-bindgen"
 path = "uniffi-bindgen.rs"
+required-features = ["bindgen"]
+
+[features]
+bindgen = ["uniffi/cli"]
 
 [dependencies]
 cpal = "0.16"                                       # audio input/output host
@@ -32,7 +36,7 @@ serde_json = "1.0"
 libc = "0.2.178"
 rerun = "0.30.0"
 parking_lot = "0.12.5"
-uniffi = { version = "0.31.0", features = ["cli"] }
+uniffi = "0.31.0"
 
 [build-dependencies]
 uniffi = { version = "0.31.0", features = ["build"] }
