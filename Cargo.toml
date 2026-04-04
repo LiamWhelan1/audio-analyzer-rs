@@ -14,20 +14,20 @@ required-features = ["bindgen"]
 
 [features]
 bindgen = ["uniffi/cli"]
-dev-tools = ["tracing-subscriber", "log", "rerun"]
+dev-tools = ["rerun"]
 
 [dependencies]
-cpal = "0.16"                                                # audio input/output host
-rtrb = "0.3.3"                                               # realtime-safe SPSC ring buffer
-rubato = "0.16.2"                                            # streaming resampler
-rustfft = "6"                                                # FFT (complex)
-realfft = "3.5.0"                                            # real->complex convenience (optional)
-crossbeam-channel = "0.5"                                    # for control & analysis messages
+log = "0.4.29"
+cpal = "0.16"                                       # audio input/output host
+rtrb = "0.3.3"                                      # realtime-safe SPSC ring buffer
+rubato = "0.16.2"                                   # streaming resampler
+rustfft = "6"                                       # FFT (complex)
+realfft = "3.5.0"                                   # real->complex convenience (optional)
+crossbeam-channel = "0.5"                           # for control & analysis messages
 anyhow = "1.0"
 thiserror = "2.0.17"
 hound = "3.5.1"
-tracing-subscriber = { version = "0.3.22", optional = true }
-log = { version = "0.4.29", optional = true }
+tracing-subscriber = "0.3.22"
 spin = "0.10.0"
 symphonia = { version = "0.5", features = ["all"] }
 midly = "0.5.0"

@@ -23,6 +23,7 @@ use crate::generators::metronome::{BeatStrength, Metronome, MetronomeCommand};
 use crate::generators::player::{AudioPlayer, PlayerController};
 use crate::generators::synth::{SynthCommand, Synthesizer};
 use dynamics::{DynamicsOutput, DynamicsTracker};
+use log;
 use output::{Mixer, OutputController};
 use timing::MusicalTransport;
 
@@ -785,6 +786,7 @@ impl AudioPipeline {
         let channels = self.meta.out_channels as usize;
 
         let err_fn = move |err| {
+            #[cfg(debug_assertions)]
             log::error!("Output stream error: {}", err);
             err_flag.store(true, Ordering::Relaxed);
         };

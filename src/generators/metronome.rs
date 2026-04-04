@@ -1,6 +1,6 @@
 use super::{MIN_ENVELOPE, TWO_PI};
 use crate::{audio_io::timing::MusicalTransport, traits::AudioSource};
-use log;
+// use log;
 use rtrb::{Consumer, Producer, RingBuffer};
 use std::sync::Arc;
 
@@ -179,7 +179,7 @@ impl Metronome {
     /// Spawn one or more tick generators for the given `BeatStrength`,
     /// with an optional sample-offset delay for sub-buffer accuracy.
     fn spawn_tick(&mut self, strength: &BeatStrength, delay_samples: i64) {
-        log::trace!("Tick at {:.4}", self.transport.get_accumulated_beats());
+        // log::trace!("Tick at {:.4}", self.transport.get_accumulated_beats());
         if self.muted {
             return;
         }
