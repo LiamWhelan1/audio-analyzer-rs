@@ -1,7 +1,7 @@
-extern crate audio_analyzer_rs;
+extern crate audio_engine;
 use std::fs::File;
 
-use audio_analyzer_rs::testing::run_cli_simulation;
+use audio_engine::testing::run_cli_simulation;
 use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt};
 
 fn main() -> anyhow::Result<()> {

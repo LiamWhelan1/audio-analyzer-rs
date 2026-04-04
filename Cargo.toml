@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [lib]
-name = "audio_analyzer_rs"
+name = "audio_engine"
 crate-type = ["cdylib", "staticlib", "rlib"]
 
 [[bin]]
