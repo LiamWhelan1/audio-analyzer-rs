@@ -1,11 +1,15 @@
 [package]
-name = "audio-analyzer-rs"
+name = "audio_engine"
 version = "0.1.0"
 edition = "2024"
 
 [lib]
 name = "audio_analyzer_rs"
-crate-type = ["cdylib", "rlib"]
+crate-type = ["cdylib", "staticlib", "rlib"]
+
+[[bin]]
+name = "uniffi-bindgen"
+path = "uniffi-bindgen.rs"
 
 [dependencies]
 cpal = "0.16"                                       # audio input/output host
@@ -29,3 +33,6 @@ libc = "0.2.178"
 rerun = "0.30.0"
 parking_lot = "0.12.5"
 uniffi = { version = "0.31.0", features = ["cli"] }
+
+[build-dependencies]
+uniffi = { version = "0.31.0", features = ["build"] }

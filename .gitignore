@@ -6,3 +6,4 @@ spectrogram.rs
 test.wav
 freq_output.csv
 output.log
+test_output.wav
