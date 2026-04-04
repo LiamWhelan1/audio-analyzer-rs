@@ -78,9 +78,8 @@ build_android() {
     mkdir -p "$ANDROID_OUT_DIR" "$KOTLIN_BINDINGS_DIR"
 
     step "Building Android targets (all ABIs)"
-    # ANDROID_PLATFORM=26 required for cpal/AAudio (introduced in API 26)
-    # cargo-ndk 4.x reads this env var; do NOT use -p (that means --package in 4.x)
-    ANDROID_PLATFORM=26 cargo ndk \
+    # API level 26+ required for cpal/AAudio; set via [package.metadata.ndk] in Cargo.toml
+    cargo ndk \
         -t aarch64-linux-android \
         -t armv7-linux-androideabi \
         -t i686-linux-android \
