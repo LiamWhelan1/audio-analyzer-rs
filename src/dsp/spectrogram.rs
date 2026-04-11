@@ -6,13 +6,13 @@ fn hann_window(n: usize) -> Vec<f32> {
         })
         .collect()
 }
-fn hz_to_mel(hz: f32) -> f32 {
+pub(crate) fn hz_to_mel(hz: f32) -> f32 {
     2595.0 * (1.0 + hz / 700.0).log10()
 }
-fn mel_to_hz(mel: f32) -> f32 {
+pub(crate) fn mel_to_hz(mel: f32) -> f32 {
     700.0 * (10f32.powf(mel / 2595.0) - 1.0)
 }
-fn build_mel_filterbank(
+pub(crate) fn build_mel_filterbank(
     sample_rate: usize,
     n_fft: usize,
     n_mels: usize,
@@ -58,7 +58,7 @@ fn build_mel_filterbank(
     }
     filters
 }
-fn spect_to_mel(mag: &[f32], mel_filters: &Vec<Vec<f32>>) -> Vec<f32> {
+pub(crate) fn spect_to_mel(mag: &[f32], mel_filters: &Vec<Vec<f32>>) -> Vec<f32> {
     mel_filters
         .iter()
         .map(|filt| filt.iter().zip(mag.iter()).map(|(a, b)| a * b).sum())

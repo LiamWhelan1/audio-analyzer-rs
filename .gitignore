@@ -11,3 +11,5 @@ cpp/generated/
 src/generated/
 ios/AudioEngine.xcframework
 android/src/main/jniLibs/
+data/
+*.tsx

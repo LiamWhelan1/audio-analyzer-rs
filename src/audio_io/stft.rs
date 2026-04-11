@@ -11,7 +11,15 @@ use crossbeam_channel::Sender;
 use rtrb::Producer;
 use rustfft::num_complex::Complex;
 
-use crate::{audio_io::SlotPool, dsp::fft::FftProcessor};
+use crate::{
+    audio_io::{
+        SlotPool,
+        dynamics::{self, DynamicLevel, DynamicsOutput},
+    },
+    dsp::fft::FftProcessor,
+    ml::PitchDetector,
+    practice::metrics::DynamicsEvent,
+};
 
 /// Short-time Fourier transform worker for pitch detection.
 ///
@@ -88,6 +96,7 @@ impl STFT {
         reclaim: Sender<usize>,
         sr: u32,
         note_tx: Producer<Vec<(f32, i32)>>,
+        dynamics_output: Arc<parking_lot::RwLock<DynamicsOutput>>,
     ) {
         self.state.store(1, Ordering::Relaxed);
         let state = self.state.clone();
@@ -96,11 +105,13 @@ impl STFT {
         let window_size = slot_len;
         let ring_buffer_len = 8192.max(window_size * 4);
 
-        const MIN_FREQ: f32 = 25.0;
+        const MIN_FREQ: f32 = 30.0; // matches FMIN_HZ in pitch_detector.rs and prepare_dataset.py
         const MAX_FREQ: f32 = 4200.0;
-        const MIN_SNR_DB: f32 = 10.0;
         const ABSOLUTE_THRESHOLD: f32 = 5e-7;
         const CONFIDENCE_THRESH: f32 = 0.60;
+        // Search radius (in FFT bins) around each ML-predicted frequency when
+        // looking for a local spectral peak to refine via parabolic interpolation.
+        const SEARCH_RADIUS: usize = 3;
 
         thread::spawn(move || {
             // We need note_tx inside the closure but must also let the
@@ -120,6 +131,17 @@ impl STFT {
 
             let mut active_tracks: Vec<NoteTrack> = Vec::with_capacity(12);
 
+            // Try to load the ML pitch detector.  If the model is not yet
+            // trained / embedded, we fall back to the DSP-only pipeline.
+            let pitch_detector: Option<PitchDetector> = PitchDetector::new(sr, window_size).ok();
+
+            if pitch_detector.is_none() {
+                log::info!(
+                    "ML pitch model not available — using DSP-only peak picking. \
+                     See models/README.md to train the model."
+                );
+            }
+
             while state.load(Ordering::Relaxed) != -1 || !cons.is_empty() {
                 if state.load(Ordering::Relaxed) == 0 || state.load(Ordering::Relaxed) == -1 {
                     while let Ok(idx) = cons.pop() {
@@ -136,6 +158,12 @@ impl STFT {
                 while let Ok(idx) = cons.pop() {
                     if idx >= slots.slots.len() {
                         let _ = reclaim.send(idx);
+                        continue;
+                    }
+
+                    if dynamics_output.read().level == DynamicLevel::Silence {
+                        let _ = reclaim.send(idx);
+                        slots.release(idx);
                         continue;
                     }
 
@@ -176,43 +204,108 @@ impl STFT {
                         .map(|c| c.norm_sqr())
                         .collect();
 
-                    let mut sorted_power = power_spectrum.clone();
-                    sorted_power
-                        .sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-                    let noise_floor = sorted_power
-                        .get(half_size / 2)
-                        .copied()
-                        .unwrap_or(ABSOLUTE_THRESHOLD)
-                        .max(ABSOLUTE_THRESHOLD);
-                    let min_peak_power = noise_floor * 10.0_f32.powf(MIN_SNR_DB / 10.0);
-
-                    let mut peaks: Vec<(usize, f32)> = Vec::new();
-                    for i in 2..(half_size.saturating_sub(2)) {
-                        let p = power_spectrum[i];
-                        if p > min_peak_power
-                            && p > power_spectrum[i - 1]
-                            && p > power_spectrum[i + 1]
-                        {
-                            peaks.push((i, p));
-                        }
-                    }
-                    peaks
-                        .sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
-                    peaks.truncate(10);
-
                     let bin_width = sr as f32 / window_size as f32;
-                    let mut confirmed_candidates: Vec<f32> = Vec::new();
-                    let mut is_harmonic = vec![false; peaks.len()];
 
-                    for i in 0..peaks.len() {
-                        if is_harmonic[i] {
-                            continue;
+                    // ── candidate frequency seeds ──────────────────────────────
+                    //
+                    // ML path: the model predicts which MIDI notes are active and
+                    // returns approximate frequencies for each.  These replace the
+                    // old spectral peak-picking + harmonic-suppression block.
+                    //
+                    // DSP fallback (no model): pick the top-10 spectral peaks by
+                    // power, as before.  Harmonic suppression is also retained in
+                    // this path because the ML model already handles it.
+
+                    let candidate_freqs: Vec<f32> = if let Some(ref detector) = pitch_detector {
+                        // ML path ─────────────────────────────────────────────
+                        detector
+                            .detect(&power_spectrum)
+                            .into_iter()
+                            .map(|(freq, _conf)| freq)
+                            .filter(|&f| f >= MIN_FREQ && f <= MAX_FREQ)
+                            .collect()
+                    } else {
+                        // DSP fallback ────────────────────────────────────────
+                        const MIN_SNR_DB: f32 = 10.0;
+                        let mut sorted_power = power_spectrum.clone();
+                        sorted_power
+                            .sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+                        let noise_floor = sorted_power
+                            .get(half_size / 2)
+                            .copied()
+                            .unwrap_or(ABSOLUTE_THRESHOLD)
+                            .max(ABSOLUTE_THRESHOLD);
+                        let min_peak_power = noise_floor * 10.0_f32.powf(MIN_SNR_DB / 10.0);
+
+                        let mut peaks: Vec<(usize, f32)> = Vec::new();
+                        for i in 2..(half_size.saturating_sub(2)) {
+                            let p = power_spectrum[i];
+                            if p > min_peak_power
+                                && p > power_spectrum[i - 1]
+                                && p > power_spectrum[i + 1]
+                            {
+                                peaks.push((i, p));
+                            }
                         }
-                        let (bin, _) = peaks[i];
+                        peaks.sort_by(|a, b| {
+                            b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal)
+                        });
+                        peaks.truncate(10);
 
-                        let y_l = power_spectrum[bin - 1].ln();
-                        let y_c = power_spectrum[bin].ln();
-                        let y_r = power_spectrum[bin + 1].ln();
+                        // Harmonic suppression (only needed in DSP path)
+                        let mut is_harmonic = vec![false; peaks.len()];
+                        let mut out = Vec::new();
+                        for i in 0..peaks.len() {
+                            if is_harmonic[i] {
+                                continue;
+                            }
+                            let (bin, _) = peaks[i];
+                            let freq = bin as f32 * bin_width;
+                            if freq >= MIN_FREQ && freq <= MAX_FREQ {
+                                out.push(freq);
+                                for j in (i + 1)..peaks.len() {
+                                    let (bin_j, _) = peaks[j];
+                                    let freq_j = bin_j as f32 * bin_width;
+                                    let ratio = freq_j / freq;
+                                    if (ratio - ratio.round()).abs() < 0.06 && ratio.round() >= 2.0
+                                    {
+                                        is_harmonic[j] = true;
+                                    }
+                                }
+                            }
+                        }
+                        out
+                    };
+
+                    // ── per-candidate refinement (both paths) ──────────────────
+                    //
+                    // For each seed frequency:
+                    //   1. Find the strongest spectral bin within ±SEARCH_RADIUS
+                    //   2. Refine with parabolic interpolation (sub-bin accuracy)
+                    //   3. Check for sub-harmonic octave error
+                    //   4. Validate with autocorrelation confidence
+
+                    let mut confirmed_candidates: Vec<f32> = Vec::new();
+
+                    for approx_freq in candidate_freqs {
+                        let approx_bin =
+                            ((approx_freq / bin_width).round() as usize).clamp(2, half_size - 3);
+
+                        // Find the local spectral maximum within the search window
+                        let lo = approx_bin.saturating_sub(SEARCH_RADIUS).max(2);
+                        let hi = (approx_bin + SEARCH_RADIUS).min(half_size - 3);
+                        let bin = (lo..=hi)
+                            .max_by(|&a, &b| {
+                                power_spectrum[a]
+                                    .partial_cmp(&power_spectrum[b])
+                                    .unwrap_or(std::cmp::Ordering::Equal)
+                            })
+                            .unwrap_or(approx_bin);
+
+                        // Parabolic interpolation in log-magnitude domain
+                        let y_l = power_spectrum[bin - 1].max(1e-30).ln();
+                        let y_c = power_spectrum[bin].max(1e-30).ln();
+                        let y_r = power_spectrum[bin + 1].max(1e-30).ln();
                         let denom = y_l - 2.0 * y_c + y_r;
                         let delta = if denom.abs() < 1e-5 {
                             0.0
@@ -226,6 +319,9 @@ impl STFT {
                             continue;
                         }
 
+                        // Sub-harmonic check: if the octave below has significant
+                        // power and passes autocorrelation, the true fundamental is
+                        // one octave lower.
                         let sub_harmonic = cand_freq * 0.5;
                         let sub_bin = (sub_harmonic / bin_width).round() as usize;
                         if sub_bin > 1 && sub_bin < half_size - 1 {
@@ -245,6 +341,7 @@ impl STFT {
                             }
                         }
 
+                        // Autocorrelation confidence gate
                         let period_samples = sr as f32 / cand_freq;
                         let confidence = Self::compute_autocorr(
                             &ring_buffer,
@@ -256,14 +353,6 @@ impl STFT {
 
                         if confidence > CONFIDENCE_THRESH {
                             confirmed_candidates.push(cand_freq);
-                            for j in (i + 1)..peaks.len() {
-                                let (bin_j, _) = peaks[j];
-                                let freq_j = bin_j as f32 * bin_width;
-                                let ratio = freq_j / cand_freq;
-                                if (ratio - ratio.round()).abs() < 0.06 && ratio.round() >= 2.0 {
-                                    is_harmonic[j] = true;
-                                }
-                            }
                         }
                     }
 

@@ -964,6 +964,7 @@ impl AudioPipeline {
         let cons = self.add_consumer(handle);
         let (note_tx, note_rx) = RingBuffer::<Vec<(f32, i32)>>::new(64);
         let mut stft = stft::STFT::new(handle, self.reducer_remove_tx.clone());
+
         stft.detect_pitches(
             self.slots.clone(),
             self.meta.slot_len,
@@ -971,6 +972,7 @@ impl AudioPipeline {
             self.reclaim_tx.clone(),
             self.meta.in_sr,
             note_tx,
+            self.dynamics_output.clone(),
         );
         let (tuner, cmd_tx, output) = tuner::Tuner::new(note_rx, stft);
         tuner.run();

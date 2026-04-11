@@ -1,0 +1,4 @@
+2026-04-08T13:40:20.459088Z DEBUG ThreadId(05) tract_onnx::model: ONNX operator set version: 18
+2026-04-08T13:40:20.459410Z TRACE ThreadId(05) tract_onnx::model: created ParsingContext
+2026-04-08T13:40:20.459593Z TRACE ThreadId(05) tract_onnx::model: trying to initialize initializers hashmap...
+2026-04-08T13:40:20.460280Z  INFO ThreadId(05) audio_engine::audio_io::stft: ML pitch model not available — using DSP-only peak picking. See models/README.md to train the model.

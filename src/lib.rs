@@ -2,6 +2,7 @@ pub mod analysis;
 pub mod audio_io;
 pub mod dsp;
 pub mod generators;
+pub(crate) mod ml;
 pub mod practice;
 pub mod testing;
 pub mod traits;
