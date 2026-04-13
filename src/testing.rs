@@ -13,14 +13,14 @@ mod ffi_tests {
 
     #[test]
     fn test_engine_lifecycle() {
-        // 1. Create the engine (constructor returns Arc<AudioEngine>)
-        let engine = AudioEngine::new();
+        // 1. Create the engine (constructor returns Result<Arc<AudioEngine>>)
+        let engine = AudioEngine::new().expect("engine init failed");
 
         // 2. Start streams
-        assert!(engine.start_output());
+        assert!(engine.start_output().is_ok());
 
         // 3. Create a worker
-        let metronome = engine.create_metronome(120.0);
+        let metronome = engine.create_metronome(120.0).expect("metronome failed");
 
         // 4. Test methods directly on the object
         assert!(metronome.set_bpm(140.0));
@@ -37,7 +37,7 @@ pub fn run_cli_simulation() {
     println!("Initializing Audio Engine...");
 
     // Initialize the engine
-    let engine = AudioEngine::new();
+    let engine = AudioEngine::new().expect("Failed to initialize audio engine");
 
     println!(
         "Commands: audio play, audio pause, rec start, rec stop, tuner start, tuner stop, \
@@ -57,7 +57,7 @@ pub fn run_cli_simulation() {
         match command.as_str() {
             // --- Metronome ---
             "met start" => {
-                engine.create_metronome(120.0);
+                let _ = engine.create_metronome(120.0);
                 println!("Metronome created at 120 BPM.");
             }
             "met stop" => {
@@ -87,13 +87,13 @@ pub fn run_cli_simulation() {
             }
             // --- Synth ---
             "synth start" => {
-                engine.create_synth();
+                let _ = engine.create_synth();
                 println!("Synth created.");
             }
             "synth note" => {
                 if let Some(s) = engine.active_synth.lock().unwrap().as_ref() {
-                    // Logic for a middle C (261.63 Hz) at half velocity
-                    s.play_note(261.63, 63.5);
+                    // Logic for a middle C (261.63 Hz) at max velocity
+                    s.play_note(261.63, 127.0);
                     println!("Playing Middle C...");
                 }
             }
@@ -104,7 +104,7 @@ pub fn run_cli_simulation() {
 
             // --- Player ---
             "player start" => {
-                engine.create_player();
+                let _ = engine.create_player();
                 println!("Player created.");
             }
             "player load" => {
@@ -113,36 +113,43 @@ pub fn run_cli_simulation() {
                     io::stdout().flush().unwrap();
                     let mut path = String::new();
                     io::stdin().read_line(&mut path).ok();
-                    p.load_track(path.trim().to_string());
+                    if let Err(e) = p.load_track(path.trim().to_string()) {
+                        println!("Load error: {e}");
+                    } else {
+                        p.play();
+                    }
+                }
+            }
+            "player play" => {
+                if let Some(p) = engine.active_player.lock().unwrap().as_ref() {
                     p.play();
                 }
             }
+            "player stop" => {
+                engine.stop_player();
+                println!("Player dropped.");
+            }
 
             // --- Recording & Analysis ---
-            "rec start" => {
-                if engine
-                    .start_recording("test_output.wav".to_string())
-                    .is_some()
-                {
-                    println!("Recording to test_output.wav");
-                }
-            }
+            "rec start" => match engine.start_recording("test_output.wav".to_string()) {
+                Ok(_) => println!("Recording to test_output.wav"),
+                Err(e) => println!("Recording error: {e}"),
+            },
             "rec stop" => {
                 engine.stop_recording();
                 println!("Rec dropped.");
             }
-            "onset start" => {
-                if engine.start_onset_detection().is_some() {
-                    println!("Onset detection active.");
-                }
-            }
+            "onset start" => match engine.start_onset_detection() {
+                Ok(_) => println!("Onset detection active."),
+                Err(e) => println!("Onset error: {e}"),
+            },
             "onset stop" => {
                 engine.stop_onset_detection();
                 println!("Onset dropped.");
             }
             "tuner start" => {
-                if let Some(tuner) = engine.start_tuner() {
-                    // let move_tuner = Arc::downgrade(&tuner);
+                if let Ok(_tuner) = engine.start_tuner() {
+                    // let move_tuner = Arc::downgrade(&_tuner);
                     // std::thread::spawn(move || {
                     //     loop {
                     //         if let Some(tuner) = move_tuner.upgrade() {

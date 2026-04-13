@@ -1042,6 +1042,7 @@ impl AudioPipeline {
 
     /// Spawns a synthesizer for sound generation.
     pub fn spawn_synthesizer(&mut self) -> Result<Producer<SynthCommand>> {
+        self.start_output()?;
         let (synth, producer) = Synthesizer::new(self.meta.out_sr, self.transport.clone());
         self.output_controller().add_source(Box::new(synth));
         Ok(producer)
@@ -1049,6 +1050,7 @@ impl AudioPipeline {
 
     /// Spawns an audio player for playback control.
     pub fn spawn_player(&mut self) -> Result<PlayerController> {
+        self.start_output()?;
         let (player, controller) = AudioPlayer::new(self.meta.out_sr);
         self.output_controller().add_source(Box::new(player));
         Ok(controller)
