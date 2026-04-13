@@ -79,8 +79,8 @@ pub struct Tuner {
     // Channel for inbound parameter changes (like MetronomeCommand)
     command_rx: Consumer<TunerCommand>,
 
-    // Channel carrying raw detected (freq, hit_count) from STFT
-    note_rx: Consumer<Vec<(f32, i32)>>,
+    // Channel carrying raw detected (freq, confidence_score) from STFT
+    note_rx: Consumer<Vec<(f32, f32)>>,
 
     // Shared output that any reader (React, FFI callback, etc.) can poll
     output: Arc<parking_lot::RwLock<TunerOutput>>,
@@ -100,7 +100,7 @@ impl Tuner {
     /// * The `Arc<RwLock<TunerOutput>>` is cloned into the React bridge
     ///   so JS can poll it via `requestAnimationFrame`.
     pub fn new(
-        note_rx: Consumer<Vec<(f32, i32)>>,
+        note_rx: Consumer<Vec<(f32, f32)>>,
         stft: STFT,
     ) -> (
         Self,
@@ -171,7 +171,7 @@ impl Tuner {
 
                 if notes_data.len() == 1 || self.mode == TunerMode::SinglePitch {
                     // Pick the note with the most hits
-                    let best = notes_data.iter().max_by(|a, b| a.1.cmp(&b.1)).unwrap();
+                    let best = notes_data.iter().max_by(|a, b| a.1.total_cmp(&b.1)).unwrap();
                     let note = Note::from_freq(best.0, Some(self.base));
                     label = note.get_name();
                     cents = note.get_cents();

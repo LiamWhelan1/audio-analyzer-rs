@@ -2,7 +2,6 @@ pub mod analysis;
 pub mod audio_io;
 pub mod dsp;
 pub mod generators;
-pub(crate) mod ml;
 pub mod practice;
 pub mod testing;
 pub mod traits;
@@ -120,7 +119,7 @@ pub struct Synth {
 
 #[uniffi::export]
 impl Synth {
-    pub fn play_note(&self, freq: f32, velocity: f32) -> bool {
+    pub fn play_note(&self, freq: f32, velocity: f32 /* 0-127 */) -> bool {
         let cmd = if velocity > 0.0 {
             SynthCommand::NoteOn {
                 freq,
@@ -327,6 +326,7 @@ impl AudioEngine {
     pub fn stop_synth(&self) {
         if let Some(s) = self.active_synth.lock().unwrap().take() {
             let _ = s.producer.lock().unwrap().push(SynthCommand::Stop);
+            let _ = s.producer.lock().unwrap().push(SynthCommand::End);
         }
     }
 

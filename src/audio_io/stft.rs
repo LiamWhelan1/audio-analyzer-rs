@@ -14,19 +14,99 @@ use rustfft::num_complex::Complex;
 use crate::{
     audio_io::{
         SlotPool,
-        dynamics::{self, DynamicLevel, DynamicsOutput},
+        dynamics::{DynamicLevel, DynamicsOutput},
     },
     dsp::fft::FftProcessor,
-    ml::PitchDetector,
-    practice::metrics::DynamicsEvent,
 };
 
+/// Tracking struct for note hysteresis.
+#[derive(Clone, Debug)]
+struct NoteTrack {
+    freq: f32,
+    score: f32,
+    life: i32,
+}
+
+/// Manages the lifecycle of detected pitches across consecutive frames.
+struct PitchTracker {
+    tracks: Vec<NoteTrack>,
+    display_threshold: i32,
+    max_life: i32,
+    tolerance: f32,
+}
+
+impl PitchTracker {
+    fn new() -> Self {
+        Self {
+            tracks: Vec::new(),
+            display_threshold: 2, // "once the value hits n_hits to display"
+            max_life: 4,          // "max count value is n_misses to go away"
+            tolerance: 0.03,      // ~3% frequency tolerance
+        }
+    }
+
+    fn process(&mut self, raw_pitches: Vec<(f32, f32)>) -> Vec<(f32, f32)> {
+        let mut matched = vec![false; self.tracks.len()];
+        let mut active_pitches = Vec::new();
+
+        // 1. Attempt to match incoming pitches with existing tracks
+        for (raw_freq, raw_score) in raw_pitches {
+            let mut found = false;
+            for (i, track) in self.tracks.iter_mut().enumerate() {
+                if matched[i] {
+                    continue;
+                }
+
+                if (track.freq - raw_freq).abs() / track.freq < self.tolerance {
+                    track.freq = track.freq * 0.6 + raw_freq * 0.4;
+                    track.score = raw_score;
+                    // Hit: Increase life, clamped to max_life
+                    track.life = (track.life + 1).min(self.max_life);
+                    matched[i] = true;
+                    found = true;
+                    break;
+                }
+            }
+
+            // 2. If it didn't match anything, spawn a new track
+            if !found {
+                self.tracks.push(NoteTrack {
+                    freq: raw_freq,
+                    score: raw_score,
+                    life: 1, // Start with 1 hit
+                });
+                matched.push(true);
+            }
+        }
+
+        // 3. Process misses, reap dead tracks, and emit stable ones
+        let mut i = 0;
+        while i < self.tracks.len() {
+            if !matched[i] {
+                // Miss: Decrease life
+                self.tracks[i].life -= 1;
+            }
+
+            if self.tracks[i].life <= 0 {
+                // Decay to 0 -> Destroy track
+                self.tracks.remove(i);
+                if matched.len() > i {
+                    matched.remove(i);
+                }
+            } else {
+                // Only output if the track has reached the display threshold
+                if self.tracks[i].life >= self.display_threshold {
+                    active_pitches.push((self.tracks[i].freq, self.tracks[i].score));
+                }
+                i += 1;
+            }
+        }
+
+        active_pitches
+    }
+}
+
 /// Short-time Fourier transform worker for pitch detection.
-///
-/// The STFT no longer converts frequencies to note names or invokes an
-/// FFI callback.  Instead it pushes raw `Vec<(f32, i32)>` (frequency,
-/// hit count) frames into an `rtrb` ring buffer that the [`Tuner`]
-/// consumes on its own thread.
 pub struct STFT {
     state: Arc<AtomicI8>,
     handle: u8,
@@ -53,16 +133,7 @@ impl Drop for STFT {
     }
 }
 
-/// Tracking struct for note hysteresis.
-#[derive(Clone, Debug)]
-struct NoteTrack {
-    freq: f32,
-    hits: i32,
-    misses: i32,
-}
-
 impl STFT {
-    /// Create a new STFT worker with the given handle.
     pub fn new(handle: u8, reducer_remove_tx: Sender<u8>) -> Self {
         STFT {
             handle,
@@ -71,23 +142,6 @@ impl STFT {
         }
     }
 
-    /// Spawn pitch detection processing on a background thread.
-    ///
-    /// Instead of the old `AnalysisCallback` that pushed C-strings over
-    /// FFI, the STFT now writes each analysis frame as a
-    /// `Vec<(f32, i32)>` — raw frequency + hysteresis hit count — into
-    /// `note_tx`.  The [`Tuner`] reads the other end of this channel,
-    /// applies its own key/mode/system settings, and publishes a
-    /// [`TunerOutput`] for the React frontend to poll.
-    ///
-    /// # Arguments
-    ///
-    /// * `slots`    – shared sample buffer pool
-    /// * `slot_len` – number of samples per slot
-    /// * `cons`     – receives filled slot indices from the audio thread
-    /// * `reclaim`  – returns freed slot indices to the audio thread
-    /// * `sr`       – sampling rate in Hz
-    /// * `note_tx`  – producer end of the STFT → Tuner channel
     pub fn detect_pitches(
         &mut self,
         slots: Arc<SlotPool>,
@@ -95,9 +149,15 @@ impl STFT {
         mut cons: rtrb::Consumer<usize>,
         reclaim: Sender<usize>,
         sr: u32,
-        note_tx: Producer<Vec<(f32, i32)>>,
+        note_tx: Producer<Vec<(f32, f32)>>,
         dynamics_output: Arc<parking_lot::RwLock<DynamicsOutput>>,
     ) {
+        // Prevent panics caused by 0-length window initialization
+        if slot_len < 4 {
+            println!("STFT Error: slot_len too small");
+            return;
+        }
+
         self.state.store(1, Ordering::Relaxed);
         let state = self.state.clone();
 
@@ -105,42 +165,30 @@ impl STFT {
         let window_size = slot_len;
         let ring_buffer_len = 8192.max(window_size * 4);
 
-        const MIN_FREQ: f32 = 30.0; // matches FMIN_HZ in pitch_detector.rs and prepare_dataset.py
-        const MAX_FREQ: f32 = 4200.0;
-        const ABSOLUTE_THRESHOLD: f32 = 5e-7;
-        const CONFIDENCE_THRESH: f32 = 0.60;
-        // Search radius (in FFT bins) around each ML-predicted frequency when
-        // looking for a local spectral peak to refine via parabolic interpolation.
-        const SEARCH_RADIUS: usize = 3;
+        const MIN_FREQ: f32 = 30.0;
+        const MAX_FREQ: f32 = 10_000.0;
 
         thread::spawn(move || {
-            // We need note_tx inside the closure but must also let the
-            // compiler know when the producer is dropped (on thread exit).
             let mut note_tx = note_tx;
 
             let hann = Self::hann_window(window_size);
             let mut fft_processor = FftProcessor::new(window_size);
 
+            let mut pitch_tracker = PitchTracker::new();
+
+            #[cfg(debug_assertions)]
+            let mut dbg_fft_frame: usize = 0;
+
             let mut ring_buffer: Vec<f32> = vec![0.0; ring_buffer_len];
-            let mut ring_write_pos = 0;
-            let mut ring_read_pos = 0;
-            let mut available_samples = 0;
+            let mut ring_write_pos = 0usize;
+            let mut ring_read_pos = 0usize;
+            let mut available_samples = 0usize;
 
+            let half_size = window_size / 2 + 1;
             let mut time_domain_window: Vec<f32> = vec![0.0; window_size];
+
+            // Allocate safely using window_size to prevent bounds mismatch
             let mut complex_output: Vec<Complex<f32>> = vec![Complex::default(); window_size];
-
-            let mut active_tracks: Vec<NoteTrack> = Vec::with_capacity(12);
-
-            // Try to load the ML pitch detector.  If the model is not yet
-            // trained / embedded, we fall back to the DSP-only pipeline.
-            let pitch_detector: Option<PitchDetector> = PitchDetector::new(sr, window_size).ok();
-
-            if pitch_detector.is_none() {
-                log::info!(
-                    "ML pitch model not available — using DSP-only peak picking. \
-                     See models/README.md to train the model."
-                );
-            }
 
             while state.load(Ordering::Relaxed) != -1 || !cons.is_empty() {
                 if state.load(Ordering::Relaxed) == 0 || state.load(Ordering::Relaxed) == -1 {
@@ -155,22 +203,20 @@ impl STFT {
                 }
 
                 let mut new_data = false;
+                let is_silence = dynamics_output.read().level == DynamicLevel::Silence;
+
                 while let Ok(idx) = cons.pop() {
+                    // Bounds checking prevents out-of-bounds on slot slices
                     if idx >= slots.slots.len() {
                         let _ = reclaim.send(idx);
-                        continue;
-                    }
-
-                    if dynamics_output.read().level == DynamicLevel::Silence {
-                        let _ = reclaim.send(idx);
-                        slots.release(idx);
                         continue;
                     }
 
                     unsafe {
                         let slot_slice = &*slots.slots[idx].get();
                         for &sample in slot_slice.iter() {
-                            ring_buffer[ring_write_pos] = sample;
+                            // If silence, feed zeroes to keep the clock aligned and decay seamlessly
+                            ring_buffer[ring_write_pos] = if is_silence { 0.0 } else { sample };
                             ring_write_pos = (ring_write_pos + 1) % ring_buffer_len;
                             available_samples += 1;
                         }
@@ -186,239 +232,228 @@ impl STFT {
                 }
 
                 while available_samples >= window_size {
-                    for i in 0..window_size {
-                        let idx = (ring_read_pos + i) % ring_buffer_len;
-                        time_domain_window[i] = ring_buffer[idx] * hann[i];
-                    }
+                    // Debug trigger fires on every 10,000th FFT frame (debug builds only).
+                    #[cfg(debug_assertions)]
+                    let dbg_trigger = {
+                        let t = dbg_fft_frame % 1_000 == 0;
+                        dbg_fft_frame += 1;
+                        t
+                    };
 
-                    let fft_res = fft_processor.process_forward(&mut time_domain_window);
-                    let half_size = window_size / 2 + 1;
-                    let process_len = fft_res.len().min(half_size);
-                    for (i, val) in fft_res.iter().enumerate().take(process_len) {
-                        complex_output[i] = *val;
-                    }
+                    // Holds captured buffers for the debug dump; only populated when triggered.
+                    #[cfg(debug_assertions)]
+                    let mut dbg_capture: Option<(
+                        Vec<f32>,
+                        Vec<f32>,
+                        Vec<f32>,
+                        f32,
+                    )> = None;
 
-                    let power_spectrum: Vec<f32> = complex_output
-                        .iter()
-                        .take(half_size)
-                        .map(|c| c.norm_sqr())
-                        .collect();
-
-                    let bin_width = sr as f32 / window_size as f32;
-
-                    // ── candidate frequency seeds ──────────────────────────────
-                    //
-                    // ML path: the model predicts which MIDI notes are active and
-                    // returns approximate frequencies for each.  These replace the
-                    // old spectral peak-picking + harmonic-suppression block.
-                    //
-                    // DSP fallback (no model): pick the top-10 spectral peaks by
-                    // power, as before.  Harmonic suppression is also retained in
-                    // this path because the ML model already handles it.
-
-                    let candidate_freqs: Vec<f32> = if let Some(ref detector) = pitch_detector {
-                        // ML path ─────────────────────────────────────────────
-                        detector
-                            .detect(&power_spectrum)
-                            .into_iter()
-                            .map(|(freq, _conf)| freq)
-                            .filter(|&f| f >= MIN_FREQ && f <= MAX_FREQ)
-                            .collect()
+                    // Bypass the FFT entirely during silence
+                    let raw_pitches = if is_silence {
+                        Vec::new() // Feed an empty list so tracker counts it as a miss for all
                     } else {
-                        // DSP fallback ────────────────────────────────────────
-                        const MIN_SNR_DB: f32 = 10.0;
-                        let mut sorted_power = power_spectrum.clone();
-                        sorted_power
-                            .sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-                        let noise_floor = sorted_power
-                            .get(half_size / 2)
-                            .copied()
-                            .unwrap_or(ABSOLUTE_THRESHOLD)
-                            .max(ABSOLUTE_THRESHOLD);
-                        let min_peak_power = noise_floor * 10.0_f32.powf(MIN_SNR_DB / 10.0);
+                        // Capture pre-hann raw signal from the ring buffer.
+                        #[cfg(debug_assertions)]
+                        let dbg_raw: Vec<f32> = if dbg_trigger {
+                            (0..window_size)
+                                .map(|i| ring_buffer[(ring_read_pos + i) % ring_buffer_len])
+                                .collect()
+                        } else {
+                            Vec::new()
+                        };
 
-                        let mut peaks: Vec<(usize, f32)> = Vec::new();
-                        for i in 2..(half_size.saturating_sub(2)) {
-                            let p = power_spectrum[i];
-                            if p > min_peak_power
-                                && p > power_spectrum[i - 1]
-                                && p > power_spectrum[i + 1]
-                            {
-                                peaks.push((i, p));
-                            }
+                        for i in 0..window_size {
+                            let idx = (ring_read_pos + i) % ring_buffer_len;
+                            time_domain_window[i] = ring_buffer[idx] * hann[i];
                         }
-                        peaks.sort_by(|a, b| {
-                            b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal)
-                        });
-                        peaks.truncate(10);
 
-                        // Harmonic suppression (only needed in DSP path)
-                        let mut is_harmonic = vec![false; peaks.len()];
-                        let mut out = Vec::new();
-                        for i in 0..peaks.len() {
-                            if is_harmonic[i] {
-                                continue;
-                            }
-                            let (bin, _) = peaks[i];
-                            let freq = bin as f32 * bin_width;
-                            if freq >= MIN_FREQ && freq <= MAX_FREQ {
-                                out.push(freq);
-                                for j in (i + 1)..peaks.len() {
-                                    let (bin_j, _) = peaks[j];
-                                    let freq_j = bin_j as f32 * bin_width;
-                                    let ratio = freq_j / freq;
-                                    if (ratio - ratio.round()).abs() < 0.06 && ratio.round() >= 2.0
-                                    {
-                                        is_harmonic[j] = true;
+                        // Capture hann-windowed signal.
+                        #[cfg(debug_assertions)]
+                        let dbg_windowed: Vec<f32> = if dbg_trigger {
+                            time_domain_window.clone()
+                        } else {
+                            Vec::new()
+                        };
+
+                        let fft_res = fft_processor.process_forward(&mut time_domain_window);
+
+                        // process_len will safely never exceed complex_output's capacity
+                        let process_len = fft_res.len().min(half_size).min(complex_output.len());
+                        for (i, val) in fft_res.iter().enumerate().take(process_len) {
+                            complex_output[i] = *val;
+                        }
+
+                        let magnitudes: Vec<f32> = complex_output
+                            .iter()
+                            .take(half_size)
+                            .map(|c| c.norm())
+                            .collect();
+
+                        let bin_width = sr as f32 / window_size as f32;
+
+                        // Store all captured buffers so they can be read after this block.
+                        #[cfg(debug_assertions)]
+                        if dbg_trigger {
+                            dbg_capture =
+                                Some((dbg_raw, dbg_windowed, magnitudes.clone(), bin_width));
+                        }
+
+                        let noise_floor = 10.0f32
+                            .powf(dynamics_output.read().noise_floor_db / 20.0)
+                            * half_size as f32
+                            / 2.0;
+                        Self::extract_pitches(
+                            &magnitudes,
+                            half_size,
+                            bin_width,
+                            MIN_FREQ,
+                            MAX_FREQ,
+                            noise_floor,
+                        )
+                    };
+
+                    // Send raw array to tracker (empty array decays notes, array with hits feeds notes)
+                    let stable_pitches = pitch_tracker.process(raw_pitches);
+
+                    // Emit debug frame; borrows stable_pitches before the move below.
+                    #[cfg(debug_assertions)]
+                    if dbg_trigger {
+                        let frame_idx = dbg_fft_frame - 1;
+                        if let Some((raw, windowed, mags, bw)) = dbg_capture {
+                            let min_bin = ((MIN_FREQ / bw).ceil() as usize).max(1);
+                            let max_bin = ((MAX_FREQ / bw).floor() as usize)
+                                .min(mags.len().saturating_sub(2));
+                            let noise_floor = 10.0f32
+                                .powf(dynamics_output.read().noise_floor_db / 20.0)
+                                * half_size as f32
+                                / 2.0;
+                            // Detect all spectral peaks above noise_floor.
+                            let half_sz = mags.len();
+                            let mut is_peak_dbg = vec![false; half_sz];
+                            let mut peak_bins_dbg: Vec<usize> = Vec::new();
+                            if min_bin + 1 < max_bin {
+                                for k in (min_bin + 1)..max_bin {
+                                    let m = mags[k];
+                                    if m > noise_floor && m >= mags[k - 1] && m >= mags[k + 1] {
+                                        is_peak_dbg[k] = true;
+                                        peak_bins_dbg.push(k);
                                     }
                                 }
                             }
-                        }
-                        out
-                    };
 
-                    // ── per-candidate refinement (both paths) ──────────────────
-                    //
-                    // For each seed frequency:
-                    //   1. Find the strongest spectral bin within ±SEARCH_RADIUS
-                    //   2. Refine with parabolic interpolation (sub-bin accuracy)
-                    //   3. Check for sub-harmonic octave error
-                    //   4. Validate with autocorrelation confidence
+                            // Pre-scoring list: sorted by raw magnitude.
+                            let mut top_peaks: Vec<(usize, f32)> =
+                                peak_bins_dbg.iter().map(|&k| (k, mags[k])).collect();
+                            top_peaks.sort_unstable_by(|a, b| {
+                                b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal)
+                            });
+                            top_peaks.truncate(15);
 
-                    let mut confirmed_candidates: Vec<f32> = Vec::new();
+                            // Harmonic scores: replicate extract_pitches scoring.
+                            // Compute all scores first so we can apply a relative cutoff.
+                            // Each entry: (fundamental_bin, total_score, per-bin contributions).
+                            let all_scores: Vec<(usize, f32, Vec<(usize, f32)>)> = peak_bins_dbg
+                                .iter()
+                                .map(|&k| {
+                                    let fund_mag = mags[k];
+                                    if fund_mag < noise_floor * 5.0 {
+                                        return (k, 0.0, Vec::new());
+                                    }
+                                    // Parabolic interpolation of the fundamental.
+                                    let frac_bin = if k >= 1 && k + 1 < half_sz {
+                                        let y_l = mags[k - 1].ln();
+                                        let y_c = mags[k].ln();
+                                        let y_r = mags[k + 1].ln();
+                                        let denom = y_l - 2.0 * y_c + y_r;
+                                        let delta = if denom.abs() < 1e-30 {
+                                            0.0
+                                        } else {
+                                            (0.5 * (y_l - y_r) / denom).clamp(-1.0, 1.0)
+                                        };
+                                        k as f32 + delta
+                                    } else {
+                                        k as f32
+                                    };
+                                    let mut score = fund_mag;
+                                    // Seed contributions with the fundamental (normalised later).
+                                    let mut contribs: Vec<(usize, f32)> = vec![(k, fund_mag)];
+                                    let mut last = k;
+                                    let mut longest_run = 0;
+                                    let mut current_run = 0;
+                                    for n in 2..=12usize {
+                                        let expected_f = frac_bin * n as f32;
+                                        if expected_f >= half_sz as f32 {
+                                            break;
+                                        }
+                                        let lo =
+                                            ((expected_f - 1.0).floor() as usize).max(last + 1);
+                                        let hi =
+                                            ((expected_f + 1.0).ceil() as usize).min(half_sz - 1);
+                                        let mut best_mag = 0.0f32;
+                                        let mut best_bin = 0usize;
+                                        for h in lo..=hi {
+                                            if is_peak_dbg[h] && mags[h] > best_mag {
+                                                best_mag = mags[h];
+                                                best_bin = h;
+                                            }
+                                        }
+                                        // if best_mag / 5.0 > score / (n - 1) as f32 {
+                                        //     contribs.push((n, 0.0));
+                                        //     continue;
+                                        // }
+                                        if best_bin != 0 {
+                                            last = best_bin;
+                                            let c = best_mag;
+                                            score += c;
+                                            contribs.push((best_bin, c));
+                                            current_run += 1;
+                                        } else {
+                                            contribs.push((n, 0.0));
+                                            if current_run > longest_run {
+                                                longest_run = current_run;
+                                            }
+                                            current_run = 0;
+                                        }
+                                    }
+                                    if current_run > longest_run {
+                                        longest_run = current_run;
+                                    }
+                                    (k, score * longest_run as f32 / 12.0, contribs)
+                                })
+                                .collect();
+                            let max_dbg_score =
+                                all_scores.iter().map(|&(_, s, _)| s).fold(0.0f32, f32::max);
+                            let dbg_cutoff = max_dbg_score * 0.05;
+                            let mut top_scores: Vec<(usize, f32, Vec<(usize, f32)>)> = all_scores
+                                .into_iter()
+                                .filter(|(_, s, _)| *s >= dbg_cutoff)
+                                .collect();
+                            top_scores.sort_unstable_by(|a, b| {
+                                b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal)
+                            });
 
-                    for approx_freq in candidate_freqs {
-                        let approx_bin =
-                            ((approx_freq / bin_width).round() as usize).clamp(2, half_size - 3);
-
-                        // Find the local spectral maximum within the search window
-                        let lo = approx_bin.saturating_sub(SEARCH_RADIUS).max(2);
-                        let hi = (approx_bin + SEARCH_RADIUS).min(half_size - 3);
-                        let bin = (lo..=hi)
-                            .max_by(|&a, &b| {
-                                power_spectrum[a]
-                                    .partial_cmp(&power_spectrum[b])
-                                    .unwrap_or(std::cmp::Ordering::Equal)
-                            })
-                            .unwrap_or(approx_bin);
-
-                        // Parabolic interpolation in log-magnitude domain
-                        let y_l = power_spectrum[bin - 1].max(1e-30).ln();
-                        let y_c = power_spectrum[bin].max(1e-30).ln();
-                        let y_r = power_spectrum[bin + 1].max(1e-30).ln();
-                        let denom = y_l - 2.0 * y_c + y_r;
-                        let delta = if denom.abs() < 1e-5 {
-                            0.0
+                            Self::dbg_emit_frame(
+                                frame_idx,
+                                &raw,
+                                &windowed,
+                                &mags,
+                                bw,
+                                MIN_FREQ,
+                                MAX_FREQ,
+                                noise_floor,
+                                &top_peaks,
+                                &top_scores,
+                                &stable_pitches,
+                            );
                         } else {
-                            0.5 * (y_l - y_r) / denom
-                        };
-
-                        let mut cand_freq = (bin as f32 + delta) * bin_width;
-
-                        if cand_freq < MIN_FREQ || cand_freq > MAX_FREQ {
-                            continue;
-                        }
-
-                        // Sub-harmonic check: if the octave below has significant
-                        // power and passes autocorrelation, the true fundamental is
-                        // one octave lower.
-                        let sub_harmonic = cand_freq * 0.5;
-                        let sub_bin = (sub_harmonic / bin_width).round() as usize;
-                        if sub_bin > 1 && sub_bin < half_size - 1 {
-                            let sub_p = power_spectrum[sub_bin];
-                            if sub_p > power_spectrum[bin] * 0.2 {
-                                let period = sr as f32 / sub_harmonic;
-                                let conf = Self::compute_autocorr(
-                                    &ring_buffer,
-                                    ring_read_pos,
-                                    ring_buffer_len,
-                                    window_size,
-                                    period,
-                                );
-                                if conf > CONFIDENCE_THRESH {
-                                    cand_freq = sub_harmonic;
-                                }
-                            }
-                        }
-
-                        // Autocorrelation confidence gate
-                        let period_samples = sr as f32 / cand_freq;
-                        let confidence = Self::compute_autocorr(
-                            &ring_buffer,
-                            ring_read_pos,
-                            ring_buffer_len,
-                            window_size,
-                            period_samples,
-                        );
-
-                        if confidence > CONFIDENCE_THRESH {
-                            confirmed_candidates.push(cand_freq);
+                            eprintln!("\n╔══ STFT DEBUG FRAME #{frame_idx} | SILENCE ══\n");
                         }
                     }
 
-                    let num_existing_tracks = active_tracks.len();
-
-                    let mut matched = vec![false; num_existing_tracks];
-
-                    for freq in confirmed_candidates {
-                        let mut best_idx = None;
-                        let mut min_dist = f32::MAX;
-
-                        for (k, track) in active_tracks.iter().enumerate().take(num_existing_tracks)
-                        {
-                            let dist = (track.freq - freq).abs();
-                            if dist < track.freq * 0.04 && dist < min_dist {
-                                min_dist = dist;
-                                best_idx = Some(k);
-                            }
-                        }
-
-                        if let Some(k) = best_idx {
-                            active_tracks[k].freq = active_tracks[k].freq * 0.6 + freq * 0.4;
-                            active_tracks[k].hits += 1;
-                            active_tracks[k].misses = 0;
-                            matched[k] = true;
-                        } else {
-                            if active_tracks.len() < 12 {
-                                active_tracks.push(NoteTrack {
-                                    freq,
-                                    hits: 1,
-                                    misses: 0,
-                                });
-                            }
-                        }
-                    }
-
-                    for (k, was_matched) in matched.iter().enumerate() {
-                        if !was_matched {
-                            active_tracks[k].misses += 1;
-                        }
-                    }
-
-                    active_tracks.retain(|t| t.misses < 4);
-
-                    // ── NEW: send raw (freq, hits) to the Tuner ─────
-                    //
-                    // Previously this is where the STFT would convert
-                    // frequencies to Note names via Note::from_freq,
-                    // build CStrings, and fire the AnalysisCallback.
-                    //
-                    // Now we just forward the tracked frequencies and
-                    // their confidence (hit count) as-is.  The Tuner
-                    // applies key, mode, system, and base pitch on its
-                    // own thread before publishing to the UI.
-
-                    let output: Vec<(f32, i32)> = active_tracks
-                        .iter()
-                        .filter(|t| t.hits >= 3)
-                        .map(|t| (t.freq, t.hits))
-                        .collect();
-
-                    if !output.is_empty() {
-                        // try_push: if the Tuner is behind we silently
-                        // drop the oldest frame — acceptable for a
-                        // real-time display that only needs the latest.
-                        let _ = note_tx.push(output);
+                    // Note emission will still happen during silence as long as stable_pitches exists
+                    if !stable_pitches.is_empty() {
+                        let _ = note_tx.push(stable_pitches);
                     }
 
                     ring_read_pos = (ring_read_pos + hop_size) % ring_buffer_len;
@@ -428,47 +463,135 @@ impl STFT {
         });
     }
 
-    /// Compute a normalized autocorrelation for the given lag (`period`).
-    fn compute_autocorr(
-        buffer: &[f32],
-        start: usize,
-        len: usize,
-        window: usize,
-        period: f32,
-    ) -> f32 {
-        if period < 2.0 {
-            return 0.0;
+    fn extract_pitches(
+        magnitudes: &[f32],
+        half_size: usize,
+        bin_width: f32,
+        min_freq: f32,
+        max_freq: f32,
+        noise_floor: f32,
+    ) -> Vec<(f32, f32)> {
+        const MAX_HARMONICS: usize = 12;
+        const MAX_NOTES: usize = 8;
+
+        let min_bin = ((min_freq / bin_width).ceil() as usize).max(1);
+        let max_bin = ((max_freq / bin_width).floor() as usize).min(half_size.saturating_sub(2));
+
+        if min_bin >= max_bin {
+            return Vec::new();
         }
 
-        let lag = period.round() as usize;
-
-        let mut sum_prod = 0.0;
-        let mut sum_sq_x = 0.0;
-        let mut sum_sq_y = 0.0;
-
-        let n = window / 2;
-        let offset = window / 4;
-
-        for i in 0..n {
-            let idx_x = (start + offset + i) % len;
-            let idx_y = (start + offset + i + lag) % len;
-
-            let x = buffer[idx_x];
-            let y = buffer[idx_y];
-
-            sum_prod += x * y;
-            sum_sq_x += x * x;
-            sum_sq_y += y * y;
+        let mut is_peak = vec![false; half_size];
+        let mut peak_bins: Vec<usize> = Vec::new();
+        for k in (min_bin + 1)..max_bin {
+            let m = magnitudes[k];
+            if m > noise_floor && m >= magnitudes[k - 1] && m >= magnitudes[k + 1] {
+                is_peak[k] = true;
+                peak_bins.push(k);
+            }
         }
 
-        if sum_sq_x < 1e-9 || sum_sq_y < 1e-9 {
-            return 0.0;
+        if peak_bins.is_empty() {
+            return Vec::new();
         }
 
-        sum_prod / (sum_sq_x.sqrt() * sum_sq_y.sqrt())
+        let mut scores = vec![0.0f32; half_size];
+        let mut frac_bins = vec![0.0f32; half_size];
+        for &k in &peak_bins {
+            let fund_mag = magnitudes[k];
+            if fund_mag < noise_floor * 5.0 {
+                scores[k] = 0.0;
+                continue;
+            }
+            // Parabolic interpolation of the fundamental to get sub-bin frequency.
+            let frac_bin = if k >= 1 && k + 1 < half_size {
+                let y_l = magnitudes[k - 1].ln();
+                let y_c = magnitudes[k].ln();
+                let y_r = magnitudes[k + 1].ln();
+                let denom = y_l - 2.0 * y_c + y_r;
+                let delta = if denom.abs() < 1e-30 {
+                    0.0
+                } else {
+                    (0.5 * (y_l - y_r) / denom).clamp(-1.0, 1.0)
+                };
+                k as f32 + delta
+            } else {
+                k as f32
+            };
+            frac_bins[k] = frac_bin;
+            let mut score = fund_mag;
+            let mut last = k;
+            let mut longest_run = 0;
+            let mut current_run = 0;
+            for n in 2..=MAX_HARMONICS {
+                let expected_f = frac_bin * n as f32;
+                if expected_f >= half_size as f32 {
+                    break;
+                }
+                let search_start = ((expected_f - 1.0).floor() as usize).max(last + 1);
+                let search_end = ((expected_f + 1.0).ceil() as usize).min(half_size - 1);
+
+                let mut best_hbin = 0;
+                let mut best_mag = 0.0;
+
+                for h in search_start..=search_end {
+                    if is_peak[h] && magnitudes[h] > best_mag {
+                        best_mag = magnitudes[h];
+                        best_hbin = h;
+                    }
+                }
+                // if best_mag / 5.0 > score / (n - 1) as f32 {
+                //     best_mag *= 0.2;
+                // }
+                if best_hbin != 0 {
+                    score += best_mag;
+                    last = best_hbin;
+                    current_run += 1;
+                } else {
+                    if current_run > longest_run {
+                        longest_run = current_run;
+                    }
+                    current_run = 0;
+                }
+            }
+            if current_run > longest_run {
+                longest_run = current_run;
+            }
+            scores[k] = score * longest_run as f32 / MAX_HARMONICS as f32;
+        }
+
+        let max_score = peak_bins.iter().map(|&k| scores[k]).fold(0.0f32, f32::max);
+        let cutoff = max_score * 0.60;
+
+        let mut candidates: Vec<(usize, f32)> = peak_bins
+            .iter()
+            .filter_map(|&k| {
+                if scores[k] >= cutoff {
+                    Some((k, scores[k]))
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        candidates
+            .sort_unstable_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+        candidates.truncate(MAX_NOTES);
+
+        candidates
+            .iter()
+            .filter_map(|&(bin, score)| {
+                // Reuse the fractional bin already computed during harmonic scoring.
+                let freq = frac_bins[bin] * bin_width;
+                if freq >= min_freq && freq <= max_freq {
+                    Some((freq, score))
+                } else {
+                    None
+                }
+            })
+            .collect()
     }
 
-    /// Generate a Hann window of length `n`.
     fn hann_window(n: usize) -> Vec<f32> {
         (0..n)
             .map(|i| {
@@ -476,5 +599,285 @@ impl STFT {
                 0.5 - 0.5 * (2.0 * std::f32::consts::PI * x).cos()
             })
             .collect()
+    }
+}
+
+// ─── Debug visualisation helpers (compiled only in debug builds) ───────────────
+
+#[cfg(debug_assertions)]
+impl STFT {
+    /// ASCII waveform plot printed to stderr.
+    fn dbg_plot_signal(label: &str, samples: &[f32]) {
+        const W: usize = 120;
+        const H: usize = 20;
+        if samples.is_empty() {
+            return;
+        }
+
+        let step = (samples.len() as f32 / W as f32).max(1.0);
+        let pts: Vec<f32> = (0..W)
+            .map(|col| {
+                let s = (col as f32 * step) as usize;
+                let e = (((col + 1) as f32 * step) as usize)
+                    .max(s + 1)
+                    .min(samples.len());
+                samples[s..e].iter().copied().sum::<f32>() / (e - s) as f32
+            })
+            .collect();
+
+        let min_v = pts.iter().cloned().fold(f32::INFINITY, f32::min);
+        let max_v = pts.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+        let range = (max_v - min_v).max(1e-10);
+
+        let mut grid = vec![vec![' '; W]; H];
+
+        // Zero line (only if zero falls within the visible range)
+        if min_v <= 0.0 && max_v >= 0.0 {
+            let zr =
+                (H - 1).saturating_sub(((0.0 - min_v) / range * (H - 1) as f32).round() as usize);
+            for c in 0..W {
+                grid[zr][c] = '·';
+            }
+        }
+
+        for (col, &v) in pts.iter().enumerate() {
+            let row =
+                (H - 1).saturating_sub(((v - min_v) / range * (H - 1) as f32).round() as usize);
+            grid[row][col] = '●';
+        }
+
+        eprintln!("  ── {} ({} samples) ──", label, samples.len());
+        for (i, row) in grid.iter().enumerate() {
+            let v = max_v - (i as f32 / (H - 1).max(1) as f32) * range;
+            eprint!("  {:+10.5} │", v);
+            for &c in row {
+                eprint!("{}", c);
+            }
+            eprintln!();
+        }
+        eprint!("             └");
+        for _ in 0..W {
+            eprint!("─");
+        }
+        eprintln!();
+        eprintln!("              0{:>w$}", samples.len(), w = W - 1);
+    }
+
+    /// ASCII log-scale frequency bar chart with labelled tick marks, printed to stderr.
+    ///
+    /// The x-axis is logarithmic so low frequencies get proportionally more columns
+    /// instead of being crammed into the left ~10% of a linear axis.
+    fn dbg_plot_spectrum(mags: &[f32], bin_width: f32, min_freq: f32, max_freq: f32) {
+        const W: usize = 120;
+        const H: usize = 20;
+        if mags.is_empty() {
+            return;
+        }
+
+        let min_bin = ((min_freq / bin_width).ceil() as usize).max(1);
+        let max_bin = ((max_freq / bin_width).floor() as usize).min(mags.len().saturating_sub(1));
+
+        if min_bin >= max_bin {
+            return;
+        }
+
+        let log_min = min_freq.ln();
+        let log_max = max_freq.ln();
+        let log_range = log_max - log_min;
+
+        // Map a frequency to its column on the log scale.
+        let freq_to_col = |f: f32| -> usize {
+            ((f.ln() - log_min) / log_range * (W - 1) as f32)
+                .round()
+                .clamp(0.0, (W - 1) as f32) as usize
+        };
+
+        // Each column holds the max magnitude of all bins whose centre frequency
+        // falls in that column's [f_lo, f_hi) slice of the log scale.
+        let pts: Vec<f32> = (0..W)
+            .map(|col| {
+                let f_lo = (log_min + col as f32 / W as f32 * log_range).exp();
+                let f_hi = (log_min + (col + 1) as f32 / W as f32 * log_range).exp();
+                let b_lo = ((f_lo / bin_width).floor() as usize).clamp(min_bin, max_bin);
+                let b_hi = ((f_hi / bin_width).ceil() as usize).clamp(min_bin, max_bin);
+                mags[b_lo..=b_hi].iter().cloned().fold(0.0f32, f32::max)
+            })
+            .collect();
+
+        let max_v = pts.iter().cloned().fold(0.0f32, f32::max).max(1e-10);
+
+        let mut grid = vec![vec![' '; W]; H];
+        for (col, &v) in pts.iter().enumerate() {
+            let bar_h = ((v / max_v) * H as f32).round() as usize;
+            for row in H.saturating_sub(bar_h)..H {
+                grid[row][col] = '█';
+            }
+        }
+
+        let tick_freqs: &[f32] = &[50.0, 100.0, 200.0, 500.0, 1_000.0, 2_000.0, 4_000.0];
+
+        eprintln!(
+            "  ── Frequency Spectrum (log scale, {:.0}–{:.0} Hz) ──",
+            min_freq, max_freq
+        );
+        for (i, row) in grid.iter().enumerate() {
+            let v = max_v * (1.0 - i as f32 / (H - 1).max(1) as f32);
+            eprint!("  {:10.3e} │", v);
+            for &c in row {
+                eprint!("{}", c);
+            }
+            eprintln!();
+        }
+
+        // Bottom axis with tick marks at labelled frequencies.
+        eprint!("             └");
+        for col in 0..W {
+            let is_tick = tick_freqs
+                .iter()
+                .filter(|&&f| f >= min_freq && f <= max_freq)
+                .any(|&f| freq_to_col(f) == col);
+            eprint!("{}", if is_tick { '┬' } else { '─' });
+        }
+        eprintln!();
+
+        // Label row: centre each label on its tick column.
+        let mut label_buf = vec![b' '; W];
+        for &f in tick_freqs
+            .iter()
+            .filter(|&&f| f >= min_freq && f <= max_freq)
+        {
+            let label = if f >= 1_000.0 {
+                format!("{:.0}k", f / 1_000.0)
+            } else {
+                format!("{:.0}", f)
+            };
+            let col = freq_to_col(f);
+            let start = col.saturating_sub(label.len() / 2);
+            for (j, b) in label.bytes().enumerate() {
+                if start + j < W {
+                    label_buf[start + j] = b;
+                }
+            }
+        }
+        eprintln!("              {}", String::from_utf8_lossy(&label_buf));
+    }
+
+    /// Convert a frequency in Hz to the nearest note name + cents deviation.
+    fn dbg_freq_to_note(freq: f32) -> String {
+        if freq <= 0.0 {
+            return "?".to_string();
+        }
+        let midi = 69.0 + 12.0 * (freq / 440.0).log2();
+        let midi_round = midi.round() as i32;
+        let names = [
+            "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B",
+        ];
+        let name = names[((midi_round % 12 + 12) % 12) as usize];
+        let octave = midi_round / 12 - 1;
+        let cents = ((midi - midi.round()) * 100.0) as i32;
+        if cents == 0 {
+            format!("{}{}", name, octave)
+        } else {
+            format!("{}{} {:+}¢", name, octave, cents)
+        }
+    }
+
+    /// Print a full debug frame to stderr: raw signal, windowed signal,
+    /// frequency spectrum, and key scalar/vector stats.
+    fn dbg_emit_frame(
+        frame: usize,
+        raw: &[f32],
+        windowed: &[f32],
+        mags: &[f32],
+        bin_width: f32,
+        min_freq: f32,
+        max_freq: f32,
+        noise_floor: f32,
+        top_peaks: &[(usize, f32)],
+        top_scores: &[(usize, f32, Vec<(usize, f32)>)],
+        stable: &[(f32, f32)],
+    ) {
+        eprintln!();
+        eprintln!(
+            "╔══════════════════════════════════════════════════════════════════════════════"
+        );
+        eprintln!("║  STFT DEBUG FRAME #{frame:>6}  (debug_assertions)");
+        eprintln!(
+            "╠══════════════════════════════════════════════════════════════════════════════"
+        );
+        // eprintln!("║  [1/4] Raw Signal");
+        // Self::dbg_plot_signal("Raw signal", raw);
+        // eprintln!(
+        //     "╠══════════════════════════════════════════════════════════════════════════════"
+        // );
+        // eprintln!("║  [2/4] Hann-Windowed Signal");
+        // Self::dbg_plot_signal("Hann-windowed signal", windowed);
+        // eprintln!(
+        //     "╠══════════════════════════════════════════════════════════════════════════════"
+        // );
+        eprintln!("║  [3/4] Frequency Spectrum");
+        Self::dbg_plot_spectrum(mags, bin_width, min_freq, max_freq);
+        eprintln!(
+            "╠══════════════════════════════════════════════════════════════════════════════"
+        );
+        eprintln!("║  [4/4] Analysis Stats");
+        eprintln!("║  noise_floor   : {noise_floor:.6e}");
+        eprintln!("║  bin_width : {bin_width:.4} Hz/bin");
+        eprintln!("║");
+        eprintln!("║  Top spectral peaks (magnitude-sorted, pre-scoring):");
+        if top_peaks.is_empty() {
+            eprintln!("║    (none above noise_floor threshold)");
+        } else {
+            for &(bin, mag) in top_peaks.iter().take(10) {
+                let freq = bin as f32 * bin_width;
+                eprintln!(
+                    "║    bin {:5}  →  {:8.2} Hz  ({:>9})  mag {:.4e}",
+                    bin,
+                    freq,
+                    Self::dbg_freq_to_note(freq),
+                    mag
+                );
+            }
+        }
+        eprintln!("║");
+        eprintln!("║  Top harmonic scores (5% of max, score-sorted):");
+        if top_scores.is_empty() {
+            eprintln!("║    (none)");
+        } else {
+            for (bin, score, contribs) in top_scores {
+                let freq = *bin as f32 * bin_width;
+                let contrib_str = contribs
+                    .iter()
+                    .map(|&(b, v)| format!("({b}, {v:.2e})"))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                eprintln!(
+                    "║    bin {:5}  →  {:8.2} Hz  ({:>9})  score {:.3}  [{}]",
+                    bin,
+                    freq,
+                    Self::dbg_freq_to_note(freq),
+                    score,
+                    contrib_str
+                );
+            }
+        }
+        eprintln!("║");
+        eprintln!("║  Stable pitches (after hysteresis tracker):");
+        if stable.is_empty() {
+            eprintln!("║    (none)");
+        } else {
+            for &(freq, score) in stable {
+                eprintln!(
+                    "║    {:8.2} Hz  ({:>9})  score {:.3}",
+                    freq,
+                    Self::dbg_freq_to_note(freq),
+                    score
+                );
+            }
+        }
+        eprintln!(
+            "╚══════════════════════════════════════════════════════════════════════════════"
+        );
+        eprintln!();
     }
 }

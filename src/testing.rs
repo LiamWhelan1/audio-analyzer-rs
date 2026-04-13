@@ -92,8 +92,8 @@ pub fn run_cli_simulation() {
             }
             "synth note" => {
                 if let Some(s) = engine.active_synth.lock().unwrap().as_ref() {
-                    // Logic for a middle C (261.63 Hz) at full velocity
-                    s.play_note(261.63, 1.0);
+                    // Logic for a middle C (261.63 Hz) at half velocity
+                    s.play_note(261.63, 63.5);
                     println!("Playing Middle C...");
                 }
             }
@@ -142,18 +142,18 @@ pub fn run_cli_simulation() {
             }
             "tuner start" => {
                 if let Some(tuner) = engine.start_tuner() {
-                    let move_tuner = Arc::downgrade(&tuner);
-                    std::thread::spawn(move || {
-                        loop {
-                            if let Some(tuner) = move_tuner.upgrade() {
-                                let response = tuner.poll_output();
-                                println!("Tuner output: {}", response);
-                            } else {
-                                break;
-                            }
-                            std::thread::sleep(std::time::Duration::from_millis(100));
-                        }
-                    });
+                    // let move_tuner = Arc::downgrade(&tuner);
+                    // std::thread::spawn(move || {
+                    //     loop {
+                    //         if let Some(tuner) = move_tuner.upgrade() {
+                    //             let response = tuner.poll_output();
+                    //             println!("Tuner output: {}", response);
+                    //         } else {
+                    //             break;
+                    //         }
+                    //         std::thread::sleep(std::time::Duration::from_millis(100));
+                    //     }
+                    // });
                 }
             }
             "tuner mode: single" => {

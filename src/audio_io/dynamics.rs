@@ -198,24 +198,23 @@ impl DynamicsTracker {
         };
         let rms_db = linear_to_db(rms_linear);
 
-        // ── 2. Long history (all frames) → noise floor ────────────────────
+        // ── 2. Long history (quiet frames only) → noise floor ────────────────
+        // Compute noise floor from existing data *before* deciding whether to
+        // add this frame.  Only non-active frames enter the buffer so that a
+        // sustained note cannot contaminate the noise-floor estimate.
         let long_len = self.long_history.len();
-        self.long_history[self.long_pos] = rms_linear;
-        self.long_pos = (self.long_pos + 1) % long_len;
-        if self.long_pos == 0 {
-            self.long_filled = true;
-        }
-
         let long_n = if self.long_filled { long_len } else { self.long_pos.max(1) };
 
-        self.sort_buf.clear();
-        self.sort_buf.extend_from_slice(&self.long_history[..long_n]);
-        self.sort_buf
-            .sort_unstable_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-
-        let p10_idx = ((long_n - 1) as f32 * 0.10) as usize;
-        let noise_floor_linear = self.sort_buf[p10_idx].max(1e-9);
-        let noise_floor_db = linear_to_db(noise_floor_linear);
+        let noise_floor_db = if long_n >= 1 {
+            self.sort_buf.clear();
+            self.sort_buf.extend_from_slice(&self.long_history[..long_n]);
+            self.sort_buf
+                .sort_unstable_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+            let p10_idx = ((long_n - 1) as f32 * 0.10) as usize;
+            linear_to_db(self.sort_buf[p10_idx].max(1e-9))
+        } else {
+            self.bootstrap_floor_db
+        };
 
         // ── 3. Active-frame gate ──────────────────────────────────────────
         // Use the noise floor once we have enough data; fall back to a fixed
@@ -226,6 +225,16 @@ impl DynamicsTracker {
             self.bootstrap_floor_db
         };
         let is_active = rms_db > floor_db + self.active_snr_db;
+
+        // Add this frame to long_history only when it is quiet so that a
+        // sustained note cannot drive the noise-floor estimate upward.
+        if !is_active {
+            self.long_history[self.long_pos] = rms_linear;
+            self.long_pos = (self.long_pos + 1) % long_len;
+            if self.long_pos == 0 {
+                self.long_filled = true;
+            }
+        }
 
         // ── 4. Update play history (active frames only) ───────────────────
         if is_active {

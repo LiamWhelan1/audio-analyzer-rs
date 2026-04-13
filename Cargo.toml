@@ -15,9 +15,6 @@ required-features = ["bindgen"]
 [features]
 bindgen = ["uniffi/cli"]
 dev-tools = ["rerun"]
-# Enable compile-time embedding of the trained ONNX model.
-# Build with `--features ml_model` once models/pitch_detector.onnx exists.
-ml_model = []
 
 [dependencies]
 log = "0.4.29"
@@ -41,7 +38,6 @@ libc = "0.2.178"
 rerun = { version = "0.30.0", optional = true }
 parking_lot = "0.12.5"
 uniffi = "0.31.0"
-tract-onnx = { version = "0.21", default-features = false }
 
 [package.metadata.ndk]
 min_sdk_version = 26

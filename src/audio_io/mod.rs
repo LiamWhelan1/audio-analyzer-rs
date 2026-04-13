@@ -962,7 +962,7 @@ impl AudioPipeline {
 
         self.active_workers.lock().unwrap().push(handle);
         let cons = self.add_consumer(handle);
-        let (note_tx, note_rx) = RingBuffer::<Vec<(f32, i32)>>::new(64);
+        let (note_tx, note_rx) = RingBuffer::<Vec<(f32, f32)>>::new(64);
         let mut stft = stft::STFT::new(handle, self.reducer_remove_tx.clone());
 
         stft.detect_pitches(
