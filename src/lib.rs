@@ -123,6 +123,11 @@ impl Metronome {
         let Ok(mut guard) = self.producer.lock() else { return false };
         guard.push(MetronomeCommand::SetMuted(muted)).is_ok()
     }
+    pub fn set_polyrhythm(&self, subdivisions: Vec<u64>, beat_index: u64) -> bool {
+        let subdivisions: Vec<usize> = subdivisions.into_iter().map(|s| s as usize).collect();
+        let Ok(mut guard) = self.producer.lock() else { return false };
+        guard.push(MetronomeCommand::SetPolyrhythm((subdivisions, beat_index as usize))).is_ok()
+    }
 }
 
 #[derive(uniffi::Object)]
@@ -132,13 +137,25 @@ pub struct Synth {
 
 #[uniffi::export]
 impl Synth {
-    pub fn play_note(&self, freq: f32, velocity: f32 /* 0-127 */) -> bool {
+    pub fn load_file(&self, path: String, instrument: String) -> bool {
+        let inst = match instrument.as_str() {
+            "Piano" => crate::generators::Instrument::Piano,
+            _ => crate::generators::Instrument::Violin,
+        };
+        let Ok(mut guard) = self.producer.lock() else { return false };
+        guard.push(SynthCommand::LoadFile(path, inst)).is_ok()
+    }
+    pub fn play(&self, start_measure_idx: u64) -> bool {
+        let Ok(mut guard) = self.producer.lock() else { return false };
+        guard.push(SynthCommand::Play { start_measure_idx: start_measure_idx as usize }).is_ok()
+    }
+    pub fn play_note(&self, freq: f32, velocity: f32 /* 0-127 */, instrument: String) -> bool {
         let cmd = if velocity > 0.0 {
-            SynthCommand::NoteOn {
-                freq,
-                velocity,
-                instrument: crate::generators::Instrument::Violin,
-            }
+            let inst = match instrument.as_str() {
+                "Piano" => crate::generators::Instrument::Piano,
+                _ => crate::generators::Instrument::Violin,
+            };
+            SynthCommand::NoteOn { freq, velocity, instrument: inst }
         } else {
             SynthCommand::NoteOff { freq }
         };
@@ -153,9 +170,17 @@ impl Synth {
         let Ok(mut guard) = self.producer.lock() else { return };
         let _ = guard.push(SynthCommand::Resume);
     }
+    pub fn clear(&self) -> bool {
+        let Ok(mut guard) = self.producer.lock() else { return false };
+        guard.push(SynthCommand::Clear).is_ok()
+    }
     pub fn set_volume(&self, volume: f32) {
         let Ok(mut guard) = self.producer.lock() else { return };
         let _ = guard.push(SynthCommand::SetVolume(volume));
+    }
+    pub fn set_muted(&self, muted: bool) -> bool {
+        let Ok(mut guard) = self.producer.lock() else { return false };
+        guard.push(SynthCommand::SetMuted(muted)).is_ok()
     }
 }
 

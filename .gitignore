@@ -12,3 +12,4 @@ src/generated/
 ios/AudioEngine.xcframework
 android/src/main/jniLibs/
 *.tsx
+/.claude

@@ -93,7 +93,7 @@ pub fn run_cli_simulation() {
             "synth note" => {
                 if let Some(s) = engine.active_synth.lock().unwrap().as_ref() {
                     // Logic for a middle C (261.63 Hz) at max velocity
-                    s.play_note(261.63, 127.0);
+                    s.play_note(261.63, 127.0, "Violin".into());
                     println!("Playing Middle C...");
                 }
             }
