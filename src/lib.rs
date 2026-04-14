@@ -23,18 +23,33 @@ uniffi::setup_scaffolding!();
 
 #[derive(Debug, thiserror::Error, uniffi::Error)]
 pub enum AudioEngineError {
-    #[error("{msg}")]
-    Error { msg: String },
-}
+    /// Audio hardware could not be found or configured.
+    #[error("Audio device unavailable: {msg}")]
+    DeviceUnavailable { msg: String },
 
-impl From<anyhow::Error> for AudioEngineError {
-    fn from(e: anyhow::Error) -> Self {
-        Self::Error { msg: e.to_string() }
-    }
+    /// An audio stream (input or output) failed to start.
+    #[error("Audio stream failed: {msg}")]
+    StreamFailed { msg: String },
+
+    /// A processing component (tuner, metronome, etc.) failed to initialize.
+    #[error("Failed to start {component}: {msg}")]
+    SpawnFailed { component: String, msg: String },
+
+    /// A file operation (load or save) failed.
+    #[error("File error: {msg}")]
+    FileError { msg: String },
+
+    /// Internal engine state error (e.g. poisoned mutex).
+    #[error("Internal engine error: {msg}")]
+    Internal { msg: String },
 }
 
 fn lock_err<T>(_: std::sync::PoisonError<T>) -> AudioEngineError {
-    AudioEngineError::Error { msg: "Internal lock error".into() }
+    AudioEngineError::Internal { msg: "Mutex was poisoned by a previous panic".into() }
+}
+
+fn spawn_err(component: &'static str) -> impl Fn(anyhow::Error) -> AudioEngineError {
+    move |e| AudioEngineError::SpawnFailed { component: component.into(), msg: e.to_string() }
 }
 
 // --- Exported Objects ---
@@ -156,7 +171,7 @@ impl Player {
             .lock()
             .map_err(lock_err)?
             .load_file(&path)
-            .map_err(|e| AudioEngineError::Error { msg: e.to_string() })
+            .map_err(|e| AudioEngineError::FileError { msg: e.to_string() })
     }
     pub fn play(&self) {
         let Ok(mut guard) = self.controller.lock() else { return };
@@ -235,7 +250,8 @@ pub struct AudioEngine {
 impl AudioEngine {
     #[uniffi::constructor]
     pub fn new() -> Result<Arc<Self>, AudioEngineError> {
-        let pipeline = AudioPipeline::new()?;
+        let pipeline = AudioPipeline::new()
+            .map_err(|e| AudioEngineError::DeviceUnavailable { msg: e.to_string() })?;
         Ok(Arc::new(AudioEngine {
             pipeline: Mutex::new(pipeline),
             active_tuner: Mutex::new(None),
@@ -248,11 +264,19 @@ impl AudioEngine {
     }
 
     pub fn start_input(&self) -> Result<(), AudioEngineError> {
-        self.pipeline.lock().map_err(lock_err)?.start_input().map_err(Into::into)
+        self.pipeline
+            .lock()
+            .map_err(lock_err)?
+            .start_input()
+            .map_err(|e| AudioEngineError::StreamFailed { msg: e.to_string() })
     }
 
     pub fn start_output(&self) -> Result<(), AudioEngineError> {
-        self.pipeline.lock().map_err(lock_err)?.start_output().map_err(Into::into)
+        self.pipeline
+            .lock()
+            .map_err(lock_err)?
+            .start_output()
+            .map_err(|e| AudioEngineError::StreamFailed { msg: e.to_string() })
     }
 
     // --- Creators ---
@@ -262,7 +286,8 @@ impl AudioEngine {
             .pipeline
             .lock()
             .map_err(lock_err)?
-            .spawn_metronome(Some(bpm), None, None, false)?;
+            .spawn_metronome(Some(bpm), None, None, false)
+            .map_err(spawn_err("metronome"))?;
         let metronome = Arc::new(Metronome {
             producer: Mutex::new(producer),
         });
@@ -271,7 +296,12 @@ impl AudioEngine {
     }
 
     pub fn create_synth(&self) -> Result<Arc<Synth>, AudioEngineError> {
-        let producer = self.pipeline.lock().map_err(lock_err)?.spawn_synthesizer()?;
+        let producer = self
+            .pipeline
+            .lock()
+            .map_err(lock_err)?
+            .spawn_synthesizer()
+            .map_err(spawn_err("synthesizer"))?;
         let synth = Arc::new(Synth {
             producer: Mutex::new(producer),
         });
@@ -280,7 +310,12 @@ impl AudioEngine {
     }
 
     pub fn create_player(&self) -> Result<Arc<Player>, AudioEngineError> {
-        let controller = self.pipeline.lock().map_err(lock_err)?.spawn_player()?;
+        let controller = self
+            .pipeline
+            .lock()
+            .map_err(lock_err)?
+            .spawn_player()
+            .map_err(spawn_err("player"))?;
         let player = Arc::new(Player {
             controller: Mutex::new(controller),
         });
@@ -289,7 +324,12 @@ impl AudioEngine {
     }
 
     pub fn start_recording(&self, path: String) -> Result<Arc<Recording>, AudioEngineError> {
-        let recorder = self.pipeline.lock().map_err(lock_err)?.spawn_recorder(&path)?;
+        let recorder = self
+            .pipeline
+            .lock()
+            .map_err(lock_err)?
+            .spawn_recorder(&path)
+            .map_err(spawn_err("recorder"))?;
         let rec = Arc::new(Recording {
             recorder: Mutex::new(recorder),
         });
@@ -298,7 +338,12 @@ impl AudioEngine {
     }
 
     pub fn start_onset_detection(&self) -> Result<Arc<OnsetDetection>, AudioEngineError> {
-        let (detector, onset_rx) = self.pipeline.lock().map_err(lock_err)?.spawn_onset()?;
+        let (detector, onset_rx) = self
+            .pipeline
+            .lock()
+            .map_err(lock_err)?
+            .spawn_onset()
+            .map_err(spawn_err("onset detector"))?;
         let onset = Arc::new(OnsetDetection {
             detector: Mutex::new(detector),
             onset_rx: Mutex::new(onset_rx),
@@ -308,7 +353,12 @@ impl AudioEngine {
     }
 
     pub fn start_tuner(&self) -> Result<Arc<Tuner>, AudioEngineError> {
-        let (producer, output) = self.pipeline.lock().map_err(lock_err)?.spawn_tuner()?;
+        let (producer, output) = self
+            .pipeline
+            .lock()
+            .map_err(lock_err)?
+            .spawn_tuner()
+            .map_err(spawn_err("tuner"))?;
         let tuner = Arc::new(Tuner {
             producer: Mutex::new(producer),
             output,

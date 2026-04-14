@@ -922,7 +922,7 @@ impl AudioPipeline {
             .lock()
             .unwrap()
             .pop()
-            .expect("Max consumers reached (255)");
+            .ok_or_else(|| anyhow!("All 255 audio consumer slots are already in use"))?;
 
         self.active_workers.lock().unwrap().push(handle);
         let cons = self.add_consumer(handle);
@@ -958,7 +958,7 @@ impl AudioPipeline {
             .lock()
             .unwrap()
             .pop()
-            .expect("Max consumers reached (255)");
+            .ok_or_else(|| anyhow!("All 255 audio consumer slots are already in use"))?;
 
         self.active_workers.lock().unwrap().push(handle);
         let cons = self.add_consumer(handle);
