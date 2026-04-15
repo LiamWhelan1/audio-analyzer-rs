@@ -45,11 +45,16 @@ pub enum AudioEngineError {
 }
 
 fn lock_err<T>(_: std::sync::PoisonError<T>) -> AudioEngineError {
-    AudioEngineError::Internal { msg: "Mutex was poisoned by a previous panic".into() }
+    AudioEngineError::Internal {
+        msg: "Mutex was poisoned by a previous panic".into(),
+    }
 }
 
 fn spawn_err(component: &'static str) -> impl Fn(anyhow::Error) -> AudioEngineError {
-    move |e| AudioEngineError::SpawnFailed { component: component.into(), msg: e.to_string() }
+    move |e| AudioEngineError::SpawnFailed {
+        component: component.into(),
+        msg: e.to_string(),
+    }
 }
 
 // --- Exported Objects ---
@@ -66,11 +71,15 @@ impl Tuner {
         serde_json::to_string(&*self.output.read()).unwrap_or_else(|_| "{}".into())
     }
     pub fn set_base_freq(&self, freq: f32) {
-        let Ok(mut guard) = self.producer.lock() else { return };
+        let Ok(mut guard) = self.producer.lock() else {
+            return;
+        };
         let _ = guard.push(TunerCommand::SetBaseFreq(freq));
     }
     pub fn set_key(&self, key: String) {
-        let Ok(mut guard) = self.producer.lock() else { return };
+        let Ok(mut guard) = self.producer.lock() else {
+            return;
+        };
         let _ = guard.push(TunerCommand::SetKey(key));
     }
     pub fn set_mode(&self, mode: String) {
@@ -78,7 +87,9 @@ impl Tuner {
             "SinglePitch" => TunerMode::SinglePitch,
             _ => TunerMode::MultiPitch,
         };
-        let Ok(mut guard) = self.producer.lock() else { return };
+        let Ok(mut guard) = self.producer.lock() else {
+            return;
+        };
         let _ = guard.push(TunerCommand::SetMode(m));
     }
     pub fn set_system(&self, system: String) {
@@ -86,7 +97,9 @@ impl Tuner {
             "JustIntonation" => TuningSystem::JustIntonation,
             _ => TuningSystem::EqualTemperament,
         };
-        let Ok(mut guard) = self.producer.lock() else { return };
+        let Ok(mut guard) = self.producer.lock() else {
+            return;
+        };
         let _ = guard.push(TunerCommand::SetSystem(s));
     }
 }
@@ -99,11 +112,15 @@ pub struct Metronome {
 #[uniffi::export]
 impl Metronome {
     pub fn set_bpm(&self, bpm: f32) -> bool {
-        let Ok(mut guard) = self.producer.lock() else { return false };
+        let Ok(mut guard) = self.producer.lock() else {
+            return false;
+        };
         guard.push(MetronomeCommand::SetBpm(bpm)).is_ok()
     }
     pub fn set_volume(&self, volume: f32) -> bool {
-        let Ok(mut guard) = self.producer.lock() else { return false };
+        let Ok(mut guard) = self.producer.lock() else {
+            return false;
+        };
         guard.push(MetronomeCommand::SetVolume(volume)).is_ok()
     }
     pub fn set_pattern(&self, pattern: Vec<i32>) -> bool {
@@ -116,17 +133,28 @@ impl Metronome {
                 _ => BeatStrength::None,
             })
             .collect();
-        let Ok(mut guard) = self.producer.lock() else { return false };
+        let Ok(mut guard) = self.producer.lock() else {
+            return false;
+        };
         guard.push(MetronomeCommand::SetPattern(strengths)).is_ok()
     }
     pub fn set_muted(&self, muted: bool) -> bool {
-        let Ok(mut guard) = self.producer.lock() else { return false };
+        let Ok(mut guard) = self.producer.lock() else {
+            return false;
+        };
         guard.push(MetronomeCommand::SetMuted(muted)).is_ok()
     }
     pub fn set_polyrhythm(&self, subdivisions: Vec<u64>, beat_index: u64) -> bool {
         let subdivisions: Vec<usize> = subdivisions.into_iter().map(|s| s as usize).collect();
-        let Ok(mut guard) = self.producer.lock() else { return false };
-        guard.push(MetronomeCommand::SetPolyrhythm((subdivisions, beat_index as usize))).is_ok()
+        let Ok(mut guard) = self.producer.lock() else {
+            return false;
+        };
+        guard
+            .push(MetronomeCommand::SetPolyrhythm((
+                subdivisions,
+                beat_index as usize,
+            )))
+            .is_ok()
     }
 }
 
@@ -142,12 +170,20 @@ impl Synth {
             "Piano" => crate::generators::Instrument::Piano,
             _ => crate::generators::Instrument::Violin,
         };
-        let Ok(mut guard) = self.producer.lock() else { return false };
+        let Ok(mut guard) = self.producer.lock() else {
+            return false;
+        };
         guard.push(SynthCommand::LoadFile(path, inst)).is_ok()
     }
     pub fn play(&self, start_measure_idx: u64) -> bool {
-        let Ok(mut guard) = self.producer.lock() else { return false };
-        guard.push(SynthCommand::Play { start_measure_idx: start_measure_idx as usize }).is_ok()
+        let Ok(mut guard) = self.producer.lock() else {
+            return false;
+        };
+        guard
+            .push(SynthCommand::Play {
+                start_measure_idx: start_measure_idx as usize,
+            })
+            .is_ok()
     }
     pub fn play_note(&self, freq: f32, velocity: f32 /* 0-127 */, instrument: String) -> bool {
         let cmd = if velocity > 0.0 {
@@ -155,31 +191,47 @@ impl Synth {
                 "Piano" => crate::generators::Instrument::Piano,
                 _ => crate::generators::Instrument::Violin,
             };
-            SynthCommand::NoteOn { freq, velocity, instrument: inst }
+            SynthCommand::NoteOn {
+                freq,
+                velocity,
+                instrument: inst,
+            }
         } else {
             SynthCommand::NoteOff { freq }
         };
-        let Ok(mut guard) = self.producer.lock() else { return false };
+        let Ok(mut guard) = self.producer.lock() else {
+            return false;
+        };
         guard.push(cmd).is_ok()
     }
     pub fn pause(&self) {
-        let Ok(mut guard) = self.producer.lock() else { return };
+        let Ok(mut guard) = self.producer.lock() else {
+            return;
+        };
         let _ = guard.push(SynthCommand::Pause);
     }
     pub fn resume(&self) {
-        let Ok(mut guard) = self.producer.lock() else { return };
+        let Ok(mut guard) = self.producer.lock() else {
+            return;
+        };
         let _ = guard.push(SynthCommand::Resume);
     }
     pub fn clear(&self) -> bool {
-        let Ok(mut guard) = self.producer.lock() else { return false };
+        let Ok(mut guard) = self.producer.lock() else {
+            return false;
+        };
         guard.push(SynthCommand::Clear).is_ok()
     }
     pub fn set_volume(&self, volume: f32) {
-        let Ok(mut guard) = self.producer.lock() else { return };
+        let Ok(mut guard) = self.producer.lock() else {
+            return;
+        };
         let _ = guard.push(SynthCommand::SetVolume(volume));
     }
     pub fn set_muted(&self, muted: bool) -> bool {
-        let Ok(mut guard) = self.producer.lock() else { return false };
+        let Ok(mut guard) = self.producer.lock() else {
+            return false;
+        };
         guard.push(SynthCommand::SetMuted(muted)).is_ok()
     }
 }
@@ -199,15 +251,21 @@ impl Player {
             .map_err(|e| AudioEngineError::FileError { msg: e.to_string() })
     }
     pub fn play(&self) {
-        let Ok(mut guard) = self.controller.lock() else { return };
+        let Ok(mut guard) = self.controller.lock() else {
+            return;
+        };
         guard.play();
     }
     pub fn pause(&self) {
-        let Ok(mut guard) = self.controller.lock() else { return };
+        let Ok(mut guard) = self.controller.lock() else {
+            return;
+        };
         guard.pause();
     }
     pub fn seek(&self, seconds: f64) {
-        let Ok(mut guard) = self.controller.lock() else { return };
+        let Ok(mut guard) = self.controller.lock() else {
+            return;
+        };
         guard.seek(seconds);
     }
 }
@@ -220,11 +278,15 @@ pub struct Recording {
 #[uniffi::export]
 impl Recording {
     pub fn pause(&self) {
-        let Ok(mut guard) = self.recorder.lock() else { return };
+        let Ok(mut guard) = self.recorder.lock() else {
+            return;
+        };
         guard.pause();
     }
     pub fn resume(&self) {
-        let Ok(mut guard) = self.recorder.lock() else { return };
+        let Ok(mut guard) = self.recorder.lock() else {
+            return;
+        };
         guard.resume();
     }
 }
@@ -238,7 +300,9 @@ pub struct OnsetDetection {
 #[uniffi::export]
 impl OnsetDetection {
     pub fn poll_onsets(&self) -> String {
-        let Ok(mut rx) = self.onset_rx.lock() else { return "[]".into() };
+        let Ok(mut rx) = self.onset_rx.lock() else {
+            return "[]".into();
+        };
         let mut items = Vec::new();
         while let Ok(e) = rx.pop() {
             items.push(format!(
@@ -249,11 +313,15 @@ impl OnsetDetection {
         format!("[{}]", items.join(","))
     }
     pub fn pause(&self) {
-        let Ok(mut guard) = self.detector.lock() else { return };
+        let Ok(mut guard) = self.detector.lock() else {
+            return;
+        };
         guard.pause();
     }
     pub fn resume(&self) {
-        let Ok(mut guard) = self.detector.lock() else { return };
+        let Ok(mut guard) = self.detector.lock() else {
+            return;
+        };
         guard.resume();
     }
 }
@@ -311,7 +379,7 @@ impl AudioEngine {
             .pipeline
             .lock()
             .map_err(lock_err)?
-            .spawn_metronome(Some(bpm), None, None, false)
+            .spawn_metronome(Some(bpm), None, None, true)
             .map_err(spawn_err("metronome"))?;
         let metronome = Arc::new(Metronome {
             producer: Mutex::new(producer),
@@ -459,7 +527,9 @@ impl AudioEngine {
     }
 
     pub fn poll_dynamics(&self) -> String {
-        let Ok(pipe) = self.pipeline.lock() else { return "{}".into() };
+        let Ok(pipe) = self.pipeline.lock() else {
+            return "{}".into();
+        };
         let out = pipe.dynamics_output.read();
         format!(
             r#"{{"level":"{}","rms_db":{:.1},"gain_db":{:.1},"session_median_db":{:.1},"noise_floor_db":{:.1}}}"#,

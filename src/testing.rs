@@ -149,18 +149,19 @@ pub fn run_cli_simulation() {
             }
             "tuner start" => {
                 if let Ok(_tuner) = engine.start_tuner() {
-                    // let move_tuner = Arc::downgrade(&_tuner);
-                    // std::thread::spawn(move || {
-                    //     loop {
-                    //         if let Some(tuner) = move_tuner.upgrade() {
-                    //             let response = tuner.poll_output();
-                    //             println!("Tuner output: {}", response);
-                    //         } else {
-                    //             break;
-                    //         }
-                    //         std::thread::sleep(std::time::Duration::from_millis(100));
-                    //     }
-                    // });
+                    let move_tuner = Arc::downgrade(&_tuner);
+                    std::thread::spawn(move || {
+                        loop {
+                            if let Some(tuner) = move_tuner.upgrade() {
+                                let response = tuner.poll_output();
+                                print!("\x1B[2K\rTuner output: {}", response);
+                                io::stdout().flush().unwrap();
+                            } else {
+                                break;
+                            }
+                            std::thread::sleep(std::time::Duration::from_millis(100));
+                        }
+                    });
                 }
             }
             "tuner mode: single" => {
