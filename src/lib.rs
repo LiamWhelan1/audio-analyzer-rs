@@ -7,8 +7,10 @@ pub mod testing;
 pub mod traits;
 
 use crate::analysis::tuner::{TunerCommand, TunerMode, TunerOutput, TuningSystem};
+use crate::audio_io::dynamics::DynamicsOutput;
+use crate::audio_io::timing::{MusicalTransport, OnsetEvent};
 use crate::audio_io::AudioPipeline;
-use crate::audio_io::timing::OnsetEvent;
+use crate::practice as practice_mod;
 use crate::generators::player::PlayerController;
 use crate::generators::{
     metronome::{BeatStrength, MetronomeCommand},
@@ -44,7 +46,7 @@ pub enum AudioEngineError {
     Internal { msg: String },
 }
 
-fn lock_err<T>(_: std::sync::PoisonError<T>) -> AudioEngineError {
+pub(crate) fn lock_err<T>(_: std::sync::PoisonError<T>) -> AudioEngineError {
     AudioEngineError::Internal {
         msg: "Mutex was poisoned by a previous panic".into(),
     }
@@ -63,6 +65,13 @@ fn spawn_err(component: &'static str) -> impl Fn(anyhow::Error) -> AudioEngineEr
 pub struct Tuner {
     producer: Mutex<Producer<TunerCommand>>,
     output: Arc<parking_lot::RwLock<TunerOutput>>,
+}
+
+impl Tuner {
+    /// Clone the shared tuner output handle for internal subscribers.
+    pub(crate) fn output_handle(&self) -> Arc<parking_lot::RwLock<TunerOutput>> {
+        self.output.clone()
+    }
 }
 
 #[uniffi::export]
@@ -297,6 +306,20 @@ pub struct OnsetDetection {
     onset_rx: Mutex<rtrb::Consumer<OnsetEvent>>,
 }
 
+impl OnsetDetection {
+    /// Drain all pending onset events for internal subscribers (e.g. PracticeSession).
+    pub(crate) fn drain_onset_events(&self) -> Vec<OnsetEvent> {
+        let Ok(mut rx) = self.onset_rx.lock() else {
+            return Vec::new();
+        };
+        let mut events = Vec::new();
+        while let Ok(e) = rx.pop() {
+            events.push(e);
+        }
+        events
+    }
+}
+
 #[uniffi::export]
 impl OnsetDetection {
     pub fn poll_onsets(&self) -> String {
@@ -326,6 +349,67 @@ impl OnsetDetection {
     }
 }
 
+// --- Practice Session ---
+
+#[derive(uniffi::Object)]
+pub struct PracticeSession {
+    inner: Mutex<practice_mod::PracticeSession>,
+}
+
+#[uniffi::export]
+impl PracticeSession {
+    /// Begin (or restart) the session over `start_measure..=end_measure` (0-indexed).
+    pub fn start(&self, start_measure: u32, end_measure: u32) -> Result<(), AudioEngineError> {
+        self.inner.lock().map_err(lock_err)?.start(start_measure, end_measure)
+    }
+
+    /// Stop the session and join the polling thread.
+    ///
+    /// Prefer calling `AudioEngine::stop_practice_session` so that the tuner
+    /// and onset detector are also torn down.  This method is a convenience for
+    /// pausing mid-session while keeping the engine running.
+    pub fn stop(&self) {
+        if let Ok(inner) = self.inner.lock() {
+            inner.stop();
+        }
+    }
+
+    /// Transport snapshot enriched with practice position context.
+    ///
+    /// Call at ~60 Hz.  Returns the `TransportSnapshot` fields plus
+    /// `current_measure_idx`, `practice_start`, and `practice_end`.
+    pub fn poll_transport(&self) -> String {
+        self.inner
+            .lock()
+            .map(|s| s.poll_transport())
+            .unwrap_or_else(|_| "{}".into())
+    }
+
+    /// Drain pending live errors as a JSON array.  Call at ~10 Hz.
+    pub fn poll_errors(&self) -> String {
+        self.inner
+            .lock()
+            .map(|s| s.poll_errors())
+            .unwrap_or_else(|_| "[]".into())
+    }
+
+    /// Performance metrics for all completed measures as JSON.
+    pub fn get_metrics(&self) -> String {
+        self.inner
+            .lock()
+            .map(|s| s.get_metrics())
+            .unwrap_or_else(|_| "{}".into())
+    }
+
+    /// `true` while the polling thread is running (i.e. the session is active).
+    pub fn is_running(&self) -> bool {
+        self.inner
+            .lock()
+            .map(|s| s.is_running())
+            .unwrap_or(false)
+    }
+}
+
 // --- The Main Engine ---
 
 #[derive(uniffi::Object)]
@@ -337,6 +421,7 @@ pub struct AudioEngine {
     active_player: Mutex<Option<Arc<Player>>>,
     active_recording: Mutex<Option<Arc<Recording>>>,
     active_onset: Mutex<Option<Arc<OnsetDetection>>>,
+    active_practice_session: Mutex<Option<Arc<PracticeSession>>>,
 }
 
 #[uniffi::export]
@@ -353,6 +438,7 @@ impl AudioEngine {
             active_player: Mutex::new(None),
             active_recording: Mutex::new(None),
             active_onset: Mutex::new(None),
+            active_practice_session: Mutex::new(None),
         }))
     }
 
@@ -375,6 +461,12 @@ impl AudioEngine {
     // --- Creators ---
 
     pub fn create_metronome(&self, bpm: f32) -> Result<Arc<Metronome>, AudioEngineError> {
+        if self.active_metronome.lock().map_err(lock_err)?.is_some() {
+            return Err(AudioEngineError::SpawnFailed {
+                component: "metronome".into(),
+                msg: "Already active".into(),
+            });
+        }
         let producer = self
             .pipeline
             .lock()
@@ -389,6 +481,12 @@ impl AudioEngine {
     }
 
     pub fn create_synth(&self) -> Result<Arc<Synth>, AudioEngineError> {
+        if self.active_synth.lock().map_err(lock_err)?.is_some() {
+            return Err(AudioEngineError::SpawnFailed {
+                component: "synth".into(),
+                msg: "Already active".into(),
+            });
+        }
         let producer = self
             .pipeline
             .lock()
@@ -403,6 +501,12 @@ impl AudioEngine {
     }
 
     pub fn create_player(&self) -> Result<Arc<Player>, AudioEngineError> {
+        if self.active_player.lock().map_err(lock_err)?.is_some() {
+            return Err(AudioEngineError::SpawnFailed {
+                component: "player".into(),
+                msg: "Already active".into(),
+            });
+        }
         let controller = self
             .pipeline
             .lock()
@@ -417,6 +521,12 @@ impl AudioEngine {
     }
 
     pub fn start_recording(&self, path: String) -> Result<Arc<Recording>, AudioEngineError> {
+        if self.active_recording.lock().map_err(lock_err)?.is_some() {
+            return Err(AudioEngineError::SpawnFailed {
+                component: "recorder".into(),
+                msg: "Already active".into(),
+            });
+        }
         let recorder = self
             .pipeline
             .lock()
@@ -431,6 +541,12 @@ impl AudioEngine {
     }
 
     pub fn start_onset_detection(&self) -> Result<Arc<OnsetDetection>, AudioEngineError> {
+        if self.active_onset.lock().map_err(lock_err)?.is_some() {
+            return Err(AudioEngineError::SpawnFailed {
+                component: "onset detector".into(),
+                msg: "Already active".into(),
+            });
+        }
         let (detector, onset_rx) = self
             .pipeline
             .lock()
@@ -446,6 +562,12 @@ impl AudioEngine {
     }
 
     pub fn start_tuner(&self) -> Result<Arc<Tuner>, AudioEngineError> {
+        if self.active_tuner.lock().map_err(lock_err)?.is_some() {
+            return Err(AudioEngineError::SpawnFailed {
+                component: "tuner".into(),
+                msg: "Already active".into(),
+            });
+        }
         let (producer, output) = self
             .pipeline
             .lock()
@@ -470,6 +592,7 @@ impl AudioEngine {
                 }
             }
         }
+        self.clean_output();
     }
 
     pub fn stop_synth(&self) {
@@ -481,6 +604,7 @@ impl AudioEngine {
                 }
             }
         }
+        self.clean_output();
     }
 
     pub fn stop_player(&self) {
@@ -491,6 +615,7 @@ impl AudioEngine {
                 }
             }
         }
+        self.clean_output();
     }
 
     pub fn stop_recording(&self) {
@@ -515,6 +640,52 @@ impl AudioEngine {
         self.clean_input();
     }
 
+    pub fn create_practice_session(
+        &self,
+        midi_path: String,
+        instrument: String,
+    ) -> Result<Arc<PracticeSession>, AudioEngineError> {
+        if self
+            .active_practice_session
+            .lock()
+            .map_err(lock_err)?
+            .is_some()
+        {
+            return Err(AudioEngineError::SpawnFailed {
+                component: "practice session".into(),
+                msg: "Already active".into(),
+            });
+        }
+        let tuner = self.start_tuner()?;
+        let onset = self.start_onset_detection()?;
+        let transport = self.transport()?;
+        let dynamics = self.dynamics_output()?;
+
+        let inner = practice_mod::PracticeSession::new(
+            transport, tuner, onset, dynamics, &midi_path, &instrument,
+        )?;
+        let session = Arc::new(PracticeSession {
+            inner: Mutex::new(inner),
+        });
+        *self
+            .active_practice_session
+            .lock()
+            .map_err(lock_err)? = Some(session.clone());
+        Ok(session)
+    }
+
+    pub fn stop_practice_session(&self) {
+        if let Ok(mut guard) = self.active_practice_session.lock() {
+            if let Some(ps) = guard.take() {
+                if let Ok(inner) = ps.inner.lock() {
+                    inner.stop();
+                }
+            }
+        }
+        self.stop_tuner();
+        self.stop_onset_detection();
+    }
+
     pub fn stop_tuner(&self) {
         if let Ok(mut guard) = self.active_tuner.lock() {
             if let Some(t) = guard.take() {
@@ -537,9 +708,52 @@ impl AudioEngine {
         )
     }
 
+    /// Snapshot the musical transport and return it as JSON.
+    ///
+    /// Call at ~60 Hz (every ~16 ms) from the frontend.  The returned object
+    /// contains everything needed to:
+    ///   - Flash a metronome beat indicator (`current_beat` / `beat_phase`)
+    ///   - Advance an animated cursor (`display_beat_position`)
+    ///   - Extrapolate position between polls (`capture_time_s`)
+    ///
+    /// Fields match `TransportSnapshot` (snake_case JSON keys).
+    pub fn poll_transport(&self) -> String {
+        let Ok(pipe) = self.pipeline.lock() else {
+            return "{}".into();
+        };
+        let snap = pipe.transport.snapshot();
+        serde_json::to_string(&snap).unwrap_or_else(|_| "{}".into())
+    }
+
     pub fn clean_input(&self) {
         if let Ok(mut pipe) = self.pipeline.lock() {
             pipe.try_auto_stop_input();
         }
+    }
+    pub fn clean_output(&self) {
+        if let Ok(mut pipe) = self.pipeline.lock() {
+            pipe.try_auto_stop_output();
+        }
+    }
+}
+
+// ── Internal accessors (not exported through UniFFI) ──────────────────────────
+
+impl AudioEngine {
+    /// Clone the transport handle for internal subscribers (e.g. `PracticeSession`).
+    pub(crate) fn transport(&self) -> Result<Arc<MusicalTransport>, AudioEngineError> {
+        Ok(self.pipeline.lock().map_err(lock_err)?.transport.clone())
+    }
+
+    /// Clone the shared dynamics output for internal subscribers.
+    pub(crate) fn dynamics_output(
+        &self,
+    ) -> Result<Arc<parking_lot::RwLock<DynamicsOutput>>, AudioEngineError> {
+        Ok(self
+            .pipeline
+            .lock()
+            .map_err(lock_err)?
+            .dynamics_output
+            .clone())
     }
 }

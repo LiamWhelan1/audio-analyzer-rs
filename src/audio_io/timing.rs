@@ -22,7 +22,7 @@ const DEFAULT_UI_LATENCY_S: f64 = 0.04; // 40 ms – conservative for RN over Un
 /// position a cursor, flash a metronome light, or schedule an animation
 /// frame – **including pre-computed compensation values** so the RN side
 /// doesn't have to know about audio internals.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, serde::Serialize)]
 pub struct TransportSnapshot {
     // ── core position ──────────────────────────────────────────────────
     /// Accumulated beat position (fractional beats from song start).

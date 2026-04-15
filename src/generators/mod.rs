@@ -8,6 +8,8 @@ use std::{f32::consts::PI, fs};
 use metronome::BeatStrength;
 use midly::{MidiMessage, Smf, Timing, TrackEventKind};
 
+use crate::AudioEngineError;
+
 /// Two pi constant used by generators.
 const TWO_PI: f32 = 2.0 * PI;
 /// Minimum envelope threshold for tick/voice retention.
@@ -20,6 +22,18 @@ const MAX_MIDI_VELOCITY: f32 = 127.0;
 pub enum Instrument {
     Piano,
     Violin,
+}
+
+impl Instrument {
+    pub fn from(s: &str) -> Result<Instrument, AudioEngineError> {
+        match s {
+            "Piano" => Ok(Self::Piano),
+            "Violin" => Ok(Self::Violin),
+            _ => Err(AudioEngineError::Internal {
+                msg: format!("Instrument '{s}' is unavailable"),
+            }),
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]

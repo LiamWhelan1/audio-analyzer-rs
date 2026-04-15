@@ -62,4 +62,8 @@ impl OutputController {
     pub fn add_source(&self, source: Box<dyn AudioSource + Send>) {
         self.mixer.lock().add_source(source);
     }
+
+    pub fn has_sources(&self) -> bool {
+        !self.mixer.lock().sources.is_empty()
+    }
 }

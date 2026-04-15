@@ -323,7 +323,6 @@ impl AudioPipeline {
         let slot_len_reducer = self.meta.slot_len;
         let active_workers = self.active_workers.clone();
         let available_handles = self.available_handles.clone();
-        // self.try_auto_stop_input();
 
         let reducer_handle = thread::spawn(move || {
             let mut consumers: Vec<(u8, Producer<usize>)> = Vec::new();
@@ -563,6 +562,13 @@ impl AudioPipeline {
         if let Some(stream) = self.output_stream.take() {
             drop(stream);
             println!("Output stream stopped and dropped.");
+        }
+    }
+
+    pub fn try_auto_stop_output(&mut self) {
+        if !self.output_controller().has_sources() {
+            println!("No active output sources. Stopping output stream to save resources.");
+            self.stop_output();
         }
     }
 

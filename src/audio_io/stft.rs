@@ -419,7 +419,14 @@ impl STFT {
                                     if current_run > longest_run {
                                         longest_run = current_run;
                                     }
-                                    (k, score * longest_run as f32 / 12.0, contribs)
+                                    let final_score = if longest_run < 3 {
+                                        0.0
+                                    } else {
+                                        let log_score = (1.0 + score).log2();
+                                        let struct_mult = (1.0 + longest_run as f32) / (1.0 + 12.0);
+                                        log_score * struct_mult
+                                    };
+                                    (k, final_score, contribs)
                                 })
                                 .collect();
                             let max_dbg_score =
@@ -557,11 +564,22 @@ impl STFT {
             if current_run > longest_run {
                 longest_run = current_run;
             }
-            scores[k] = score * longest_run as f32 / MAX_HARMONICS as f32;
+            if longest_run < 3 {
+                scores[k] = 0.0;
+            } else {
+                const STRUCT_BASE: f32 = 1.0;
+                let log_score = (1.0 + score).log2();
+                let struct_mult =
+                    (STRUCT_BASE + longest_run as f32) / (STRUCT_BASE + MAX_HARMONICS as f32);
+                scores[k] = log_score * struct_mult;
+            }
         }
 
         let max_score = peak_bins.iter().map(|&k| scores[k]).fold(0.0f32, f32::max);
-        let cutoff = max_score * 0.60;
+        if max_score == 0.0 {
+            return Vec::new();
+        }
+        let cutoff = max_score * 0.5;
 
         let mut candidates: Vec<(usize, f32)> = peak_bins
             .iter()
@@ -572,6 +590,33 @@ impl STFT {
                     None
                 }
             })
+            .collect();
+
+        // Suppress harmonic ghosts: if freq_i ≈ N × freq_j (N=2,3,4) and
+        // candidate i scores < 80% of candidate j, i is likely a ghost.
+        let suppressed: Vec<bool> = (0..candidates.len())
+            .map(|i| {
+                let (bin_i, score_i) = candidates[i];
+                let freq_i = frac_bins[bin_i] * bin_width;
+                candidates.iter().enumerate().any(|(j, &(bin_j, score_j))| {
+                    if i == j {
+                        return false;
+                    }
+                    let freq_j = frac_bins[bin_j] * bin_width;
+                    let ratio = freq_i / freq_j;
+                    let nearest = ratio.round();
+                    nearest >= 2.0
+                        && nearest <= 4.0
+                        && (ratio / nearest - 1.0).abs() < 0.03
+                        && score_i < score_j * 0.8
+                })
+            })
+            .collect();
+        candidates = candidates
+            .into_iter()
+            .enumerate()
+            .filter(|(idx, _)| !suppressed[*idx])
+            .map(|(_, c)| c)
             .collect();
 
         candidates

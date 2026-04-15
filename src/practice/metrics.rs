@@ -6,17 +6,17 @@ use crate::audio_io::timing::OnsetEvent;
 // ── Thresholds for error-measure classification ───────────────────────────────
 
 /// Maximum allowed mean onset timing error (beats) before a measure is flagged.
-const ONSET_TIMING_ERR_THRESHOLD: f64 = 0.15;
+pub(crate) const ONSET_TIMING_ERR_THRESHOLD: f64 = 0.15;
 /// Minimum note accuracy (0.0–1.0) before a measure is flagged for note errors.
-const ACCURACY_ERR_THRESHOLD: f64 = 0.80;
+pub(crate) const ACCURACY_ERR_THRESHOLD: f64 = 0.80;
 /// Maximum allowed average cent deviation before a measure is flagged.
-const INTONATION_ERR_THRESHOLD: f64 = 25.0;
+pub(crate) const INTONATION_ERR_THRESHOLD: f64 = 25.0;
 /// Minimum dynamic accuracy (0.0–1.0) before a measure is flagged.
-const DYNAMICS_ERR_THRESHOLD: f64 = 0.50;
+pub(crate) const DYNAMICS_ERR_THRESHOLD: f64 = 0.50;
 /// Relative tolerance for articulation duration matching (fraction of expected duration).
-const ARTICULATION_TOLERANCE: f64 = 0.20;
+pub(crate) const ARTICULATION_TOLERANCE: f64 = 0.20;
 /// Beat window within which a detected onset/note is considered matched to an expected note.
-const NOTE_MATCH_WINDOW: f64 = 0.25;
+pub(crate) const NOTE_MATCH_WINDOW: f64 = 0.25;
 
 // ── Input types ───────────────────────────────────────────────────────────────
 
