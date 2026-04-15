@@ -163,10 +163,21 @@ impl Metronome {
 
     /// Reset transport position and internal counters to the start.
     pub fn reset_beat(&mut self) {
-        self.transport.seek_to_beat(0.0);
+        self.transport.seek_to_beat(0.0001);
         self.active_subdivision_counters.clear();
         self.active_ticks.clear();
-        self.current_beat_index = 0;
+
+        // FORCE the very first tick to spawn instantly and guarantee Beat 1 audio
+        if !self.pattern.is_empty() {
+            let strength = self.pattern[0].clone();
+            if strength != BeatStrength::None {
+                self.spawn_tick(&strength, 0);
+                self.current_beat_index = 0;
+                self.load_active_subdivisions();
+            }
+            // Advance to beat 1 for the normal transport crossing logic
+            self.current_beat_index = 1 % self.pattern.len();
+        }
     }
 
     /// Update BPM and recompute samples-per-beat.
@@ -286,12 +297,14 @@ impl AudioSource for Metronome {
             if !self.pattern.is_empty() {
                 let strength = self.pattern[self.current_beat_index].clone();
 
-                // The crossing's sample_offset_in_buffer tells us exactly
-                // where in this buffer the beat lands.  We pass that as a
-                // delay so the tick generator stays silent for the first N
-                // samples, then starts its envelope precisely on the beat.
-                self.spawn_tick(&strength, crossing.sample_offset_in_buffer);
-                self.load_active_subdivisions();
+                if strength != BeatStrength::None {
+                    self.spawn_tick(&strength, crossing.sample_offset_in_buffer);
+                    self.load_active_subdivisions();
+                } else {
+                    // FIX: Muted beats must immediately kill active polyrhythm counters!
+                    self.active_subdivision_counters.clear();
+                }
+
                 self.current_beat_index = (self.current_beat_index + 1) % self.pattern.len();
             }
         }
