@@ -176,8 +176,19 @@ impl STFT {
 
             let mut pitch_tracker = PitchTracker::new();
 
-            #[cfg(debug_assertions)]
-            let mut dbg_fft_frame: usize = 0;
+            #[cfg(feature = "dev-tools")]
+            let mut rerun_frame: usize = 0;
+            #[cfg(feature = "dev-tools")]
+            let mut png_frame: usize = 0usize;
+
+            #[cfg(feature = "dev-tools")]
+            let rec = rerun::RecordingStreamBuilder::new("audio_analyzer")
+                .spawn()
+                .expect("failed to spawn Rerun viewer");
+
+            #[cfg(feature = "dev-tools")]
+            std::fs::create_dir_all("debug_frames")
+                .expect("failed to create debug_frames/ directory");
 
             let mut ring_buffer: Vec<f32> = vec![0.0; ring_buffer_len];
             let mut ring_write_pos = 0usize;
@@ -232,16 +243,16 @@ impl STFT {
                 }
 
                 while available_samples >= window_size {
-                    // Debug trigger fires on every 10,000th FFT frame (debug builds only).
-                    #[cfg(debug_assertions)]
+                    // Debug trigger fires on every 1,000th FFT frame (dev-tools builds only).
+                    #[cfg(feature = "dev-tools")]
                     let dbg_trigger = {
-                        let t = dbg_fft_frame % 1_000 == 0;
-                        dbg_fft_frame += 1;
+                        let t = rerun_frame % 1_000 == 0;
+                        rerun_frame += 1;
                         t
                     };
 
                     // Holds captured buffers for the debug dump; only populated when triggered.
-                    #[cfg(debug_assertions)]
+                    #[cfg(feature = "dev-tools")]
                     let mut dbg_capture: Option<(
                         Vec<f32>,
                         Vec<f32>,
@@ -254,7 +265,7 @@ impl STFT {
                         Vec::new() // Feed an empty list so tracker counts it as a miss for all
                     } else {
                         // Capture pre-hann raw signal from the ring buffer.
-                        #[cfg(debug_assertions)]
+                        #[cfg(feature = "dev-tools")]
                         let dbg_raw: Vec<f32> = if dbg_trigger {
                             (0..window_size)
                                 .map(|i| ring_buffer[(ring_read_pos + i) % ring_buffer_len])
@@ -269,7 +280,7 @@ impl STFT {
                         }
 
                         // Capture hann-windowed signal.
-                        #[cfg(debug_assertions)]
+                        #[cfg(feature = "dev-tools")]
                         let dbg_windowed: Vec<f32> = if dbg_trigger {
                             time_domain_window.clone()
                         } else {
@@ -293,7 +304,7 @@ impl STFT {
                         let bin_width = sr as f32 / window_size as f32;
 
                         // Store all captured buffers so they can be read after this block.
-                        #[cfg(debug_assertions)]
+                        #[cfg(feature = "dev-tools")]
                         if dbg_trigger {
                             dbg_capture =
                                 Some((dbg_raw, dbg_windowed, magnitudes.clone(), bin_width));
@@ -317,9 +328,9 @@ impl STFT {
                     let stable_pitches = pitch_tracker.process(raw_pitches);
 
                     // Emit debug frame; borrows stable_pitches before the move below.
-                    #[cfg(debug_assertions)]
+                    #[cfg(feature = "dev-tools")]
                     if dbg_trigger {
-                        let frame_idx = dbg_fft_frame - 1;
+                        let frame_idx = rerun_frame - 1;
                         if let Some((raw, windowed, mags, bw)) = dbg_capture {
                             let min_bin = ((MIN_FREQ / bw).ceil() as usize).max(1);
                             let max_bin = ((MAX_FREQ / bw).floor() as usize)
