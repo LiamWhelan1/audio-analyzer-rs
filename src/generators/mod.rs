@@ -26,11 +26,12 @@ pub enum Instrument {
 
 impl Instrument {
     pub fn from(s: &str) -> Result<Instrument, AudioEngineError> {
-        match s {
-            "Piano" => Ok(Self::Piano),
-            "Violin" => Ok(Self::Violin),
+        let instrument = s.to_lowercase();
+        match instrument.as_str() {
+            "piano" => Ok(Self::Piano),
+            "violin" => Ok(Self::Violin),
             _ => Err(AudioEngineError::Internal {
-                msg: format!("Instrument '{s}' is unavailable"),
+                msg: format!("Instrument '{instrument}' is unavailable"),
             }),
         }
     }
