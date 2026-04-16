@@ -676,3 +676,209 @@ fn dynamic_to_i32(level: DynamicLevel) -> i32 {
         DynamicLevel::Fff => 7,
     }
 }
+
+// ── Tests ─────────────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::audio_io::timing::OnsetEvent;
+
+    // ── freq_to_midi ──────────────────────────────────────────────────────────
+
+    #[test]
+    fn freq_to_midi_a4_is_69() {
+        assert_eq!(freq_to_midi(440.0), 69);
+    }
+
+    #[test]
+    fn freq_to_midi_c4_is_60() {
+        // C4 ≈ 261.626 Hz
+        assert_eq!(freq_to_midi(261.626), 60);
+    }
+
+    #[test]
+    fn freq_to_midi_a5_is_81() {
+        // A5 = 880 Hz (one octave above A4)
+        assert_eq!(freq_to_midi(880.0), 81);
+    }
+
+    #[test]
+    fn freq_to_midi_clamps_zero_to_valid_range() {
+        // Very low/high freqs should not overflow u8 (clamp 0..127)
+        let low = freq_to_midi(1.0);
+        let high = freq_to_midi(20000.0);
+        assert!(low <= 127);
+        assert!(high <= 127);
+    }
+
+    // ── note_name_to_midi ─────────────────────────────────────────────────────
+
+    #[test]
+    fn note_name_to_midi_a4_is_69() {
+        assert_eq!(note_name_to_midi("A4"), Some(69));
+    }
+
+    #[test]
+    fn note_name_to_midi_c4_is_60() {
+        assert_eq!(note_name_to_midi("C4"), Some(60));
+    }
+
+    #[test]
+    fn note_name_to_midi_c_sharp_4_is_61() {
+        assert_eq!(note_name_to_midi("C#4"), Some(61));
+    }
+
+    #[test]
+    fn note_name_to_midi_b_flat_3_is_58() {
+        // Bb3 = (3+1)*12 + 11 - 1 = 58
+        assert_eq!(note_name_to_midi("Bb3"), Some(58));
+    }
+
+    #[test]
+    fn note_name_to_midi_empty_string_is_none() {
+        assert_eq!(note_name_to_midi(""), None);
+    }
+
+    #[test]
+    fn note_name_to_midi_invalid_letter_is_none() {
+        assert_eq!(note_name_to_midi("X4"), None);
+    }
+
+    #[test]
+    fn note_name_to_midi_missing_octave_is_none() {
+        assert_eq!(note_name_to_midi("A"), None);
+    }
+
+    #[test]
+    fn note_name_to_midi_non_numeric_octave_is_none() {
+        assert_eq!(note_name_to_midi("Ax"), None);
+    }
+
+    // ── velocity_to_dynamic ───────────────────────────────────────────────────
+
+    #[test]
+    fn velocity_zero_maps_to_none() {
+        assert_eq!(velocity_to_dynamic(0.0), None);
+    }
+
+    #[test]
+    fn velocity_negative_maps_to_none() {
+        assert_eq!(velocity_to_dynamic(-0.1), None);
+    }
+
+    #[test]
+    fn velocity_just_above_zero_maps_to_ppp() {
+        assert_eq!(velocity_to_dynamic(0.05), Some(DynamicLevel::Ppp));
+    }
+
+    #[test]
+    fn velocity_boundaries_map_to_correct_levels() {
+        // Each boundary is the *lower* edge of a new level.
+        let cases = [
+            (0.125, DynamicLevel::Pp),
+            (0.25, DynamicLevel::P),
+            (0.375, DynamicLevel::Mp),
+            (0.5, DynamicLevel::Mf),
+            (0.625, DynamicLevel::F),
+            (0.75, DynamicLevel::Ff),
+            (0.875, DynamicLevel::Fff),
+            (1.0, DynamicLevel::Fff),
+        ];
+        for (vel, expected) in cases {
+            assert_eq!(
+                velocity_to_dynamic(vel),
+                Some(expected),
+                "velocity {} should map to {:?}",
+                vel,
+                expected
+            );
+        }
+    }
+
+    // ── closest_onset ─────────────────────────────────────────────────────────
+
+    fn onset(beat: f64) -> OnsetEvent {
+        OnsetEvent {
+            beat_position: beat,
+            raw_sample_offset: 0,
+            velocity: 0.8,
+        }
+    }
+
+    #[test]
+    fn closest_onset_returns_nearest_within_window() {
+        let onsets = [onset(1.0), onset(2.0), onset(3.0)];
+        let result = closest_onset(&onsets, 2.05);
+        assert!(result.is_some());
+        assert!((result.unwrap().beat_position - 2.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn closest_onset_returns_none_when_outside_window() {
+        let onsets = [onset(1.0)];
+        // NOTE_MATCH_WINDOW is 0.25 beats; 0.5 beats away is outside.
+        let result = closest_onset(&onsets, 1.5);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn closest_onset_returns_none_on_empty_slice() {
+        let result = closest_onset(&[], 1.0);
+        assert!(result.is_none());
+    }
+
+    // ── dynamic_at ────────────────────────────────────────────────────────────
+
+    fn dyn_event(beat: f64, level: DynamicLevel) -> DynamicsEvent {
+        DynamicsEvent {
+            beat_position: beat,
+            level,
+        }
+    }
+
+    #[test]
+    fn dynamic_at_returns_most_recent_level_at_or_before_beat() {
+        let events = [
+            dyn_event(0.0, DynamicLevel::P),
+            dyn_event(2.0, DynamicLevel::F),
+            dyn_event(4.0, DynamicLevel::Ppp),
+        ];
+        assert_eq!(dynamic_at(&events, 3.0), Some(DynamicLevel::F));
+    }
+
+    #[test]
+    fn dynamic_at_returns_none_before_any_event() {
+        let events = [dyn_event(2.0, DynamicLevel::Mf)];
+        assert_eq!(dynamic_at(&events, 1.0), None);
+    }
+
+    #[test]
+    fn dynamic_at_returns_event_at_exact_beat() {
+        let events = [dyn_event(2.0, DynamicLevel::Ff)];
+        assert_eq!(dynamic_at(&events, 2.0), Some(DynamicLevel::Ff));
+    }
+
+    #[test]
+    fn dynamic_at_returns_none_on_empty_slice() {
+        assert_eq!(dynamic_at(&[], 1.0), None);
+    }
+
+    // ── dynamic_to_i32 ────────────────────────────────────────────────────────
+
+    #[test]
+    fn dynamic_to_i32_ordering_is_monotone() {
+        use DynamicLevel::*;
+        let levels = [Silence, Ppp, Pp, P, Mp, Mf, F, Ff, Fff];
+        let ints: Vec<i32> = levels.iter().map(|&l| dynamic_to_i32(l)).collect();
+        for window in ints.windows(2) {
+            assert!(
+                window[0] < window[1],
+                "dynamic_to_i32 ordering broken at {:?}: {} vs {}",
+                levels,
+                window[0],
+                window[1]
+            );
+        }
+    }
+}

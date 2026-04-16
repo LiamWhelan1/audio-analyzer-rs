@@ -29,6 +29,245 @@ mod ffi_tests {
         // 5. Cleanup is automatic when the Arc goes out of scope
         engine.stop_metronome();
     }
+
+    // ── AudioEngine create/stop guards ────────────────────────────────────────
+
+    #[test]
+    fn create_metronome_twice_returns_clear_error() {
+        let engine = AudioEngine::new().expect("engine init failed");
+        engine.start_output().expect("output stream failed");
+        let _ = engine.create_metronome(120.0).expect("first metronome failed");
+
+        let result = engine.create_metronome(120.0);
+        assert!(result.is_err(), "second create_metronome should fail");
+        let err = result.err().unwrap();
+
+        match err {
+            crate::AudioEngineError::SpawnFailed { component, msg } => {
+                assert_eq!(component, "metronome");
+                assert!(
+                    msg.to_lowercase().contains("already"),
+                    "error message should say 'already active', got: {msg}"
+                );
+            }
+            other => panic!("unexpected error variant: {other:?}"),
+        }
+        engine.stop_metronome();
+    }
+
+    #[test]
+    fn stop_metronome_allows_re_creation() {
+        let engine = AudioEngine::new().expect("engine init failed");
+        engine.start_output().expect("output stream failed");
+        engine.create_metronome(120.0).expect("first create failed");
+        engine.stop_metronome();
+        // Should succeed after stopping
+        engine.create_metronome(90.0).expect("re-creation after stop failed");
+        engine.stop_metronome();
+    }
+
+    // ── Metronome pattern int mapping ─────────────────────────────────────────
+
+    #[test]
+    fn metronome_set_pattern_accepts_valid_strength_ints() {
+        let engine = AudioEngine::new().expect("engine init failed");
+        engine.start_output().expect("output stream failed");
+        let metronome = engine.create_metronome(120.0).expect("metronome failed");
+
+        // 3=Strong, 2=Medium, 1=Weak, 0=None; unknown values fall back to None
+        assert!(metronome.set_pattern(vec![3, 2, 1, 0]));
+        assert!(metronome.set_pattern(vec![3, 1, 1, 1])); // typical 4/4
+        assert!(metronome.set_pattern(vec![3, 1, 1]));     // 3/4
+        // Unknown values should not panic — they map to None
+        assert!(metronome.set_pattern(vec![99, -1, 42]));
+
+        engine.stop_metronome();
+    }
+
+    // ── Tuner mode / system string mapping ───────────────────────────────────
+
+    #[test]
+    fn tuner_set_mode_known_and_unknown_strings() {
+        let engine = AudioEngine::new().expect("engine init failed");
+        engine.start_input().expect("input stream failed");
+        let tuner = engine.start_tuner().expect("tuner failed");
+
+        // Known values — must not panic or error
+        tuner.set_mode("SinglePitch".to_string());
+        tuner.set_mode("MultiPitch".to_string());
+        // Unknown value — must silently fall back (MultiPitch), must not panic
+        tuner.set_mode("FooBarMode".to_string());
+
+        engine.stop_tuner();
+    }
+
+    #[test]
+    fn tuner_set_system_known_and_unknown_strings() {
+        let engine = AudioEngine::new().expect("engine init failed");
+        engine.start_input().expect("input stream failed");
+        let tuner = engine.start_tuner().expect("tuner failed");
+
+        tuner.set_system("JustIntonation".to_string());
+        tuner.set_system("EqualTemperament".to_string());
+        // Unknown value must silently fall back, must not panic
+        tuner.set_system("WeirdSystem".to_string());
+
+        engine.stop_tuner();
+    }
+
+    #[test]
+    fn tuner_poll_output_returns_valid_json_object() {
+        let engine = AudioEngine::new().expect("engine init failed");
+        engine.start_input().expect("input stream failed");
+        let tuner = engine.start_tuner().expect("tuner failed");
+
+        let json = tuner.poll_output();
+        let parsed: serde_json::Value =
+            serde_json::from_str(&json).expect("poll_output must return valid JSON");
+
+        assert!(parsed.is_object(), "poll_output must return a JSON object, got: {json}");
+
+        // Required keys present in TunerOutput
+        for key in &["label", "cents", "notes", "accuracies", "mode", "system", "base_freq", "key"] {
+            assert!(
+                parsed.get(key).is_some(),
+                "poll_output JSON missing key '{key}', got: {json}"
+            );
+        }
+
+        engine.stop_tuner();
+    }
+
+    // ── Synth instrument mapping ───────────────────────────────────────────────
+
+    #[test]
+    fn synth_load_file_unknown_instrument_falls_back_to_violin() {
+        let engine = AudioEngine::new().expect("engine init failed");
+        engine.start_output().expect("output stream failed");
+        let synth = engine.create_synth().expect("synth failed");
+
+        // Unknown instrument string must not panic — falls back to Violin
+        // (file won't exist, returns false — but must not panic)
+        let _ = synth.load_file("/nonexistent.mid".to_string(), "UnknownInstrument".to_string());
+
+        engine.stop_synth();
+    }
+
+    #[test]
+    fn synth_play_note_zero_velocity_does_not_panic() {
+        let engine = AudioEngine::new().expect("engine init failed");
+        engine.start_output().expect("output stream failed");
+        let synth = engine.create_synth().expect("synth failed");
+
+        // velocity = 0 → NoteOff path; must not panic
+        assert!(synth.play_note(440.0, 0.0, "Piano".to_string()));
+
+        engine.stop_synth();
+    }
+
+    #[test]
+    fn synth_play_note_positive_velocity_does_not_panic() {
+        let engine = AudioEngine::new().expect("engine init failed");
+        engine.start_output().expect("output stream failed");
+        let synth = engine.create_synth().expect("synth failed");
+
+        assert!(synth.play_note(440.0, 64.0, "Piano".to_string()));
+        assert!(synth.play_note(440.0, 64.0, "Violin".to_string()));
+        // Unknown instrument falls back, must not panic
+        assert!(synth.play_note(440.0, 64.0, "Xylophone".to_string()));
+
+        engine.stop_synth();
+    }
+
+    // ── poll_dynamics JSON format ──────────────────────────────────────────────
+
+    #[test]
+    fn poll_dynamics_returns_valid_json_object_with_required_fields() {
+        let engine = AudioEngine::new().expect("engine init failed");
+        engine.start_input().expect("input stream failed");
+
+        let json = engine.poll_dynamics();
+        let parsed: serde_json::Value =
+            serde_json::from_str(&json).expect("poll_dynamics must return valid JSON");
+
+        assert!(parsed.is_object(), "poll_dynamics must return a JSON object");
+        for key in &["level", "rms_db", "gain_db", "session_median_db", "noise_floor_db"] {
+            assert!(
+                parsed.get(key).is_some(),
+                "poll_dynamics JSON missing key '{key}'"
+            );
+        }
+    }
+
+    // ── poll_transport JSON format ─────────────────────────────────────────────
+
+    #[test]
+    fn poll_transport_returns_valid_json_object_with_required_fields() {
+        let engine = AudioEngine::new().expect("engine init failed");
+        engine.start_output().expect("output stream failed");
+
+        let json = engine.poll_transport();
+        let parsed: serde_json::Value =
+            serde_json::from_str(&json).expect("poll_transport must return valid JSON");
+
+        assert!(parsed.is_object(), "poll_transport must return a JSON object");
+        for key in &[
+            "beat_position",
+            "bpm",
+            "is_playing",
+            "display_beat_position",
+            "current_beat",
+            "beat_phase",
+            "output_frames",
+            "input_frames",
+            "drift_samples",
+        ] {
+            assert!(
+                parsed.get(key).is_some(),
+                "poll_transport JSON missing key '{key}'"
+            );
+        }
+    }
+
+    // ── PracticeSession::start error messages ─────────────────────────────────
+
+    #[test]
+    fn practice_session_start_inverted_range_returns_internal_error_with_clear_message() {
+        // We need a PracticeSession to test start() errors.
+        // Use a real MIDI file path that exists in the repo for testing.
+        // If no test MIDI file exists, we test via the engine route.
+        // The error should come from start() before any audio is needed.
+        // We can only test this if create_practice_session succeeds.
+        // Skip the test gracefully if no MIDI file is available.
+        let engine = AudioEngine::new().expect("engine init failed");
+        engine.start_input().expect("input stream failed");
+        engine.start_output().expect("output stream failed");
+
+        // Try to load a test MIDI file; skip if unavailable.
+        let test_midi = std::env::var("TEST_MIDI_PATH").unwrap_or_default();
+        if test_midi.is_empty() {
+            return; // no MIDI available in this environment
+        }
+
+        let session = engine
+            .create_practice_session(test_midi, "Violin".to_string())
+            .expect("practice session creation failed");
+
+        // start_measure > end_measure → should return Internal error with clear message
+        let start_result = session.start(5, 2);
+        assert!(start_result.is_err(), "inverted range should return an error");
+        let err = start_result.err().unwrap();
+
+        match err {
+            crate::AudioEngineError::Internal { msg } => {
+                assert!(
+                    msg.contains("start_measure") || msg.contains("end_measure") || msg.contains(">"),
+                    "error message should describe the range inversion, got: {msg}"
+                );
+            }
+            other => panic!("expected Internal error, got: {other:?}"),
+        }
+    }
 }
 
 /// Interactive CLI simulation for testing the new Object-Oriented API.

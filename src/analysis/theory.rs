@@ -97,54 +97,75 @@ pub struct Note {
 }
 
 impl Note {
-    pub fn new(note: &str) -> Self {
-        let (name, accidental, octave) = Self::parse_note_name(note);
-        Self {
+    /// Parse a note name such as `"C#4"` or `"Bb3"`.
+    ///
+    /// Returns `Ok(Self)` on success or an `Err` with a descriptive message on
+    /// invalid input — never panics.
+    pub fn try_new(note: &str) -> Result<Self, String> {
+        let (name, accidental, octave) = Self::parse_note_name(note)?;
+        Ok(Self {
             name,
             accidental,
             octave,
             cents: 0.0,
-        }
+        })
     }
 
-    fn parse_note_name(note: &str) -> (Name, Option<Accidental>, u8) {
-        let chars: Vec<char> = note.chars().collect();
-        if chars.len() < 2 {
-            panic!("Invalid note format");
+    /// Panicking wrapper around [`try_new`] for callers that treat a bad note
+    /// name as a programming error.  Prefer [`try_new`] when the name comes
+    /// from external input.
+    pub fn new(note: &str) -> Self {
+        Self::try_new(note)
+            .unwrap_or_else(|e| panic!("Note::new called with invalid note \"{note}\": {e}"))
+    }
+
+    fn parse_note_name(note: &str) -> Result<(Name, Option<Accidental>, u8), String> {
+        // Note names are always ASCII — work with bytes to avoid Vec<char> allocation.
+        let bytes = note.as_bytes();
+        if bytes.len() < 2 {
+            return Err(format!(
+                "Note name \"{note}\" is too short — expected format like \"C#4\" or \"A4\""
+            ));
         }
 
-        let name = match chars[0] {
-            'C' => Name::C,
-            'D' => Name::D,
-            'E' => Name::E,
-            'F' => Name::F,
-            'G' => Name::G,
-            'A' => Name::A,
-            'B' => Name::B,
-            _ => panic!("Invalid note name"),
+        let name = match bytes[0] {
+            b'C' => Name::C,
+            b'D' => Name::D,
+            b'E' => Name::E,
+            b'F' => Name::F,
+            b'G' => Name::G,
+            b'A' => Name::A,
+            b'B' => Name::B,
+            other => {
+                return Err(format!(
+                    "Invalid note letter '{}' in \"{note}\" — expected one of C D E F G A B",
+                    other as char
+                ))
+            }
         };
 
-        let (accidental, octave_start) = if chars[1] == '#' {
+        let (accidental, octave_start) = if bytes[1] == b'#' {
             (Some(Accidental::Sharp), 2)
-        } else if chars[1] == 'b' {
+        } else if bytes[1] == b'b' {
             (Some(Accidental::Flat), 2)
-        } else if chars.len() > 2 && chars[1] == 'x' {
+        } else if bytes.len() > 2 && bytes[1] == b'x' {
             (Some(Accidental::DoubleSharp), 2)
-        } else if chars.len() > 2 && chars[1] == 'B' {
+        } else if bytes.len() > 2 && bytes[1] == b'B' {
             (Some(Accidental::DoubleFlat), 2)
-        } else if chars[1] == 'n' {
+        } else if bytes[1] == b'n' {
             (Some(Accidental::Natural), 2)
         } else {
             (None, 1)
         };
 
-        let octave: u8 = chars[octave_start..]
-            .iter()
-            .collect::<String>()
-            .parse()
-            .expect("Invalid octave");
+        let octave_str = &note[octave_start..];
+        let octave: u8 = octave_str.parse().map_err(|_| {
+            format!(
+                "Invalid octave \"{octave_str}\" in \"{note}\" — expected a number like 4"
+            )
+        })?;
 
-        (name, accidental, octave)
+        Ok((name, accidental, octave))
     }
 
     pub fn to_freq(&self, base_freq: Option<f32>) -> f32 {
@@ -274,7 +295,18 @@ pub enum IntType {
 }
 
 impl Interval {
-    pub fn new(freqs: &Vec<f32>, system: Option<TuningSystem>) -> Self {
+    /// Identify the interval between two frequencies.
+    ///
+    /// Requires at least two elements; if `freqs` has fewer than two elements,
+    /// or if the first frequency is zero, returns a perfect-octave default
+    /// rather than panicking.
+    pub fn new(freqs: &[f32], system: Option<TuningSystem>) -> Self {
+        if freqs.len() < 2 || freqs[0] == 0.0 {
+            return Self {
+                name: IntType::Per8,
+                accuracy: 0.0,
+            };
+        }
         let mut ratio = freqs[1] / freqs[0];
         while ratio > 2.0 {
             ratio /= 2.0;
@@ -332,6 +364,231 @@ pub struct Key {
     pub accidental: Option<Accidental>,
     pub quality: Quality,
     pub semis_map: [u8; 7],
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ── Note identification ────────────────────────────────────────────────────
+
+    #[test]
+    fn note_from_freq_a4_identifies_correctly() {
+        let note = Note::from_freq(440.0, None);
+        assert_eq!(note.get_name(), "A4");
+    }
+
+    #[test]
+    fn note_from_freq_a4_cents_near_zero() {
+        let note = Note::from_freq(440.0, None);
+        assert!(
+            note.get_cents().abs() < 2.0,
+            "A4 at exactly 440 Hz should have cents near 0, got {}",
+            note.get_cents()
+        );
+    }
+
+    #[test]
+    fn note_from_freq_c4_identifies_correctly() {
+        let note = Note::from_freq(261.626, None);
+        assert_eq!(note.get_name(), "C4");
+    }
+
+    #[test]
+    fn note_from_freq_c_sharp_4_identifies_correctly() {
+        // C#4 = 261.626 * 2^(1/12) ≈ 277.18 Hz
+        let c_sharp_4 = 261.626_f32 * 2.0_f32.powf(1.0 / 12.0);
+        let note = Note::from_freq(c_sharp_4, None);
+        assert_eq!(note.get_name(), "C#4");
+    }
+
+    #[test]
+    fn note_cents_always_within_fifty_semitone_range() {
+        // Cents should always be in [-50, 50] — one rule of the representation.
+        let freqs = [261.63, 293.66, 329.63, 349.23, 392.0, 440.0, 493.88, 523.25];
+        for freq in freqs {
+            let cents = Note::from_freq(freq, None).get_cents();
+            assert!(
+                cents >= -50.0 && cents <= 50.0,
+                "cents {} out of range for freq {}",
+                cents,
+                freq
+            );
+        }
+    }
+
+    // ── Note::new / to_freq round-trips ───────────────────────────────────────
+
+    #[test]
+    fn note_new_a4_to_freq_round_trip() {
+        let freq = Note::new("A4").to_freq(None);
+        assert!(
+            (freq - 440.0).abs() < 0.1,
+            "A4.to_freq() should be ~440 Hz, got {}",
+            freq
+        );
+    }
+
+    #[test]
+    fn note_new_c4_to_freq_round_trip() {
+        let freq = Note::new("C4").to_freq(None);
+        // C4 = 440 * 2^(-9/12) ≈ 261.63 Hz
+        assert!(
+            (freq - 261.63).abs() < 0.5,
+            "C4.to_freq() should be ~261.63 Hz, got {}",
+            freq
+        );
+    }
+
+    #[test]
+    fn note_new_with_sharp_correct_frequency() {
+        // C#4 is 1 semitone above C4
+        let c4 = Note::new("C4").to_freq(None);
+        let c_sharp_4 = Note::new("C#4").to_freq(None);
+        let expected_ratio = 2.0_f32.powf(1.0 / 12.0);
+        assert!(
+            (c_sharp_4 / c4 - expected_ratio).abs() < 0.001,
+            "C#4/C4 ratio should be 2^(1/12), got {}",
+            c_sharp_4 / c4
+        );
+    }
+
+    #[test]
+    fn note_new_with_flat_correct_frequency() {
+        // Bb3 is 1 semitone below B3
+        let b3 = Note::new("B3").to_freq(None);
+        let bb3 = Note::new("Bb3").to_freq(None);
+        let expected_ratio = 2.0_f32.powf(-1.0 / 12.0);
+        assert!(
+            (bb3 / b3 - expected_ratio).abs() < 0.001,
+            "Bb3/B3 ratio should be 2^(-1/12), got {}",
+            bb3 / b3
+        );
+    }
+
+    // ── Note::try_new ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn note_try_new_valid_note_returns_ok() {
+        let result = Note::try_new("A4");
+        assert!(result.is_ok(), "try_new(\"A4\") should succeed");
+        assert_eq!(result.unwrap().get_name(), "A4");
+    }
+
+    #[test]
+    fn note_try_new_invalid_name_returns_err_not_panic() {
+        let result = Note::try_new("X4");
+        assert!(
+            result.is_err(),
+            "try_new(\"X4\") should return Err, not panic"
+        );
+        let msg = result.err().unwrap();
+        assert!(
+            msg.contains("X") || msg.contains("note") || msg.contains("invalid") || msg.to_lowercase().contains("invalid"),
+            "error message should describe the problem, got: {msg}"
+        );
+    }
+
+    #[test]
+    fn note_try_new_too_short_returns_err_not_panic() {
+        let result = Note::try_new("A");
+        assert!(
+            result.is_err(),
+            "try_new(\"A\") (no octave) should return Err, not panic"
+        );
+    }
+
+    #[test]
+    fn note_try_new_empty_string_returns_err_not_panic() {
+        let result = Note::try_new("");
+        assert!(result.is_err(), "try_new(\"\") should return Err, not panic");
+    }
+
+    // ── Interval detection ────────────────────────────────────────────────────
+
+    #[test]
+    fn interval_perfect_fifth_equal_temperament() {
+        let c4 = 261.63_f32;
+        let g4 = c4 * 2.0_f32.powf(7.0 / 12.0); // exact ET perfect fifth
+        let interval = Interval::new(&[c4, g4], None);
+        assert_eq!(interval.get_name(), "Per5");
+    }
+
+    #[test]
+    fn interval_octave_equal_temperament() {
+        let c4 = 261.63_f32;
+        let c5 = c4 * 2.0;
+        let interval = Interval::new(&[c4, c5], None);
+        assert_eq!(interval.get_name(), "Per8");
+    }
+
+    #[test]
+    fn interval_major_third_equal_temperament() {
+        let c4 = 261.63_f32;
+        let e4 = c4 * 2.0_f32.powf(4.0 / 12.0);
+        let interval = Interval::new(&[c4, e4], None);
+        assert_eq!(interval.get_name(), "Maj3");
+    }
+
+    #[test]
+    fn interval_minor_third_equal_temperament() {
+        let c4 = 261.63_f32;
+        let eb4 = c4 * 2.0_f32.powf(3.0 / 12.0);
+        let interval = Interval::new(&[c4, eb4], None);
+        assert_eq!(interval.get_name(), "Min3");
+    }
+
+    #[test]
+    fn interval_perfect_fourth_equal_temperament() {
+        let c4 = 261.63_f32;
+        let f4 = c4 * 2.0_f32.powf(5.0 / 12.0);
+        let interval = Interval::new(&[c4, f4], None);
+        assert_eq!(interval.get_name(), "Per4");
+    }
+
+    // ── Interval edge cases ───────────────────────────────────────────────────
+
+    #[test]
+    fn interval_new_single_freq_does_not_panic() {
+        let result = std::panic::catch_unwind(|| Interval::new(&[440.0_f32], None));
+        assert!(
+            result.is_ok(),
+            "Interval::new with fewer than 2 frequencies must not panic"
+        );
+    }
+
+    #[test]
+    fn interval_new_empty_slice_does_not_panic() {
+        let result = std::panic::catch_unwind(|| Interval::new(&[], None));
+        assert!(
+            result.is_ok(),
+            "Interval::new with empty slice must not panic"
+        );
+    }
+
+    // ── MidiNote ─────────────────────────────────────────────────────────────
+
+    #[test]
+    fn midi_note_from_freq_a4_round_trips() {
+        let midi = MidiNote::from_freq(440.0, None);
+        let freq_back = midi.to_freq(None);
+        assert!(
+            (freq_back - 440.0).abs() < 1.0,
+            "MidiNote round-trip for A4 should return ~440 Hz, got {}",
+            freq_back
+        );
+    }
+
+    #[test]
+    fn midi_note_from_freq_c4_round_trips() {
+        let midi = MidiNote::from_freq(261.63, None);
+        let freq_back = midi.to_freq(None);
+        assert!(
+            (freq_back - 261.63).abs() < 1.0,
+            "MidiNote round-trip for C4 should return ~261.63 Hz, got {}",
+            freq_back
+        );
+    }
 }
 
 impl Key {

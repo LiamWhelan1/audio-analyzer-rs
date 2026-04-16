@@ -622,3 +622,341 @@ impl Metrics {
         variance.sqrt()
     }
 }
+
+// ── Tests ─────────────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::audio_io::timing::OnsetEvent;
+
+    // ── Builders ──────────────────────────────────────────────────────────────
+
+    fn onset(beat: f64) -> OnsetEvent {
+        OnsetEvent {
+            beat_position: beat,
+            raw_sample_offset: 0,
+            velocity: 0.8,
+        }
+    }
+
+    fn note_event(beat: f64, midi: u8, cents: f64) -> NoteEvent {
+        NoteEvent {
+            beat_position: beat,
+            midi_note: midi,
+            avg_cents: cents,
+        }
+    }
+
+    fn expected(beat: f64, midi: u8, dur: f64) -> ExpectedNote {
+        ExpectedNote {
+            beat_position: beat,
+            duration_beats: dur,
+            midi_note: midi,
+            dynamic: None,
+        }
+    }
+
+    fn expected_with_dyn(beat: f64, midi: u8, dur: f64, level: DynamicLevel) -> ExpectedNote {
+        ExpectedNote {
+            beat_position: beat,
+            duration_beats: dur,
+            midi_note: midi,
+            dynamic: Some(level),
+        }
+    }
+
+    fn dyn_event(beat: f64, level: DynamicLevel) -> DynamicsEvent {
+        DynamicsEvent {
+            beat_position: beat,
+            level,
+        }
+    }
+
+    // ── accuracy_percent ──────────────────────────────────────────────────────
+
+    #[test]
+    fn accuracy_percent_all_notes_matched_gives_100() {
+        let measures = [MeasureData {
+            measure_index: 0,
+            onsets: vec![onset(0.0), onset(1.0)],
+            notes: vec![note_event(0.0, 60, 0.0), note_event(1.0, 64, 0.0)],
+            dynamics: vec![],
+            expected_notes: vec![expected(0.0, 60, 1.0), expected(1.0, 64, 1.0)],
+        }];
+        let pct = Metrics::calc_accuracy_percent(&measures);
+        assert!((pct - 100.0).abs() < 1e-9, "expected 100%, got {pct}");
+    }
+
+    #[test]
+    fn accuracy_percent_no_notes_detected_gives_0() {
+        let measures = [MeasureData {
+            measure_index: 0,
+            onsets: vec![],
+            notes: vec![],
+            dynamics: vec![],
+            expected_notes: vec![expected(0.0, 60, 1.0), expected(1.0, 64, 1.0)],
+        }];
+        let pct = Metrics::calc_accuracy_percent(&measures);
+        assert!((pct - 0.0).abs() < 1e-9, "expected 0%, got {pct}");
+    }
+
+    #[test]
+    fn accuracy_percent_no_expected_notes_gives_100() {
+        // Edge case: no reference notes → nothing to miss → 100%.
+        let measures = [MeasureData {
+            measure_index: 0,
+            onsets: vec![],
+            notes: vec![],
+            dynamics: vec![],
+            expected_notes: vec![],
+        }];
+        let pct = Metrics::calc_accuracy_percent(&measures);
+        assert!((pct - 100.0).abs() < 1e-9, "expected 100%, got {pct}");
+    }
+
+    #[test]
+    fn accuracy_percent_half_matched_gives_50() {
+        let measures = [MeasureData {
+            measure_index: 0,
+            onsets: vec![onset(0.0)],
+            notes: vec![note_event(0.0, 60, 0.0)], // only first note matched
+            dynamics: vec![],
+            expected_notes: vec![expected(0.0, 60, 1.0), expected(1.0, 64, 1.0)],
+        }];
+        let pct = Metrics::calc_accuracy_percent(&measures);
+        assert!((pct - 50.0).abs() < 1e-9, "expected 50%, got {pct}");
+    }
+
+    // ── num_notes_missed ──────────────────────────────────────────────────────
+
+    #[test]
+    fn num_notes_missed_zero_when_all_matched() {
+        let measures = [MeasureData {
+            measure_index: 0,
+            onsets: vec![],
+            notes: vec![note_event(0.0, 60, 0.0)],
+            dynamics: vec![],
+            expected_notes: vec![expected(0.0, 60, 1.0)],
+        }];
+        assert_eq!(Metrics::calc_num_notes_missed(&measures), 0);
+    }
+
+    #[test]
+    fn num_notes_missed_counts_unmatched_expected_notes() {
+        let measures = [MeasureData {
+            measure_index: 0,
+            onsets: vec![],
+            notes: vec![],
+            dynamics: vec![],
+            expected_notes: vec![expected(0.0, 60, 1.0), expected(1.0, 64, 1.0)],
+        }];
+        assert_eq!(Metrics::calc_num_notes_missed(&measures), 2);
+    }
+
+    // ── avg_cent_dev ──────────────────────────────────────────────────────────
+
+    #[test]
+    fn avg_cent_dev_zero_when_perfectly_tuned() {
+        let measures = [MeasureData {
+            measure_index: 0,
+            onsets: vec![],
+            notes: vec![note_event(0.0, 60, 0.0), note_event(1.0, 64, 0.0)],
+            dynamics: vec![],
+            expected_notes: vec![],
+        }];
+        let dev = Metrics::calc_avg_cent_dev(&measures);
+        assert!((dev - 0.0).abs() < 1e-9, "expected 0 cents dev, got {dev}");
+    }
+
+    #[test]
+    fn avg_cent_dev_computes_mean_absolute_deviation() {
+        // Notes deviate by 10 and 30 cents → mean abs = 20.
+        let measures = [MeasureData {
+            measure_index: 0,
+            onsets: vec![],
+            notes: vec![note_event(0.0, 60, 10.0), note_event(1.0, 64, -30.0)],
+            dynamics: vec![],
+            expected_notes: vec![],
+        }];
+        let dev = Metrics::calc_avg_cent_dev(&measures);
+        assert!((dev - 20.0).abs() < 1e-9, "expected 20 cents avg dev, got {dev}");
+    }
+
+    #[test]
+    fn avg_cent_dev_zero_when_no_notes() {
+        let measures = [MeasureData {
+            measure_index: 0,
+            onsets: vec![],
+            notes: vec![],
+            dynamics: vec![],
+            expected_notes: vec![],
+        }];
+        assert!((Metrics::calc_avg_cent_dev(&measures) - 0.0).abs() < 1e-9);
+    }
+
+    // ── timing_consistency ────────────────────────────────────────────────────
+
+    #[test]
+    fn timing_consistency_zero_when_perfectly_on_beat() {
+        let measures = [MeasureData {
+            measure_index: 0,
+            onsets: vec![onset(0.0), onset(1.0)],
+            notes: vec![],
+            dynamics: vec![],
+            expected_notes: vec![expected(0.0, 60, 1.0), expected(1.0, 64, 1.0)],
+        }];
+        let tc = Metrics::calc_timing_consistency(&measures);
+        assert!(tc < 1e-9, "expected timing consistency ~0, got {tc}");
+    }
+
+    // ── microtiming_skew ──────────────────────────────────────────────────────
+
+    #[test]
+    fn microtiming_skew_positive_when_rushing() {
+        // Onsets are 0.1 beats early (beat_position is lower than expected).
+        // Wait — onset before expected → onset.beat_position < expected.beat_position
+        // skew = onset - expected → negative when dragging, positive when rushing.
+        // Rushing = playing early → onset before beat → negative skew value.
+        // Let's test rushing: onsets at 0.9 and 1.9 (0.1 beats before expected 1.0 and 2.0).
+        let measures = [MeasureData {
+            measure_index: 0,
+            onsets: vec![onset(0.9), onset(1.9)],
+            notes: vec![],
+            dynamics: vec![],
+            expected_notes: vec![expected(1.0, 60, 1.0), expected(2.0, 64, 1.0)],
+        }];
+        let skew = Metrics::calc_microtiming_skew(&measures);
+        // Skew = mean of (onset - expected) = mean of (-0.1, -0.1) = -0.1
+        assert!(
+            (skew - (-0.1)).abs() < 1e-9,
+            "rushing should give skew ≈ -0.1, got {skew}"
+        );
+    }
+
+    #[test]
+    fn microtiming_skew_zero_when_no_onsets_in_window() {
+        let measures = [MeasureData {
+            measure_index: 0,
+            onsets: vec![],
+            notes: vec![],
+            dynamics: vec![],
+            expected_notes: vec![expected(1.0, 60, 1.0)],
+        }];
+        let skew = Metrics::calc_microtiming_skew(&measures);
+        assert!((skew - 0.0).abs() < 1e-9, "no data should give skew = 0, got {skew}");
+    }
+
+    // ── dynamics_accuracy ─────────────────────────────────────────────────────
+
+    #[test]
+    fn dynamics_accuracy_100_when_levels_match_within_one_step() {
+        let measures = [MeasureData {
+            measure_index: 0,
+            onsets: vec![],
+            notes: vec![],
+            dynamics: vec![dyn_event(0.0, DynamicLevel::Mf)],
+            expected_notes: vec![expected_with_dyn(0.5, 60, 1.0, DynamicLevel::Mf)],
+        }];
+        let acc = Metrics::calc_dynamics_accuracy(&measures);
+        assert!((acc - 100.0).abs() < 1e-9, "exact match should give 100%, got {acc}");
+    }
+
+    #[test]
+    fn dynamics_accuracy_0_when_levels_differ_by_more_than_one_step() {
+        let measures = [MeasureData {
+            measure_index: 0,
+            onsets: vec![],
+            notes: vec![],
+            dynamics: vec![dyn_event(0.0, DynamicLevel::Ppp)],
+            // Expected Fff (7 steps away from Ppp=0)
+            expected_notes: vec![expected_with_dyn(0.5, 60, 1.0, DynamicLevel::Fff)],
+        }];
+        let acc = Metrics::calc_dynamics_accuracy(&measures);
+        assert!((acc - 0.0).abs() < 1e-9, "large mismatch should give 0%, got {acc}");
+    }
+
+    // ── tempo_stability ───────────────────────────────────────────────────────
+
+    #[test]
+    fn tempo_stability_is_one_when_all_measures_at_same_tempo() {
+        let map = vec![120.0_f64, 120.0, 120.0, 120.0];
+        let stability = Metrics::calc_tempo_stability_from_map(&map, 120.0);
+        assert!(
+            (stability - 1.0).abs() < 1e-9,
+            "constant tempo should give stability = 1.0, got {stability}"
+        );
+    }
+
+    #[test]
+    fn tempo_stability_less_than_one_with_variance() {
+        let map = vec![100.0_f64, 140.0, 100.0, 140.0]; // wildly inconsistent
+        let stability = Metrics::calc_tempo_stability_from_map(&map, 120.0);
+        assert!(
+            stability < 1.0,
+            "variable tempo should give stability < 1.0, got {stability}"
+        );
+        assert!(stability >= 0.0, "stability must be non-negative, got {stability}");
+    }
+
+    // ── std_dev_f64 ───────────────────────────────────────────────────────────
+
+    #[test]
+    fn std_dev_f64_zero_for_single_value() {
+        assert!((Metrics::std_dev_f64(&[5.0]) - 0.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn std_dev_f64_zero_for_identical_values() {
+        assert!((Metrics::std_dev_f64(&[3.0, 3.0, 3.0]) - 0.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn std_dev_f64_correct_for_known_data() {
+        // Population std dev of [2, 4, 4, 4, 5, 5, 7, 9] = 2.0
+        let data = [2.0, 4.0, 4.0, 4.0, 5.0, 5.0, 7.0, 9.0];
+        let sd = Metrics::std_dev_f64(&data);
+        assert!((sd - 2.0).abs() < 1e-6, "expected std dev = 2.0, got {sd}");
+    }
+
+    // ── Metrics::compute integration ──────────────────────────────────────────
+
+    #[test]
+    fn metrics_compute_perfect_performance() {
+        let measures = [MeasureData {
+            measure_index: 0,
+            onsets: vec![onset(0.0), onset(1.0), onset(2.0), onset(3.0)],
+            notes: vec![
+                note_event(0.0, 60, 0.0),
+                note_event(1.0, 62, 0.0),
+                note_event(2.0, 64, 0.0),
+                note_event(3.0, 65, 0.0),
+            ],
+            dynamics: vec![],
+            expected_notes: vec![
+                expected(0.0, 60, 1.0),
+                expected(1.0, 62, 1.0),
+                expected(2.0, 64, 1.0),
+                expected(3.0, 65, 1.0),
+            ],
+        }];
+        let metrics = Metrics::compute(0, 0, 120.0, 4, &measures);
+        assert!((metrics.accuracy_percent - 100.0).abs() < 1e-9);
+        assert_eq!(metrics.num_notes_missed, 0);
+        assert!((metrics.avg_cent_dev - 0.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn metrics_compute_all_notes_missed() {
+        let measures = [MeasureData {
+            measure_index: 0,
+            onsets: vec![],
+            notes: vec![],
+            dynamics: vec![],
+            expected_notes: vec![expected(0.0, 60, 1.0), expected(1.0, 64, 1.0)],
+        }];
+        let metrics = Metrics::compute(0, 0, 120.0, 4, &measures);
+        assert!((metrics.accuracy_percent - 0.0).abs() < 1e-9);
+        assert_eq!(metrics.num_notes_missed, 2);
+    }
+}
