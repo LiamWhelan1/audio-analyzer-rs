@@ -179,7 +179,7 @@ impl STFT {
             #[cfg(feature = "dev-tools")]
             let mut rerun_frame: usize = 0;
             #[cfg(feature = "dev-tools")]
-            let mut png_frame: usize = 0usize;
+            let mut png_frame: usize = 0;
 
             #[cfg(feature = "dev-tools")]
             let rec = rerun::RecordingStreamBuilder::new("audio_analyzer")
@@ -539,6 +539,7 @@ impl STFT {
             .collect()
     }
 
+    #[cfg(feature = "dev-tools")]
     /// Convert a frequency in Hz to the nearest MIDI note name + cents deviation.
     fn freq_to_note_label(freq: f32) -> String {
         if freq <= 0.0 {
