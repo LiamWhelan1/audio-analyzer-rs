@@ -262,6 +262,8 @@ impl STFT {
 
                     #[cfg(feature = "dev-tools")]
                     let mut dev_rerun_data: Option<(Vec<f32>, f32, f32)> = None;
+                    #[cfg(feature = "dev-tools")]
+                    let mut dev_png_data: Option<(Vec<f32>, Vec<f32>)> = None;
 
                     // Bypass the FFT entirely during silence
                     let raw_pitches = if is_silence {
@@ -277,6 +279,17 @@ impl STFT {
                             Vec::new()
                         };
 
+                        #[cfg(feature = "dev-tools")]
+                        let png_raw: Option<Vec<f32>> = if png_frame % 2500 == 0 {
+                            Some(
+                                (0..window_size)
+                                    .map(|i| ring_buffer[(ring_read_pos + i) % ring_buffer_len])
+                                    .collect(),
+                            )
+                        } else {
+                            None
+                        };
+
                         for i in 0..window_size {
                             let idx = (ring_read_pos + i) % ring_buffer_len;
                             time_domain_window[i] = ring_buffer[idx] * hann[i];
@@ -289,6 +302,11 @@ impl STFT {
                         } else {
                             Vec::new()
                         };
+
+                        #[cfg(feature = "dev-tools")]
+                        if let Some(raw_captured) = png_raw {
+                            dev_png_data = Some((raw_captured, time_domain_window.clone()));
+                        }
 
                         let fft_res = fft_processor.process_forward(&mut time_domain_window);
 
@@ -347,6 +365,29 @@ impl STFT {
                             nf,
                             &stable_pitches,
                         );
+                    }
+
+                    // PNG export — fires every 2500 frames.
+                    #[cfg(feature = "dev-tools")]
+                    {
+                        if let Some((ref raw, ref windowed)) = dev_png_data {
+                            if let Some((ref mags, bw, nf)) = dev_rerun_data {
+                                if let Err(e) = Self::dbg_export_png(
+                                    png_frame,
+                                    raw,
+                                    windowed,
+                                    mags,
+                                    bw,
+                                    MIN_FREQ,
+                                    MAX_FREQ,
+                                    nf,
+                                    &stable_pitches,
+                                ) {
+                                    eprintln!("PNG export error (frame {png_frame}): {e}");
+                                }
+                            }
+                        }
+                        png_frame += 1;
                     }
 
                     // Emit debug frame; borrows stable_pitches before the move below.
