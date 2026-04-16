@@ -260,6 +260,9 @@ impl STFT {
                         f32,
                     )> = None;
 
+                    #[cfg(feature = "dev-tools")]
+                    let mut dev_rerun_data: Option<(Vec<f32>, f32, f32)> = None;
+
                     // Bypass the FFT entirely during silence
                     let raw_pitches = if is_silence {
                         Vec::new() // Feed an empty list so tracker counts it as a miss for all
@@ -314,6 +317,10 @@ impl STFT {
                             .powf(dynamics_output.read().noise_floor_db / 20.0)
                             * half_size as f32
                             / 2.0;
+                        #[cfg(feature = "dev-tools")]
+                        {
+                            dev_rerun_data = Some((magnitudes.clone(), bin_width, noise_floor));
+                        }
                         Self::extract_pitches(
                             &magnitudes,
                             half_size,
@@ -326,6 +333,21 @@ impl STFT {
 
                     // Send raw array to tracker (empty array decays notes, array with hits feeds notes)
                     let stable_pitches = pitch_tracker.process(raw_pitches);
+
+                    // Rerun live viewer — log every frame.
+                    #[cfg(feature = "dev-tools")]
+                    if let Some((ref mags, bw, nf)) = dev_rerun_data {
+                        Self::dbg_log_rerun(
+                            &rec,
+                            rerun_frame - 1,
+                            mags,
+                            bw,
+                            MIN_FREQ,
+                            MAX_FREQ,
+                            nf,
+                            &stable_pitches,
+                        );
+                    }
 
                     // Emit debug frame; borrows stable_pitches before the move below.
                     #[cfg(feature = "dev-tools")]
