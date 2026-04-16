@@ -955,3 +955,75 @@ impl STFT {
         eprintln!();
     }
 }
+
+// ─── dev-tools visualization helpers ─────────────────────────────────────────
+
+#[cfg(feature = "dev-tools")]
+impl STFT {
+    /// Log one FFT frame to the Rerun live viewer.
+    ///
+    /// Three entities are logged:
+    /// - `spectrum/line`        — full magnitude spectrum as a line strip (log10-freq x-axis)
+    /// - `spectrum/noise_floor` — horizontal line at the noise floor magnitude
+    /// - `spectrum/pitches`     — labeled points at each hysteresis-stable pitch
+    fn dbg_log_rerun(
+        rec: &rerun::RecordingStream,
+        frame: usize,
+        mags: &[f32],
+        bin_width: f32,
+        min_freq: f32,
+        max_freq: f32,
+        noise_floor: f32,
+        stable: &[(f32, f32)],
+    ) {
+        rec.set_time_sequence("frame", frame as i64);
+
+        let min_bin = ((min_freq / bin_width).ceil() as usize).max(1);
+        let max_bin =
+            ((max_freq / bin_width).floor() as usize).min(mags.len().saturating_sub(1));
+
+        // Spectrum line — (log10(freq), magnitude) per bin.
+        let spectrum_strip: Vec<[f32; 2]> = (min_bin..=max_bin)
+            .map(|b| [(b as f32 * bin_width).log10(), mags[b]])
+            .collect();
+        let _ = rec.log(
+            "spectrum/line",
+            &rerun::LineStrips2D::new([spectrum_strip])
+                .with_colors([rerun::Color::from_rgb(100, 200, 255)]),
+        );
+
+        // Noise floor — horizontal line across the full frequency range.
+        let x_lo = min_freq.log10();
+        let x_hi = max_freq.log10();
+        let _ = rec.log(
+            "spectrum/noise_floor",
+            &rerun::LineStrips2D::new([vec![[x_lo, noise_floor], [x_hi, noise_floor]]])
+                .with_colors([rerun::Color::from_rgb(255, 80, 80)]),
+        );
+
+        // Stable pitches — labeled points on the spectrum line.
+        if !stable.is_empty() {
+            let positions: Vec<[f32; 2]> = stable
+                .iter()
+                .map(|&(freq, _)| {
+                    let bin = (freq / bin_width).round() as usize;
+                    let mag = mags[bin.min(mags.len().saturating_sub(1))];
+                    [freq.log10(), mag]
+                })
+                .collect();
+            let labels: Vec<String> = stable
+                .iter()
+                .map(|&(freq, score)| {
+                    format!("{} {:.1}", Self::freq_to_note_label(freq), score)
+                })
+                .collect();
+            let _ = rec.log(
+                "spectrum/pitches",
+                &rerun::Points2D::new(positions)
+                    .with_labels(labels)
+                    .with_colors([rerun::Color::from_rgb(255, 220, 50)])
+                    .with_radii([rerun::Radius::new_scene_units(0.003)]),
+            );
+        }
+    }
+}
