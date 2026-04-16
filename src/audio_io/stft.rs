@@ -645,6 +645,24 @@ impl STFT {
             })
             .collect()
     }
+
+    /// Convert a frequency in Hz to the nearest MIDI note name + cents deviation.
+    fn freq_to_note_label(freq: f32) -> String {
+        if freq <= 0.0 {
+            return "?".to_string();
+        }
+        let midi = 69.0 + 12.0 * (freq / 440.0).log2();
+        let midi_round = midi.round() as i32;
+        let names = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
+        let name = names[((midi_round % 12 + 12) % 12) as usize];
+        let octave = midi_round / 12 - 1;
+        let cents = ((midi - midi.round()) * 100.0) as i32;
+        if cents == 0 {
+            format!("{name}{octave}")
+        } else {
+            format!("{name}{octave} {cents:+}¢")
+        }
+    }
 }
 
 // ─── Debug visualisation helpers (compiled only in debug builds) ───────────────
