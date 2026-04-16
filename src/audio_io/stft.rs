@@ -1048,4 +1048,179 @@ impl STFT {
             );
         }
     }
+
+    /// Export a three-panel PNG to `debug_frames/frame_{n}.png`.
+    ///
+    /// Panel 1 — Raw Signal (time domain)
+    /// Panel 2 — Hann-Windowed Signal (same y-scale as panel 1)
+    /// Panel 3 — Log-scale FFT spectrum with noise floor + pitch labels
+    fn dbg_export_png(
+        frame: usize,
+        raw: &[f32],
+        windowed: &[f32],
+        mags: &[f32],
+        bin_width: f32,
+        min_freq: f32,
+        max_freq: f32,
+        noise_floor: f32,
+        stable: &[(f32, f32)],
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        use plotters::prelude::*;
+
+        let path = format!("debug_frames/frame_{frame}.png");
+        let root = BitMapBackend::new(&path, (1200, 1800)).into_drawing_area();
+        root.fill(&RGBColor(20, 20, 30))?;
+
+        let areas = root.split_evenly((3, 1));
+        let (area1, area2, area3) = (&areas[0], &areas[1], &areas[2]);
+
+        // ── Panel 1: Raw Signal ──────────────────────────────────────────────────
+        let raw_min = raw.iter().cloned().fold(f32::INFINITY, f32::min);
+        let raw_max = raw.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+        let y_pad = (raw_max - raw_min).abs() * 0.05;
+        let y_lo = raw_min - y_pad;
+        let y_hi = raw_max + y_pad;
+        let (y_lo, y_hi) = if (y_hi - y_lo).abs() < 1e-10 {
+            (y_lo - 1.0, y_hi + 1.0)
+        } else {
+            (y_lo, y_hi)
+        };
+
+        {
+            let mut chart = ChartBuilder::on(area1)
+                .caption(
+                    format!("Raw Signal — Frame {frame}"),
+                    ("sans-serif", 18).into_font().color(&WHITE),
+                )
+                .margin(15)
+                .x_label_area_size(30)
+                .y_label_area_size(70)
+                .build_cartesian_2d(0usize..raw.len(), y_lo..y_hi)?;
+
+            chart
+                .configure_mesh()
+                .x_labels(5)
+                .y_labels(5)
+                .label_style(("sans-serif", 11).into_font().color(&WHITE))
+                .axis_style(RGBColor(100, 100, 120))
+                .draw()?;
+
+            chart.draw_series(LineSeries::new(
+                raw.iter().enumerate().map(|(i, &v)| (i, v)),
+                ShapeStyle::from(&WHITE).stroke_width(1),
+            ))?;
+        }
+
+        // ── Panel 2: Hann-Windowed Signal (shared y-range with Panel 1) ─────────
+        {
+            let mut chart = ChartBuilder::on(area2)
+                .caption(
+                    "Hann-Windowed Signal",
+                    ("sans-serif", 18).into_font().color(&WHITE),
+                )
+                .margin(15)
+                .x_label_area_size(30)
+                .y_label_area_size(70)
+                .build_cartesian_2d(0usize..windowed.len(), y_lo..y_hi)?;
+
+            chart
+                .configure_mesh()
+                .x_labels(5)
+                .y_labels(5)
+                .label_style(("sans-serif", 11).into_font().color(&WHITE))
+                .axis_style(RGBColor(100, 100, 120))
+                .draw()?;
+
+            chart.draw_series(LineSeries::new(
+                windowed.iter().enumerate().map(|(i, &v)| (i, v)),
+                ShapeStyle::from(&RGBColor(100, 200, 255)).stroke_width(1),
+            ))?;
+        }
+
+        // ── Panel 3: Log-scale FFT Spectrum ──────────────────────────────────────
+        let min_bin = ((min_freq / bin_width).ceil() as usize).max(1);
+        let max_bin =
+            ((max_freq / bin_width).floor() as usize).min(mags.len().saturating_sub(1));
+        let x_lo = min_freq.log10();
+        let x_hi = max_freq.log10();
+        let spec_max = mags[min_bin..=max_bin]
+            .iter()
+            .cloned()
+            .fold(0.0f32, f32::max)
+            .max(noise_floor * 2.0);
+
+        {
+            let mut chart = ChartBuilder::on(area3)
+                .caption(
+                    "FFT Spectrum — Detected Pitches",
+                    ("sans-serif", 18).into_font().color(&WHITE),
+                )
+                .margin(15)
+                .x_label_area_size(40)
+                .y_label_area_size(70)
+                .build_cartesian_2d(x_lo..x_hi, 0f32..spec_max)?;
+
+            chart
+                .configure_mesh()
+                .x_labels(8)
+                .x_label_formatter(&|x| {
+                    let hz = 10f32.powf(*x);
+                    if hz >= 1_000.0 {
+                        format!("{:.0}k", hz / 1_000.0)
+                    } else {
+                        format!("{hz:.0}")
+                    }
+                })
+                .y_labels(5)
+                .label_style(("sans-serif", 11).into_font().color(&WHITE))
+                .axis_style(RGBColor(100, 100, 120))
+                .draw()?;
+
+            // Spectrum line.
+            chart.draw_series(LineSeries::new(
+                (min_bin..=max_bin)
+                    .map(|b| ((b as f32 * bin_width).log10(), mags[b])),
+                ShapeStyle::from(&RGBColor(100, 200, 255)).stroke_width(1),
+            ))?;
+
+            // Noise floor — solid red line.
+            chart
+                .draw_series(LineSeries::new(
+                    vec![(x_lo, noise_floor), (x_hi, noise_floor)],
+                    ShapeStyle::from(&RED).stroke_width(1),
+                ))?
+                .label("noise floor")
+                .legend(|(x, y)| PathElement::new(vec![(x, y), (x + 15, y)], RED));
+
+            // Pitch labels and circles.
+            for &(freq, score) in stable {
+                if freq < min_freq || freq > max_freq {
+                    continue;
+                }
+                let x = freq.log10();
+                let bin = (freq / bin_width).round() as usize;
+                let y = mags[bin.min(mags.len().saturating_sub(1))];
+                let y_label = y + spec_max * 0.04;
+
+                chart.draw_series(std::iter::once(Circle::new(
+                    (x, y),
+                    5i32,
+                    YELLOW.filled(),
+                )))?;
+                chart.draw_series(std::iter::once(Text::new(
+                    format!("{} {score:.1}", Self::freq_to_note_label(freq)),
+                    (x, y_label),
+                    ("sans-serif", 11).into_font().color(&YELLOW),
+                )))?;
+            }
+
+            chart
+                .configure_series_labels()
+                .label_font(("sans-serif", 11).into_font().color(&WHITE))
+                .draw()?;
+        }
+
+        root.present()?;
+        Ok(())
+    }
 }
