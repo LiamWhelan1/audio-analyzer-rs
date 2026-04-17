@@ -66,6 +66,9 @@ pub struct TunerOutput {
     pub system: TuningSystem,
     pub base_freq: f32,
     pub key: String,
+    /// Transport beat position recorded at audio-processing time (not polling time).
+    /// Use this instead of `transport.get_accumulated_beats()` for note-boundary timestamps.
+    pub beat_position: f64,
 }
 
 // ─── Tuner ──────────────────────────────────────────────────────────
@@ -79,8 +82,8 @@ pub struct Tuner {
     // Channel for inbound parameter changes (like MetronomeCommand)
     command_rx: Consumer<TunerCommand>,
 
-    // Channel carrying raw detected (freq, confidence_score) from STFT
-    note_rx: Consumer<Vec<(f32, f32)>>,
+    // Channel carrying raw detected (freq, confidence_score) + beat timestamp from STFT
+    note_rx: Consumer<(Vec<(f32, f32)>, f64)>,
 
     // Shared output that any reader (React, FFI callback, etc.) can poll
     output: Arc<parking_lot::RwLock<TunerOutput>>,
@@ -100,7 +103,7 @@ impl Tuner {
     /// * The `Arc<RwLock<TunerOutput>>` is cloned into the React bridge
     ///   so JS can poll it via `requestAnimationFrame`.
     pub fn new(
-        note_rx: Consumer<Vec<(f32, f32)>>,
+        note_rx: Consumer<(Vec<(f32, f32)>, f64)>,
         stft: STFT,
     ) -> (
         Self,
@@ -151,7 +154,7 @@ impl Tuner {
                 self.handle_commands();
 
                 // 2. Process incoming note data from STFT
-                let notes_data = match self.note_rx.pop() {
+                let (notes_data, beat_pos) = match self.note_rx.pop() {
                     Ok(n) => n,
                     Err(_) => {
                         thread::sleep(Duration::from_millis(2));
@@ -214,6 +217,7 @@ impl Tuner {
                     out.system = self.system;
                     out.base_freq = self.base;
                     out.key = self.key.clone();
+                    out.beat_position = beat_pos;
                 }
             }
         });

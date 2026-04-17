@@ -26,6 +26,11 @@ const ONSET_VELOCITY_THRESHOLD: f32 = 0.3;
 /// short `NoteEvent`s when the onset detector fires several times in quick succession.
 const REFRACTORY_BEATS: f64 = 0.25;
 
+/// Number of consecutive 5 ms polling cycles the tuner must report the same new MIDI pitch
+/// before a pitch-change note boundary is confirmed. Filters vibrato overshoots (1–3 cycles)
+/// while catching genuine slurred note changes (which stabilise quickly).
+const PITCH_CONFIRM_POLLS: u32 = 3;
+
 // ── Public types ──────────────────────────────────────────────────────────────
 
 /// The ability level of the user, used to scale error tolerances.
@@ -142,6 +147,16 @@ struct SessionState {
     /// Transport beat before which a new onset cannot trigger a note boundary.
     /// Reset each time an onset-triggered boundary fires.
     note_refractory_until: f64,
+
+    // ── Pitch stability hysteresis ────────────────────────────────────
+    /// MIDI note number of the pitch currently being evaluated for confirmation.
+    /// `None` means the pitch matches the locked note and no confirmation is in progress.
+    pending_midi: Option<u8>,
+    /// Number of consecutive polls at `pending_midi` so far.
+    pending_count: u32,
+    /// Tuner beat (audio-aligned) when `pending_midi` was first observed.
+    /// Used as `last_note_beat` when the boundary is eventually confirmed.
+    pending_first_beat: f64,
 }
 
 impl SessionState {
@@ -172,6 +187,9 @@ impl SessionState {
             next_expected_beat: first_measure_beat,
             onset_received_this_measure: false,
             note_refractory_until: f64::NEG_INFINITY,
+            pending_midi: None,
+            pending_count: 0,
+            pending_first_beat: 0.0,
         }
     }
 
@@ -517,11 +535,12 @@ fn run_session(
         let new_onsets = onset.drain_onset_events();
 
         // ── 2. Sample tuner (short read lock) ─────────────────────────────
-        let (note_names, note_cents): (Vec<String>, Vec<f64>) = {
+        let (note_names, note_cents, tuner_beat): (Vec<String>, Vec<f64>, f64) = {
             let out = tuner_output.read();
             let names: Vec<String> = out.notes.clone();
             let cents: Vec<f64> = out.accuracies.iter().map(|&c| c as f64).collect();
-            (names, cents)
+            let tbeat = out.beat_position;
+            (names, cents, tbeat)
         };
 
         // Primary note for single-pitch-style tracking (first detected pitch).
@@ -589,27 +608,21 @@ fn run_session(
             }
         }
 
-        // ── Combined onset + pitch note-boundary detection ─────────────────────
+        // ── Pitch-stability hysteresis note-boundary detection ─────────────────
         //
         // A note boundary fires when:
-        //  1. MIDI note changes by ≥ 2 semitones (slurred transition or jump — always new)
-        //  2. MIDI note changes by 1 semitone AND a qualifying onset (E→F, B→C articulated)
-        //  3. Same MIDI note + qualifying onset (re-attack / rearticulation)
-        //  4. Silence detected (always finalises the in-progress note)
+        //   a) A qualifying onset is detected (immediate, bypasses hysteresis):
+        //      same or different MIDI → rearticulation or onset-confirmed pitch change.
+        //   b) The tuner reports the same NEW MIDI for PITCH_CONFIRM_POLLS consecutive
+        //      polls (no onset needed — handles all slurred intervals incl. B→C, E→F).
+        //   c) Silence is detected → finalise immediately.
         //
-        // A "qualifying onset" has velocity ≥ ONSET_VELOCITY_THRESHOLD and falls
-        // after `note_refractory_until` to prevent a single physical attack that
-        // generates several consecutive ring-buffer entries from creating multiple
-        // short NoteEvents.
+        // Brief pitch excursions (vibrato overshoot, harmonic flicker) reset the pending
+        // counter because they return to the locked pitch before the threshold is reached.
 
         let midi_now: Option<u8> = note_name.as_deref().and_then(note_name_to_midi);
-        let midi_prev: Option<u8> = if s.last_note_name.is_some() {
-            Some(s.last_note_midi)
-        } else {
-            None
-        };
+        let locked_midi: Option<u8> = s.last_note_name.as_ref().map(|_| s.last_note_midi);
 
-        // Best qualifying onset from this drain batch.
         let best_onset = new_onsets
             .iter()
             .filter(|o| {
@@ -622,38 +635,71 @@ fn run_session(
                     .unwrap_or(std::cmp::Ordering::Equal)
             });
 
-        let semitone_diff: u16 = match (midi_now, midi_prev) {
-            (Some(m), Some(p)) => (m as i16 - p as i16).unsigned_abs(),
-            _ => 100, // silence↔note or unparseable → always a boundary
-        };
-
-        // Whether this iteration should open a new NoteEvent.
-        let new_boundary = match semitone_diff {
-            0 | 1 => best_onset.is_some(), // rearticulation or semitone step: onset required
-            _ => true,                      // ≥2 semitones: definite note change
-        };
-
-        if note_name.is_none() {
-            if s.last_note_name.is_some() {
+        match (midi_now, locked_midi) {
+            (None, None) => {
+                s.pending_midi = None;
+                s.pending_count = 0;
+            }
+            (None, Some(_)) => {
+                // Silence: finalise in-progress note immediately.
                 s.finalize_pending_note();
+                s.pending_midi = None;
+                s.pending_count = 0;
             }
-        } else if new_boundary {
-            // Use onset beat for accurate timing; fall back to transport beat for slurs.
-            let start_beat = best_onset.map(|o| o.beat_position).unwrap_or(beat);
-            s.finalize_pending_note();
-            let name = note_name.as_ref().unwrap();
-            s.last_note_name = Some(name.clone());
-            s.last_note_beat = start_beat;
-            s.last_note_midi = midi_now.unwrap_or(0);
-            s.cents_sum = note_cents_primary;
-            s.cents_count = 1;
-            if best_onset.is_some() {
-                s.note_refractory_until = start_beat + REFRACTORY_BEATS;
+            (Some(_), None) | (Some(_), Some(_)) => {
+                let pitch_changed = midi_now != locked_midi;
+
+                if let Some(onset) = best_onset {
+                    // Onset: immediate boundary, accurate beat from onset detector.
+                    let start_beat = onset.beat_position;
+                    s.finalize_pending_note();
+                    let name = note_name.as_ref().unwrap();
+                    s.last_note_name = Some(name.clone());
+                    s.last_note_beat = start_beat;
+                    s.last_note_midi = midi_now.unwrap();
+                    s.cents_sum = note_cents_primary;
+                    s.cents_count = 1;
+                    s.pending_midi = None;
+                    s.pending_count = 0;
+                    s.note_refractory_until = start_beat + REFRACTORY_BEATS;
+                } else if pitch_changed {
+                    // No onset — use stability counter with audio-aligned beat.
+                    if s.pending_midi == midi_now {
+                        s.pending_count += 1;
+                    } else {
+                        // New candidate pitch: start fresh counter.
+                        s.pending_midi = midi_now;
+                        s.pending_count = 1;
+                        s.pending_first_beat = tuner_beat;
+                    }
+
+                    if s.pending_count >= PITCH_CONFIRM_POLLS {
+                        // Pitch has been stable long enough — confirm boundary.
+                        let start_beat = s.pending_first_beat;
+                        s.finalize_pending_note();
+                        let name = note_name.as_ref().unwrap();
+                        s.last_note_name = Some(name.clone());
+                        s.last_note_beat = start_beat;
+                        s.last_note_midi = midi_now.unwrap();
+                        s.cents_sum = note_cents_primary;
+                        s.cents_count = 1;
+                        s.pending_midi = None;
+                        s.pending_count = 0;
+                    } else {
+                        // Still confirming — accumulate on the current locked note.
+                        if s.last_note_name.is_some() {
+                            s.cents_sum += note_cents_primary;
+                            s.cents_count += 1;
+                        }
+                    }
+                } else {
+                    // Pitch matches locked note: reset pending, accumulate.
+                    s.pending_midi = None;
+                    s.pending_count = 0;
+                    s.cents_sum += note_cents_primary;
+                    s.cents_count += 1;
+                }
             }
-        } else {
-            // Same note, no qualifying onset: accumulate pitch data.
-            s.cents_sum += note_cents_primary;
-            s.cents_count += 1;
         }
 
         // Dynamics-change detection (suppress Silence→Silence no-ops).

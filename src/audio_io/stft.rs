@@ -15,6 +15,7 @@ use crate::{
     audio_io::{
         SlotPool,
         dynamics::{DynamicLevel, DynamicsOutput},
+        timing::MusicalTransport,
     },
     dsp::fft::FftProcessor,
 };
@@ -149,8 +150,9 @@ impl STFT {
         mut cons: rtrb::Consumer<usize>,
         reclaim: Sender<usize>,
         sr: u32,
-        note_tx: Producer<Vec<(f32, f32)>>,
+        note_tx: Producer<(Vec<(f32, f32)>, f64)>,
         dynamics_output: Arc<parking_lot::RwLock<DynamicsOutput>>,
+        transport: Arc<MusicalTransport>,
     ) {
         // Prevent panics caused by 0-length window initialization
         if slot_len < 4 {
@@ -355,7 +357,8 @@ impl STFT {
 
                     // Note emission will still happen during silence as long as stable_pitches exists
                     if !stable_pitches.is_empty() {
-                        let _ = note_tx.push(stable_pitches);
+                        let beat = transport.get_accumulated_beats();
+                        let _ = note_tx.push((stable_pitches, beat));
                     }
 
                     ring_read_pos = (ring_read_pos + hop_size) % ring_buffer_len;
