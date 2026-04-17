@@ -203,11 +203,16 @@ impl DynamicsTracker {
         // add this frame.  Only non-active frames enter the buffer so that a
         // sustained note cannot contaminate the noise-floor estimate.
         let long_len = self.long_history.len();
-        let long_n = if self.long_filled { long_len } else { self.long_pos.max(1) };
+        let long_n = if self.long_filled {
+            long_len
+        } else {
+            self.long_pos.max(1)
+        };
 
         let noise_floor_db = if long_n >= 1 {
             self.sort_buf.clear();
-            self.sort_buf.extend_from_slice(&self.long_history[..long_n]);
+            self.sort_buf
+                .extend_from_slice(&self.long_history[..long_n]);
             self.sort_buf
                 .sort_unstable_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
             let p10_idx = ((long_n - 1) as f32 * 0.10) as usize;
@@ -226,9 +231,39 @@ impl DynamicsTracker {
         };
         let is_active = rms_db > floor_db + self.active_snr_db;
 
-        // Add this frame to long_history only when it is quiet so that a
-        // sustained note cannot drive the noise-floor estimate upward.
-        if !is_active {
+        // ── 3b. Broadband detection (kurtosis) ───────────────────────────
+        // Kurtosis of a pure sine ≈ 1.5; white/broadband noise ≈ 3.0.
+        // Frames that are "active" by RMS but broadband by spectral shape are
+        // environmental noise (fan, HVAC) — not music.  Route them into the
+        // noise-floor buffer so the floor can adapt upward when the ambient
+        // level rises, and exclude them from play_history / gain / level.
+        let is_broadband = if is_active {
+            let n = slot.len() as f32;
+            let mean_sq = rms_linear * rms_linear;
+            let mean_quad = slot
+                .iter()
+                .map(|s| {
+                    let s2 = s * s;
+                    s2 * s2
+                })
+                .sum::<f32>()
+                / n;
+            let kurtosis = if mean_sq > 1e-18 {
+                mean_quad / (mean_sq * mean_sq)
+            } else {
+                3.0
+            };
+            kurtosis >= 2.7
+        } else {
+            false
+        };
+
+        // is_playing: active AND tonal (not environmental broadband noise).
+        let is_playing = is_active && !is_broadband;
+
+        // Update long_history for quiet frames *and* broadband-active frames
+        // so the noise floor adapts upward when ambient noise rises.
+        if !is_active || is_broadband {
             self.long_history[self.long_pos] = rms_linear;
             self.long_pos = (self.long_pos + 1) % long_len;
             if self.long_pos == 0 {
@@ -236,8 +271,8 @@ impl DynamicsTracker {
             }
         }
 
-        // ── 4. Update play history (active frames only) ───────────────────
-        if is_active {
+        // ── 4. Update play history (tonal active frames only) ─────────────
+        if is_playing {
             let play_len = self.play_history.len();
             self.play_history[self.play_pos] = rms_linear;
             self.play_pos = (self.play_pos + 1) % play_len;
@@ -257,9 +292,8 @@ impl DynamicsTracker {
             self.sort_buf.clear();
             self.sort_buf
                 .extend_from_slice(&self.play_history[..play_n]);
-            self.sort_buf.sort_unstable_by(|a, b| {
-                a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal)
-            });
+            self.sort_buf
+                .sort_unstable_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
 
             let p50_idx = (play_n - 1) / 2;
             let p95_idx = ((play_n - 1) as f32 * 0.95) as usize;
@@ -281,14 +315,13 @@ impl DynamicsTracker {
         //           changes, not per phrase.
         // Silent  → decay toward 0 dB at ~10 s TC so prolonged silence does
         //           not amplify background noise to the ceiling.
-        if is_active {
+        if is_playing {
             let target_linear = db_to_linear(raw_gain_db);
             self.current_gain_linear +=
                 self.smooth_alpha * (target_linear - self.current_gain_linear);
         } else {
             // Decay toward unity gain (0 dB).
-            self.current_gain_linear +=
-                self.silence_decay_alpha * (1.0 - self.current_gain_linear);
+            self.current_gain_linear += self.silence_decay_alpha * (1.0 - self.current_gain_linear);
         }
 
         // ── 7. Apply gain + peak-headroom clamp ───────────────────────────
@@ -308,7 +341,7 @@ impl DynamicsTracker {
         let applied_gain_db = linear_to_db(effective_gain);
 
         // ── 8. Dynamics classification ────────────────────────────────────
-        let level = if !is_active {
+        let level = if !is_playing {
             DynamicLevel::Silence
         } else {
             let rel_db = rms_db - session_median_db;

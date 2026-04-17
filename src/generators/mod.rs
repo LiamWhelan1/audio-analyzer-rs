@@ -105,7 +105,11 @@ impl Measure {
 }
 
 /// Parse a MIDI file and convert tracks into sequencer `Measure`s.
-pub fn load_midi_file(path: &Path, instrument: Instrument) -> Result<Vec<Measure>, String> {
+pub fn load_midi_file(
+    path: &Path,
+    instrument: Instrument,
+    bpm: Option<f32>,
+) -> Result<Vec<Measure>, String> {
     let bytes = fs::read(path).map_err(|e| e.to_string())?;
     let smf = Smf::parse(&bytes).map_err(|e| e.to_string())?;
 
@@ -134,7 +138,7 @@ pub fn load_midi_file(path: &Path, instrument: Instrument) -> Result<Vec<Measure
 
     let mut measures = Vec::new();
     let mut current_time_sig = (4, 4);
-    let mut current_bpm = 120.0;
+    let mut current_bpm = bpm.unwrap_or(120.0);
 
     let mut active_notes: [Option<(u64, u8)>; 128] = [None; 128];
     struct AbsNote {
@@ -163,6 +167,7 @@ pub fn load_midi_file(path: &Path, instrument: Instrument) -> Result<Vec<Measure
             TrackEventKind::Meta(midly::MetaMessage::Tempo(micros)) => {
                 let bpm = 60_000_000.0 / micros.as_int() as f32;
                 bpm_changes.push(MapChange { beat, new_val: bpm });
+                println!("BPM: {bpm}");
             }
             TrackEventKind::Meta(midly::MetaMessage::TimeSignature(n, d, _, _)) => {
                 let denom = 2u8.pow(d as u32);
@@ -171,6 +176,7 @@ pub fn load_midi_file(path: &Path, instrument: Instrument) -> Result<Vec<Measure
                     num: n,
                     den: denom,
                 });
+                println!("Time signature: {n}/{denom}");
             }
             TrackEventKind::Midi { message, .. } => match message {
                 MidiMessage::NoteOn { key, vel } => {
@@ -215,6 +221,14 @@ pub fn load_midi_file(path: &Path, instrument: Instrument) -> Result<Vec<Measure
     let mut cursor = 0.0;
     let mut sig_idx = 0;
     let mut bpm_idx = 0;
+    let bpm_ratio = current_bpm
+        / bpm_changes
+            .get(0)
+            .unwrap_or(&MapChange {
+                beat: 0.0,
+                new_val: current_bpm,
+            })
+            .new_val;
 
     while cursor < max_beat || cursor == 0.0 {
         if sig_idx < sig_changes.len() && sig_changes[sig_idx].beat <= cursor + 0.001 {
@@ -222,7 +236,7 @@ pub fn load_midi_file(path: &Path, instrument: Instrument) -> Result<Vec<Measure
             sig_idx += 1;
         }
         if bpm_idx < bpm_changes.len() && bpm_changes[bpm_idx].beat <= cursor + 0.001 {
-            current_bpm = bpm_changes[bpm_idx].new_val;
+            current_bpm = bpm_changes[bpm_idx].new_val * bpm_ratio;
             bpm_idx += 1;
         }
 
@@ -254,6 +268,6 @@ pub fn load_midi_file(path: &Path, instrument: Instrument) -> Result<Vec<Measure
             break;
         }
     }
-
+    println!("{measures:?}");
     Ok(measures)
 }

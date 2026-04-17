@@ -17,24 +17,76 @@ use metrics::{
     Metrics, NOTE_MATCH_WINDOW, NoteEvent, ONSET_TIMING_ERR_THRESHOLD,
 };
 
+/// Minimum onset velocity (0.0–1.0) required to trigger an onset-driven note boundary.
+/// Low-velocity onsets (bow friction, vibrato overtone shifts) are ignored for rearticulation.
+const ONSET_VELOCITY_THRESHOLD: f32 = 0.3;
+
+/// After an onset-triggered note boundary, this many beats must pass before another onset
+/// can start a new note.  Prevents one physical bow-stroke from fragmenting into many
+/// short `NoteEvent`s when the onset detector fires several times in quick succession.
+const REFRACTORY_BEATS: f64 = 0.25;
+
 // ── Public types ──────────────────────────────────────────────────────────────
 
-#[derive(serde::Serialize, Clone)]
-pub struct SendError {
+/// The ability level of the user, used to scale error tolerances.
+/// Beginners get wider tolerances; experts are held to tighter standards.
+#[derive(serde::Serialize, Clone, Copy, Debug, PartialEq)]
+pub enum AbilityLevel {
+    Beginner,
+    Intermediate,
+    Advanced,
+    Expert,
+}
+
+impl AbilityLevel {
+    /// Multiplier applied to all error thresholds.
+    /// Values > 1.0 = more lenient (wider tolerance).
+    /// Values < 1.0 = stricter (tighter tolerance).
+    pub fn tolerance_scale(self) -> f64 {
+        match self {
+            AbilityLevel::Beginner => 2.0,
+            AbilityLevel::Intermediate => 1.5,
+            AbilityLevel::Advanced => 1.0,
+            AbilityLevel::Expert => 0.7,
+        }
+    }
+}
+
+/// Rich per-note feedback event sent to the frontend.
+///
+/// Contains both the expected and received values so the frontend can display
+/// "Expected D4 — received C4" or "Expected beat 3 — played at beat 3.4".
+#[derive(serde::Serialize, Clone, Debug)]
+pub struct SendInfo {
     pub measure: u32,
     pub note_index: usize,
     pub error_type: MusicError,
     /// Severity from 0.0 (minor) to 1.0 (maximum).
     pub intensity: f64,
+    /// Human-readable description of what was expected (e.g. "D4", "beat 3", "mf").
+    pub expected: String,
+    /// Human-readable description of what was received (e.g. "C4", "beat 3.4", "p").
+    pub received: String,
 }
 
-#[derive(serde::Serialize, Clone)]
+#[derive(serde::Serialize, Clone, PartialEq, Debug)]
 pub enum MusicError {
+    /// Note was played at the wrong time.
     Timing,
-    Note,
+    /// Wrong note played when a specific pitch was expected.
+    WrongNote,
+    /// A note was played when silence was expected.
+    UnexpectedNote,
+    /// Silence was detected when a note was expected.
+    MissingNote,
+    /// Intonation (pitch accuracy in cents) is outside tolerance.
     Intonation,
+    /// Dynamic level is outside tolerance.
     Dynamics,
+    /// Note duration (articulation) is outside tolerance.
     Articulation,
+    /// No error — used as a sentinel when a `SendInfo` still carries useful context.
+    None,
 }
 
 // ── Internal session state ────────────────────────────────────────────────────
@@ -69,10 +121,37 @@ struct SessionState {
 
     // ── Completed measures ────────────────────────────────────────────────
     completed_measures: Vec<MeasureData>,
+
+    // ── Count-off state ───────────────────────────────────────────────────
+    /// Beat position where the first practice measure begins.
+    /// Count-off ends when transport beat reaches this value.
+    first_measure_beat: f64,
+    /// True while the transport beat has not yet reached `first_measure_beat`.
+    in_countoff: bool,
+
+    // ── Onset-wait mode ───────────────────────────────────────────────────
+    /// When true, the measure does not advance until an onset is detected.
+    wait_for_onset: bool,
+    /// Beat position that the *next* note is expected at in onset-wait mode.
+    next_expected_beat: f64,
+    /// Set to `true` when a qualifying onset is received in the current measure.
+    /// Gating measure advance on this prevents progressing without the user playing.
+    onset_received_this_measure: bool,
+
+    // ── Note-boundary refractory ──────────────────────────────────────
+    /// Transport beat before which a new onset cannot trigger a note boundary.
+    /// Reset each time an onset-triggered boundary fires.
+    note_refractory_until: f64,
 }
 
 impl SessionState {
-    fn new(practice_start: usize, practice_end: usize) -> Self {
+    fn new(
+        practice_start: usize,
+        practice_end: usize,
+        has_countoff: bool,
+        first_measure_beat: f64,
+        wait_for_onset: bool,
+    ) -> Self {
         Self {
             practice_start,
             practice_end,
@@ -87,6 +166,12 @@ impl SessionState {
             cents_count: 0,
             last_dynamic: None,
             completed_measures: Vec::new(),
+            first_measure_beat,
+            in_countoff: has_countoff,
+            wait_for_onset,
+            next_expected_beat: first_measure_beat,
+            onset_received_this_measure: false,
+            note_refractory_until: f64::NEG_INFINITY,
         }
     }
 
@@ -119,11 +204,18 @@ pub struct PracticeSession {
 
     /// Accumulated per-measure data and note-change state.
     state: Arc<Mutex<SessionState>>,
-    /// Live errors waiting to be polled by the frontend.
-    errors: Arc<Mutex<Vec<SendError>>>,
+    /// Live feedback waiting to be polled by the frontend.
+    feedback: Arc<Mutex<Vec<SendInfo>>>,
 
     running: Arc<AtomicBool>,
     thread_handle: Mutex<Option<thread::JoinHandle<()>>>,
+
+    /// Number of count-off beats before analysis starts.
+    countoff_beats: u32,
+    /// When true, measure progression waits for onset events.
+    wait_for_onset: bool,
+    /// User ability level — controls error tolerance scaling.
+    ability_level: AbilityLevel,
 }
 
 impl PracticeSession {
@@ -140,10 +232,15 @@ impl PracticeSession {
         dynamics_output: Arc<parking_lot::RwLock<crate::audio_io::dynamics::DynamicsOutput>>,
         midi_path: &str,
         instrument: &str,
+        countoff_beats: u32,
+        wait_for_onset: bool,
+        ability_level: AbilityLevel,
+        bpm: f32,
     ) -> Result<Self, AudioEngineError> {
         let measures = load_midi_file(
             std::path::Path::new(midi_path),
             Instrument::from(instrument)?,
+            Some(bpm),
         )
         .map_err(|e| AudioEngineError::FileError { msg: e })?;
 
@@ -153,19 +250,19 @@ impl PracticeSession {
             });
         }
 
-        // Single-pitch mode gives cleaner per-note cent data during practice.
-        tuner.set_mode("SinglePitch".into());
-
         Ok(Self {
             measures: Arc::new(measures),
             transport,
             tuner,
             onset,
             dynamics_output,
-            state: Arc::new(Mutex::new(SessionState::new(0, 0))),
-            errors: Arc::new(Mutex::new(Vec::new())),
+            state: Arc::new(Mutex::new(SessionState::new(0, 0, false, 0.0, false))),
+            feedback: Arc::new(Mutex::new(Vec::new())),
             running: Arc::new(AtomicBool::new(false)),
             thread_handle: Mutex::new(None),
+            countoff_beats,
+            wait_for_onset,
+            ability_level,
         })
     }
 
@@ -175,6 +272,8 @@ impl PracticeSession {
     ///
     /// Seeks the transport to the first measure's beat position, applies the BPM
     /// from the MIDI file, starts the transport, and spawns the polling thread.
+    /// If `countoff_beats > 0`, the metronome plays that many beats before
+    /// analysis begins.
     pub fn start(&self, start_measure: u32, end_measure: u32) -> Result<(), AudioEngineError> {
         let start = start_measure as usize;
         let end = end_measure as usize;
@@ -193,14 +292,43 @@ impl PracticeSession {
             });
         }
 
-        // Reset state for a clean run.
-        *self.state.lock().map_err(lock_err)? = SessionState::new(start, end);
-        self.errors.lock().map_err(lock_err)?.clear();
-
-        // Seek and configure the transport.
         let first = &self.measures[start];
-        self.transport.set_bpm(first.bpm);
-        self.transport.seek_to_beat(first.global_start_beat);
+        let first_beat = first.global_start_beat;
+        let bpm = first.bpm;
+
+        // If there's a count-off, seek to just *before* the first count-off beat so that
+        // the metronome fires a crossing event immediately and beat 1 is audible.
+        // Without the -0.001, the transport starts exactly ON the integer beat and the
+        // metronome only fires when it crosses the NEXT integer (beat 2).
+        let seek_beat = if self.countoff_beats > 0 {
+            first_beat - self.countoff_beats as f64
+        } else {
+            first_beat
+        } - 0.001;
+
+        // Reset state for a clean run.
+        *self.state.lock().map_err(lock_err)? = SessionState::new(
+            start,
+            end,
+            self.countoff_beats > 0,
+            first_beat,
+            self.wait_for_onset,
+        );
+        self.feedback.lock().map_err(lock_err)?.clear();
+
+        // Stop any already-running polling thread before starting fresh.
+        // This prevents two threads racing on the same state.
+        if self.running.swap(false, Ordering::Relaxed) {
+            if let Ok(mut guard) = self.thread_handle.lock() {
+                if let Some(h) = guard.take() {
+                    let _ = h.join();
+                }
+            }
+        }
+
+        // Configure and start the transport at the correct BPM.
+        self.transport.set_bpm(bpm);
+        self.transport.seek_to_beat(seek_beat);
         self.transport.play();
 
         // Spawn polling thread — all captures are Arc so the thread is 'static.
@@ -213,8 +341,9 @@ impl PracticeSession {
             let dynamics_output = self.dynamics_output.clone();
             let measures = self.measures.clone();
             let state = self.state.clone();
-            let errors = self.errors.clone();
+            let feedback = self.feedback.clone();
             let running = self.running.clone();
+            let ability_level = self.ability_level;
             move || {
                 run_session(
                     transport,
@@ -223,8 +352,9 @@ impl PracticeSession {
                     dynamics_output,
                     measures,
                     state,
-                    errors,
+                    feedback,
                     running,
+                    ability_level,
                 );
             }
         });
@@ -248,6 +378,16 @@ impl PracticeSession {
         self.transport.stop();
     }
 
+    /// Change the tuner mode during an active session. Reflects the FFI Tuner object's state.
+    pub fn set_tuner_mode(&self, mode: String) {
+        self.tuner.set_mode(mode);
+    }
+
+    /// Change the transport BPM during an active session. Reflects a Metronome BPM change.
+    pub fn set_bpm(&self, bpm: f32) {
+        self.transport.set_bpm(bpm);
+    }
+
     // ── Frontend output ───────────────────────────────────────────────────
 
     /// Snapshot the transport enriched with practice-session position context.
@@ -256,33 +396,32 @@ impl PracticeSession {
     /// index so the frontend can both advance the cursor and highlight the
     /// active measure without a separate call.
     ///
-    /// Call at ~60 Hz alongside `poll_errors`.  JSON shape:
+    /// Call at ~60 Hz alongside `poll_feedback`.  JSON shape:
     /// ```json
     /// {
     ///   "beat_position": 4.23,
-    ///   "display_beat_position": 4.31,
     ///   "bpm": 120.0,
     ///   "is_playing": true,
-    ///   "current_beat": 4,
-    ///   "beat_phase": 0.23,
-    ///   "capture_time_s": 12.34,
-    ///   "drift_samples": 0,
-    ///   "output_frames": 576000,
-    ///   "input_frames": 576000,
-    ///   "input_latency_samples": 2048,
-    ///   "ui_latency_compensation_s": 0.05,
     ///   "current_measure_idx": 2,
     ///   "practice_start": 0,
-    ///   "practice_end": 7
+    ///   "practice_end": 7,
+    ///   "in_countoff": false
     /// }
     /// ```
     pub fn poll_transport(&self) -> String {
         let snap = self.transport.snapshot();
-        let (measure_idx, practice_start, practice_end) = self
+        let (measure_idx, practice_start, practice_end, in_countoff) = self
             .state
             .lock()
-            .map(|s| (s.current_measure_idx, s.practice_start, s.practice_end))
-            .unwrap_or((0, 0, 0));
+            .map(|s| {
+                (
+                    s.current_measure_idx,
+                    s.practice_start,
+                    s.practice_end,
+                    s.in_countoff,
+                )
+            })
+            .unwrap_or((0, 0, 0, false));
 
         // Serialize the base snapshot then inject measure fields.
         let mut map = match serde_json::to_value(&snap) {
@@ -301,14 +440,15 @@ impl PracticeSession {
             "practice_end".into(),
             serde_json::Value::Number(practice_end.into()),
         );
+        map.insert("in_countoff".into(), serde_json::Value::Bool(in_countoff));
         serde_json::Value::Object(map).to_string()
     }
 
-    /// Drain all pending live errors and return them as a JSON array of `SendError`.
+    /// Drain all pending live feedback events and return them as a JSON array of `SendInfo`.
     ///
     /// Call at ~10 Hz from the frontend to receive real-time per-note feedback.
     pub fn poll_errors(&self) -> String {
-        let Ok(mut guard) = self.errors.lock() else {
+        let Ok(mut guard) = self.feedback.lock() else {
             return "[]".into();
         };
         let batch = std::mem::take(&mut *guard);
@@ -366,8 +506,9 @@ fn run_session(
     dynamics_output: Arc<parking_lot::RwLock<crate::audio_io::dynamics::DynamicsOutput>>,
     measures: Arc<Vec<Measure>>,
     state: Arc<Mutex<SessionState>>,
-    errors: Arc<Mutex<Vec<SendError>>>,
+    feedback: Arc<Mutex<Vec<SendInfo>>>,
     running: Arc<AtomicBool>,
+    ability_level: AbilityLevel,
 ) {
     while running.load(Ordering::Relaxed) {
         let beat = transport.get_accumulated_beats();
@@ -376,12 +517,16 @@ fn run_session(
         let new_onsets = onset.drain_onset_events();
 
         // ── 2. Sample tuner (short read lock) ─────────────────────────────
-        let (note_name, note_cents): (Option<String>, f64) = {
+        let (note_names, note_cents): (Vec<String>, Vec<f64>) = {
             let out = tuner_output.read();
-            let name = out.notes.first().cloned();
-            let cents = out.accuracies.first().copied().unwrap_or(0.0) as f64;
-            (name, cents)
+            let names: Vec<String> = out.notes.clone();
+            let cents: Vec<f64> = out.accuracies.iter().map(|&c| c as f64).collect();
+            (names, cents)
         };
+
+        // Primary note for single-pitch-style tracking (first detected pitch).
+        let note_name = note_names.first().cloned();
+        let note_cents_primary = note_cents.first().copied().unwrap_or(0.0);
 
         // ── 3. Sample dynamics (short read lock) ──────────────────────────
         let current_level = dynamics_output.read().level;
@@ -389,30 +534,126 @@ fn run_session(
         // ── Mutate session state ──────────────────────────────────────────
         let Ok(mut s) = state.lock() else { break };
 
-        s.current_onsets.extend_from_slice(&new_onsets);
+        // ── Count-off phase ───────────────────────────────────────────────
+        // The transport was seeked to (first_measure_beat - countoff_beats - ε).
+        // We simply wait until the transport reaches first_measure_beat.
+        let mut onsets_handled = false;
+        if s.in_countoff {
+            if beat >= s.first_measure_beat {
+                s.in_countoff = false;
+                // Discard all count-off onsets accumulated so far.
+                s.current_onsets.clear();
+                // Due to input pipeline latency, the ring buffer may deliver a count-off
+                // onset in the same drain batch as the beat-0 transition (e.g. the user's
+                // last clap lands in new_onsets after the clear).  Only admit performance-
+                // period onsets so they don't skew measure-0 timing metrics.
+                let first_beat = s.first_measure_beat;
+                for o in &new_onsets {
+                    if o.beat_position >= first_beat {
+                        s.current_onsets.push(*o);
+                    }
+                }
+                onsets_handled = true;
+            } else {
+                // Still counting off — collect onsets (kept for timing baseline)
+                // but skip all note/dynamic analysis.
+                s.current_onsets.extend_from_slice(&new_onsets);
+                drop(s);
+                thread::sleep(Duration::from_millis(5));
+                continue;
+            }
+        }
 
-        // Note-change detection
-        match note_name {
-            Some(ref name) if s.last_note_name.as_deref() != Some(name.as_str()) => {
-                // A different note has appeared: finalise the previous one.
-                s.finalize_pending_note();
-                s.last_note_name = Some(name.clone());
-                s.last_note_beat = beat;
-                s.last_note_midi = note_name_to_midi(name).unwrap_or(0);
-                s.cents_sum = note_cents;
-                s.cents_count = 1;
-            }
-            Some(_) => {
-                // Same note: accumulate cents for the running average.
-                s.cents_sum += note_cents;
-                s.cents_count += 1;
-            }
-            None => {
-                // Silence: finalise any note in progress.
-                if s.last_note_name.is_some() {
-                    s.finalize_pending_note();
+        if !onsets_handled {
+            s.current_onsets.extend_from_slice(&new_onsets);
+        }
+
+        // ── Onset-wait mode: detect qualifying onsets and seek ────────────
+        // The transport keeps running so timing error is measurable, but
+        // measure advancement is gated on onset_received_this_measure.
+        if s.wait_for_onset && !new_onsets.is_empty() {
+            // Find the onset nearest to next_expected_beat.
+            if let Some(o) = new_onsets.iter().min_by(|a, b| {
+                (a.beat_position - s.next_expected_beat)
+                    .abs()
+                    .partial_cmp(&(b.beat_position - s.next_expected_beat).abs())
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            }) {
+                // Accept any onset within a generous window (2× match window).
+                if (o.beat_position - s.next_expected_beat).abs() < NOTE_MATCH_WINDOW * 2.0 {
+                    // Seek the transport to the actual onset beat so the beat grid
+                    // reflects where the user truly played.
+                    transport.seek_to_beat(o.beat_position);
+                    s.onset_received_this_measure = true;
                 }
             }
+        }
+
+        // ── Combined onset + pitch note-boundary detection ─────────────────────
+        //
+        // A note boundary fires when:
+        //  1. MIDI note changes by ≥ 2 semitones (slurred transition or jump — always new)
+        //  2. MIDI note changes by 1 semitone AND a qualifying onset (E→F, B→C articulated)
+        //  3. Same MIDI note + qualifying onset (re-attack / rearticulation)
+        //  4. Silence detected (always finalises the in-progress note)
+        //
+        // A "qualifying onset" has velocity ≥ ONSET_VELOCITY_THRESHOLD and falls
+        // after `note_refractory_until` to prevent a single physical attack that
+        // generates several consecutive ring-buffer entries from creating multiple
+        // short NoteEvents.
+
+        let midi_now: Option<u8> = note_name.as_deref().and_then(note_name_to_midi);
+        let midi_prev: Option<u8> = if s.last_note_name.is_some() {
+            Some(s.last_note_midi)
+        } else {
+            None
+        };
+
+        // Best qualifying onset from this drain batch.
+        let best_onset = new_onsets
+            .iter()
+            .filter(|o| {
+                o.velocity >= ONSET_VELOCITY_THRESHOLD
+                    && o.beat_position >= s.note_refractory_until
+            })
+            .max_by(|a, b| {
+                a.velocity
+                    .partial_cmp(&b.velocity)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            });
+
+        let semitone_diff: u16 = match (midi_now, midi_prev) {
+            (Some(m), Some(p)) => (m as i16 - p as i16).unsigned_abs(),
+            _ => 100, // silence↔note or unparseable → always a boundary
+        };
+
+        // Whether this iteration should open a new NoteEvent.
+        let new_boundary = match semitone_diff {
+            0 | 1 => best_onset.is_some(), // rearticulation or semitone step: onset required
+            _ => true,                      // ≥2 semitones: definite note change
+        };
+
+        if note_name.is_none() {
+            if s.last_note_name.is_some() {
+                s.finalize_pending_note();
+            }
+        } else if new_boundary {
+            // Use onset beat for accurate timing; fall back to transport beat for slurs.
+            let start_beat = best_onset.map(|o| o.beat_position).unwrap_or(beat);
+            s.finalize_pending_note();
+            let name = note_name.as_ref().unwrap();
+            s.last_note_name = Some(name.clone());
+            s.last_note_beat = start_beat;
+            s.last_note_midi = midi_now.unwrap_or(0);
+            s.cents_sum = note_cents_primary;
+            s.cents_count = 1;
+            if best_onset.is_some() {
+                s.note_refractory_until = start_beat + REFRACTORY_BEATS;
+            }
+        } else {
+            // Same note, no qualifying onset: accumulate pitch data.
+            s.cents_sum += note_cents_primary;
+            s.cents_count += 1;
         }
 
         // Dynamics-change detection (suppress Silence→Silence no-ops).
@@ -430,32 +671,57 @@ fn run_session(
             m.global_start_beat + m.duration_beats()
         };
 
+        // In onset-wait mode, block measure advance until the user has played.
+        // The transport keeps running so timing error remains measurable.
+        if beat >= measure_end && s.wait_for_onset && !s.onset_received_this_measure {
+            drop(s);
+            thread::sleep(Duration::from_millis(5));
+            continue;
+        }
+
         if beat >= measure_end {
             s.finalize_pending_note();
 
-            let expected = build_expected_notes(&measures[s.current_measure_idx]);
+            // Capture the index of the measure we're closing out before mutating.
+            let finished_idx = s.current_measure_idx;
+            let expected = build_expected_notes(&measures[finished_idx]);
+
+            let done = finished_idx >= s.practice_end;
+
+            // Advance to the next measure.
+            if !done {
+                s.current_measure_idx += 1;
+                s.onset_received_this_measure = false;
+
+                // Update next_expected_beat for onset-wait mode.
+                if s.wait_for_onset {
+                    let next_idx = s.current_measure_idx;
+                    if let Some(first_note) = measures[next_idx].notes.first() {
+                        s.next_expected_beat = measures[next_idx].global_start_beat
+                            + first_note.start_beat_in_measure as f64;
+                    } else {
+                        s.next_expected_beat = measures[next_idx].global_start_beat;
+                    }
+                }
+            }
+
             let data = MeasureData {
-                measure_index: s.current_measure_idx as u32,
+                measure_index: finished_idx as u32,
                 onsets: std::mem::take(&mut s.current_onsets),
                 notes: std::mem::take(&mut s.current_notes),
                 dynamics: std::mem::take(&mut s.current_dynamics),
                 expected_notes: expected,
             };
 
-            let new_errors = generate_measure_errors(&data);
+            let new_feedback = generate_measure_feedback(&data, ability_level);
             s.completed_measures.push(data);
             s.last_dynamic = None;
 
-            let done = s.current_measure_idx >= s.practice_end;
-            if !done {
-                s.current_measure_idx += 1;
-            }
-
-            // Release state lock before locking errors.
+            // Release state lock before locking feedback.
             drop(s);
 
-            if let Ok(mut guard) = errors.lock() {
-                guard.extend(new_errors);
+            if let Ok(mut guard) = feedback.lock() {
+                guard.extend(new_feedback);
             }
 
             if done {
@@ -470,10 +736,11 @@ fn run_session(
     }
 }
 
-// ── Error generation ──────────────────────────────────────────────────────────
+// ── Feedback generation ───────────────────────────────────────────────────────
 
-fn generate_measure_errors(data: &MeasureData) -> Vec<SendError> {
-    let mut errors = Vec::new();
+fn generate_measure_feedback(data: &MeasureData, ability_level: AbilityLevel) -> Vec<SendInfo> {
+    let mut feedback = Vec::new();
+    let tol = ability_level.tolerance_scale();
 
     // Pre-sort detected note indices by beat position for articulation duration.
     let mut sorted_idxs: Vec<usize> = (0..data.notes.len()).collect();
@@ -485,23 +752,45 @@ fn generate_measure_errors(data: &MeasureData) -> Vec<SendError> {
     });
 
     for (ei, expected) in data.expected_notes.iter().enumerate() {
+        let expected_note_label = midi_to_note_name(expected.midi_note);
+
+        // Track whether this expected note was matched and the data.notes index of the match.
+        let errors_before = feedback.len();
+        let mut matched_note_idx: Option<usize> = None;
+
         // ── Note accuracy ─────────────────────────────────────────────────
         let matched_sp = sorted_idxs.iter().position(|&ni| {
             data.notes[ni].midi_note == expected.midi_note
-                && (data.notes[ni].beat_position - expected.beat_position).abs() < NOTE_MATCH_WINDOW
+                && (data.notes[ni].beat_position - expected.beat_position).abs()
+                    < NOTE_MATCH_WINDOW * tol
+        });
+
+        // Check if any note was played (regardless of pitch) near the expected beat.
+        let any_note_played = sorted_idxs.iter().any(|&ni| {
+            (data.notes[ni].beat_position - expected.beat_position).abs() < NOTE_MATCH_WINDOW * tol
         });
 
         match matched_sp {
             Some(sp) => {
-                let note = &data.notes[sorted_idxs[sp]];
+                let ni = sorted_idxs[sp];
+                matched_note_idx = Some(ni);
+                let note = &data.notes[ni];
+                let received_label = if note.avg_cents.abs() < 1.0 {
+                    expected_note_label.clone()
+                } else {
+                    format!("{} {:+.0}c", expected_note_label, note.avg_cents)
+                };
 
                 // Intonation
-                if note.avg_cents.abs() > INTONATION_ERR_THRESHOLD {
-                    errors.push(SendError {
+                let intonation_threshold = INTONATION_ERR_THRESHOLD * tol;
+                if note.avg_cents.abs() > intonation_threshold {
+                    feedback.push(SendInfo {
                         measure: data.measure_index,
                         note_index: ei,
                         error_type: MusicError::Intonation,
                         intensity: (note.avg_cents.abs() / 50.0).min(1.0),
+                        expected: expected_note_label.clone(),
+                        received: received_label.clone(),
                     });
                 }
 
@@ -511,35 +800,66 @@ fn generate_measure_errors(data: &MeasureData) -> Vec<SendError> {
                     let actual_dur = next.beat_position - note.beat_position;
                     let ratio = (actual_dur - expected.duration_beats).abs()
                         / expected.duration_beats.max(1e-6);
-                    if ratio > ARTICULATION_TOLERANCE {
-                        errors.push(SendError {
+                    let articulation_threshold = ARTICULATION_TOLERANCE / tol;
+                    if ratio > articulation_threshold {
+                        feedback.push(SendInfo {
                             measure: data.measure_index,
                             note_index: ei,
                             error_type: MusicError::Articulation,
                             intensity: ratio.min(1.0),
+                            expected: format!("{:.2} beats", expected.duration_beats),
+                            received: format!("{:.2} beats", actual_dur),
                         });
                     }
                 }
             }
             None => {
-                errors.push(SendError {
-                    measure: data.measure_index,
-                    note_index: ei,
-                    error_type: MusicError::Note,
-                    intensity: 1.0,
-                });
+                if any_note_played {
+                    // A note was played at the right time but it was the wrong pitch.
+                    let played_ni = sorted_idxs
+                        .iter()
+                        .find(|&&ni| {
+                            (data.notes[ni].beat_position - expected.beat_position).abs()
+                                < NOTE_MATCH_WINDOW * tol
+                        })
+                        .copied();
+                    let received_label = played_ni
+                        .map(|ni| midi_to_note_name(data.notes[ni].midi_note))
+                        .unwrap_or_else(|| "unknown".into());
+                    feedback.push(SendInfo {
+                        measure: data.measure_index,
+                        note_index: ei,
+                        error_type: MusicError::WrongNote,
+                        intensity: 1.0,
+                        expected: expected_note_label.clone(),
+                        received: received_label,
+                    });
+                } else {
+                    // Nothing was played when a note was expected.
+                    feedback.push(SendInfo {
+                        measure: data.measure_index,
+                        note_index: ei,
+                        error_type: MusicError::MissingNote,
+                        intensity: 1.0,
+                        expected: expected_note_label.clone(),
+                        received: "silence".into(),
+                    });
+                }
             }
         }
 
         // ── Timing ────────────────────────────────────────────────────────
         if let Some(o) = closest_onset(&data.onsets, expected.beat_position) {
-            let err = (o.beat_position - expected.beat_position).abs();
-            if err > ONSET_TIMING_ERR_THRESHOLD {
-                errors.push(SendError {
+            let err = o.beat_position - expected.beat_position;
+            let timing_threshold = ONSET_TIMING_ERR_THRESHOLD * tol;
+            if err.abs() > timing_threshold {
+                feedback.push(SendInfo {
                     measure: data.measure_index,
                     note_index: ei,
                     error_type: MusicError::Timing,
-                    intensity: (err / 0.5).min(1.0),
+                    intensity: (err.abs() / 0.5).min(1.0),
+                    expected: format!("beat {:.2}", expected.beat_position),
+                    received: format!("beat {:.2}", o.beat_position),
                 });
             }
         }
@@ -548,19 +868,102 @@ fn generate_measure_errors(data: &MeasureData) -> Vec<SendError> {
         if let Some(exp_dyn) = expected.dynamic {
             if let Some(act_dyn) = dynamic_at(&data.dynamics, expected.beat_position) {
                 let diff = (dynamic_to_i32(act_dyn) - dynamic_to_i32(exp_dyn)).abs();
-                if diff > 1 {
-                    errors.push(SendError {
+                let dynamics_threshold = if tol >= 2.0 {
+                    3
+                } else if tol >= 1.5 {
+                    2
+                } else {
+                    1
+                };
+                if diff > dynamics_threshold {
+                    feedback.push(SendInfo {
                         measure: data.measure_index,
                         note_index: ei,
                         error_type: MusicError::Dynamics,
                         intensity: (diff as f64 / 7.0).min(1.0),
+                        expected: format!("{exp_dyn}"),
+                        received: format!("{act_dyn}"),
                     });
                 }
             }
         }
+
+        // ── Info event for error-free matched notes ───────────────────────
+        if let Some(ni) = matched_note_idx {
+            if feedback.len() == errors_before {
+                let note = &data.notes[ni];
+                let dyn_str = expected
+                    .dynamic
+                    .map(|d| format!(" {d}"))
+                    .unwrap_or_default();
+                let cents_str = if note.avg_cents.abs() > 1.0 {
+                    format!(" {:+.0}c", note.avg_cents)
+                } else {
+                    String::new()
+                };
+                feedback.push(SendInfo {
+                    measure: data.measure_index,
+                    note_index: ei,
+                    error_type: MusicError::None,
+                    intensity: 0.0,
+                    expected: format!(
+                        "{} midi={} beat={:.2} dur={:.2}{}",
+                        expected_note_label,
+                        expected.midi_note,
+                        expected.beat_position,
+                        expected.duration_beats,
+                        dyn_str
+                    ),
+                    received: format!(
+                        "{}{} midi={} beat={:.2}",
+                        expected_note_label, cents_str, note.midi_note, note.beat_position
+                    ),
+                });
+            }
+        }
     }
 
-    errors
+    // ── Unexpected notes (played when silence was expected) ───────────────
+    // Any detected note that does not match any expected note within the window.
+    for &ni in &sorted_idxs {
+        let note = &data.notes[ni];
+        let is_matched = data.expected_notes.iter().any(|expected| {
+            expected.midi_note == note.midi_note
+                && (note.beat_position - expected.beat_position).abs() < NOTE_MATCH_WINDOW * tol
+        });
+        if !is_matched {
+            // Also check: is it just a wrong-note substitution (same beat, different pitch)?
+            let is_substitution = data.expected_notes.iter().any(|expected| {
+                (note.beat_position - expected.beat_position).abs() < NOTE_MATCH_WINDOW * tol
+            });
+            if !is_substitution {
+                // Truly unexpected — played when silence was expected.
+                // Attribute to the nearest expected note (by beat) for a meaningful index.
+                let nearest_idx = data
+                    .expected_notes
+                    .iter()
+                    .enumerate()
+                    .min_by(|(_, a), (_, b)| {
+                        (note.beat_position - a.beat_position)
+                            .abs()
+                            .partial_cmp(&(note.beat_position - b.beat_position).abs())
+                            .unwrap_or(std::cmp::Ordering::Equal)
+                    })
+                    .map(|(i, _)| i)
+                    .unwrap_or(data.expected_notes.len());
+                feedback.push(SendInfo {
+                    measure: data.measure_index,
+                    note_index: nearest_idx,
+                    error_type: MusicError::UnexpectedNote,
+                    intensity: 0.5,
+                    expected: "silence".into(),
+                    received: midi_to_note_name(note.midi_note),
+                });
+            }
+        }
+    }
+
+    feedback
 }
 
 // ── MIDI reference helpers ────────────────────────────────────────────────────
@@ -616,6 +1019,16 @@ fn note_name_to_midi(name: &str) -> Option<u8> {
     // C4 = 60  →  (octave + 1) * 12 + semitone + accidental
     let midi = (octave + 1) * 12 + semitone + accidental;
     (0..=127).contains(&midi).then_some(midi as u8)
+}
+
+/// Convert a MIDI note number back to a human-readable note name (e.g. 69 → "A4").
+fn midi_to_note_name(midi: u8) -> String {
+    const NAMES: [&str; 12] = [
+        "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B",
+    ];
+    let octave = (midi as i16 / 12) - 1;
+    let name = NAMES[(midi % 12) as usize];
+    format!("{name}{octave}")
 }
 
 /// Map a normalised MIDI velocity (0.0–1.0) to a dynamic level.
@@ -755,6 +1168,34 @@ mod tests {
         assert_eq!(note_name_to_midi("Ax"), None);
     }
 
+    // ── midi_to_note_name ─────────────────────────────────────────────────────
+
+    #[test]
+    fn midi_to_note_name_a4_is_69() {
+        assert_eq!(midi_to_note_name(69), "A4");
+    }
+
+    #[test]
+    fn midi_to_note_name_c4_is_60() {
+        assert_eq!(midi_to_note_name(60), "C4");
+    }
+
+    #[test]
+    fn midi_to_note_name_c_sharp_4_is_61() {
+        assert_eq!(midi_to_note_name(61), "C#4");
+    }
+
+    #[test]
+    fn midi_to_note_name_roundtrip() {
+        // Parsing and converting back should be the identity for natural notes.
+        for midi in 21u8..=108 {
+            let name = midi_to_note_name(midi);
+            if let Some(back) = note_name_to_midi(&name) {
+                assert_eq!(back, midi, "roundtrip failed for midi={midi} name={name}");
+            }
+        }
+    }
+
     // ── velocity_to_dynamic ───────────────────────────────────────────────────
 
     #[test]
@@ -880,5 +1321,208 @@ mod tests {
                 window[1]
             );
         }
+    }
+
+    // ── AbilityLevel tolerance_scale ─────────────────────────────────────────
+
+    #[test]
+    fn ability_level_tolerance_scale_ordering() {
+        // Beginner should have the widest tolerance, expert the narrowest.
+        assert!(
+            AbilityLevel::Beginner.tolerance_scale() > AbilityLevel::Intermediate.tolerance_scale()
+        );
+        assert!(
+            AbilityLevel::Intermediate.tolerance_scale() > AbilityLevel::Advanced.tolerance_scale()
+        );
+        assert!(AbilityLevel::Advanced.tolerance_scale() > AbilityLevel::Expert.tolerance_scale());
+    }
+
+    // ── generate_measure_feedback ─────────────────────────────────────────────
+
+    fn make_measure(
+        notes: Vec<NoteEvent>,
+        onsets: Vec<OnsetEvent>,
+        expected: Vec<ExpectedNote>,
+    ) -> MeasureData {
+        MeasureData {
+            measure_index: 0,
+            onsets,
+            notes,
+            dynamics: vec![],
+            expected_notes: expected,
+        }
+    }
+
+    #[test]
+    fn feedback_no_errors_on_perfect_performance() {
+        let data = make_measure(
+            vec![NoteEvent {
+                beat_position: 0.0,
+                midi_note: 60,
+                avg_cents: 0.0,
+            }],
+            vec![onset(0.0)],
+            vec![ExpectedNote {
+                beat_position: 0.0,
+                duration_beats: 1.0,
+                midi_note: 60,
+                dynamic: None,
+            }],
+        );
+        let fb = generate_measure_feedback(&data, AbilityLevel::Advanced);
+        assert!(
+            fb.is_empty(),
+            "perfect performance should produce no feedback: {fb:?}"
+        );
+    }
+
+    #[test]
+    fn feedback_missing_note_when_nothing_played() {
+        let data = make_measure(
+            vec![],
+            vec![],
+            vec![ExpectedNote {
+                beat_position: 0.0,
+                duration_beats: 1.0,
+                midi_note: 60,
+                dynamic: None,
+            }],
+        );
+        let fb = generate_measure_feedback(&data, AbilityLevel::Advanced);
+        assert!(
+            fb.iter().any(|e| e.error_type == MusicError::MissingNote),
+            "should flag MissingNote when nothing is played"
+        );
+    }
+
+    #[test]
+    fn feedback_wrong_note_when_different_pitch_at_right_beat() {
+        let data = make_measure(
+            vec![NoteEvent {
+                beat_position: 0.0,
+                midi_note: 62, /* D4 */
+                avg_cents: 0.0,
+            }],
+            vec![onset(0.0)],
+            vec![ExpectedNote {
+                beat_position: 0.0,
+                duration_beats: 1.0,
+                midi_note: 60, /* C4 */
+                dynamic: None,
+            }],
+        );
+        let fb = generate_measure_feedback(&data, AbilityLevel::Advanced);
+        assert!(
+            fb.iter().any(|e| e.error_type == MusicError::WrongNote),
+            "should flag WrongNote when wrong pitch played at correct beat"
+        );
+        let wrong = fb
+            .iter()
+            .find(|e| e.error_type == MusicError::WrongNote)
+            .unwrap();
+        assert_eq!(wrong.expected, "C4");
+        assert_eq!(wrong.received, "D4");
+    }
+
+    #[test]
+    fn feedback_timing_error_carries_beat_positions() {
+        // Onset 0.2 beats late — inside NOTE_MATCH_WINDOW (0.25) so it is found,
+        // and over ONSET_TIMING_ERR_THRESHOLD (0.15) so a Timing error is raised.
+        let data = make_measure(
+            vec![NoteEvent {
+                beat_position: 0.2,
+                midi_note: 60,
+                avg_cents: 0.0,
+            }],
+            vec![onset(0.2)],
+            vec![ExpectedNote {
+                beat_position: 0.0,
+                duration_beats: 1.0,
+                midi_note: 60,
+                dynamic: None,
+            }],
+        );
+        let fb = generate_measure_feedback(&data, AbilityLevel::Advanced);
+        let timing = fb.iter().find(|e| e.error_type == MusicError::Timing);
+        assert!(
+            timing.is_some(),
+            "should flag Timing when onset is late: {fb:?}"
+        );
+        let t = timing.unwrap();
+        assert!(
+            t.expected.contains("beat 0.00"),
+            "expected field should mention beat 0.00, got: {}",
+            t.expected
+        );
+        assert!(
+            t.received.contains("beat 0.20"),
+            "received field should mention beat 0.20, got: {}",
+            t.received
+        );
+    }
+
+    #[test]
+    fn feedback_intonation_error_carries_cent_info() {
+        let data = make_measure(
+            vec![NoteEvent {
+                beat_position: 0.0,
+                midi_note: 60,
+                avg_cents: 35.0,
+            }],
+            vec![onset(0.0)],
+            vec![ExpectedNote {
+                beat_position: 0.0,
+                duration_beats: 1.0,
+                midi_note: 60,
+                dynamic: None,
+            }],
+        );
+        let fb = generate_measure_feedback(&data, AbilityLevel::Advanced);
+        let inton = fb.iter().find(|e| e.error_type == MusicError::Intonation);
+        assert!(
+            inton.is_some(),
+            "should flag Intonation for 35 cent deviation"
+        );
+        let i = inton.unwrap();
+        assert!(
+            i.received.contains("+35"),
+            "received should show cent deviation, got: {}",
+            i.received
+        );
+    }
+
+    #[test]
+    fn feedback_beginner_tolerates_wider_timing() {
+        // 0.2 beat late — over Advanced threshold (0.15) but under Beginner (0.15 * 2.0 = 0.30).
+        let data = make_measure(
+            vec![NoteEvent {
+                beat_position: 0.2,
+                midi_note: 60,
+                avg_cents: 0.0,
+            }],
+            vec![onset(0.2)],
+            vec![ExpectedNote {
+                beat_position: 0.0,
+                duration_beats: 1.0,
+                midi_note: 60,
+                dynamic: None,
+            }],
+        );
+        let fb_advanced = generate_measure_feedback(&data, AbilityLevel::Advanced);
+        let fb_beginner = generate_measure_feedback(&data, AbilityLevel::Beginner);
+        let advanced_has_timing = fb_advanced
+            .iter()
+            .any(|e| e.error_type == MusicError::Timing);
+        let beginner_has_timing = fb_beginner
+            .iter()
+            .any(|e| e.error_type == MusicError::Timing);
+        assert!(
+            advanced_has_timing,
+            "Advanced should flag 0.2 beat timing error"
+        );
+        assert!(
+            !beginner_has_timing,
+            "Beginner should not flag 0.2 beat timing error"
+        );
     }
 }

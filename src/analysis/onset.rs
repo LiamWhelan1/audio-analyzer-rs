@@ -24,15 +24,22 @@ pub struct OnsetDetector {
 }
 
 impl OnsetDetector {
-    pub fn stop(&mut self)   { self.state.store(-1, Ordering::Relaxed); }
-    pub fn pause(&mut self)  { self.state.store(0,  Ordering::Relaxed); }
-    pub fn resume(&mut self) { self.state.store(1,  Ordering::Relaxed); }
+    pub fn stop(&mut self) {
+        self.state.store(-1, Ordering::Relaxed);
+    }
+    pub fn pause(&mut self) {
+        self.state.store(0, Ordering::Relaxed);
+    }
+    pub fn resume(&mut self) {
+        self.state.store(1, Ordering::Relaxed);
+    }
 }
 
 impl Drop for OnsetDetector {
     fn drop(&mut self) {
         self.state.store(-1, Ordering::Relaxed);
         let _ = self.reducer_remove_tx.send(self.handle);
+        println!("Dropped onset detector");
     }
 }
 
@@ -125,6 +132,21 @@ impl OnsetDetector {
             let min_inter_onset_samples = 2048;
             let mut samples_since_onset = min_inter_onset_samples;
 
+            // ── Goal 2: energy EMA for harmonic-variation gate ────────────
+            // Tracks the recent background energy level.  A genuine onset
+            // must show a rapid energy increase relative to this baseline;
+            // sustained notes with shifting harmonics do not.
+            let mut energy_ema: f32 = 0.0;
+
+            // ── Goal 1: static parameters for output-event gate ───────────
+            // Suppress onsets whose input-frame position falls inside the
+            // acoustic-echo window of the most recently rendered device tick.
+            let sr = transport.get_sample_rate() as i64;
+            // 100 ms of acoustic travel margin (generous for typical room sizes).
+            let acoustic_margin_samples = sr / 10;
+            // Metronome clicks decay over ~100 ms; allow 150 ms to be safe.
+            let click_duration_samples = sr * 15 / 100;
+
             while state.load(Ordering::Relaxed) != -1 || !cons.is_empty() {
                 if state.load(Ordering::Relaxed) == 0 || state.load(Ordering::Relaxed) == -1 {
                     match cons.pop() {
@@ -159,6 +181,19 @@ impl OnsetDetector {
                     thread::sleep(Duration::from_millis(1));
                     continue;
                 }
+
+                // ── Goal 1: output-event suppression window ───────────────
+                // Compute once per batch; transport values only change at
+                // buffer boundaries so this is accurate enough.
+                let out_lat = transport.get_output_latency_samples();
+                let in_lat = transport.get_input_latency_samples();
+                let last_tick = transport.get_last_tick_output_frame();
+                let current_input = transport.get_input_frames();
+                // Estimated input frame at which the click arrives at the mic.
+                let expected_arrival = last_tick + out_lat + in_lat + acoustic_margin_samples;
+                let time_since_arrival = current_input - expected_arrival;
+                let suppressed_by_output =
+                    time_since_arrival >= 0 && time_since_arrival < click_duration_samples;
 
                 while available_samples >= window_size {
                     for i in 0..window_size {
@@ -207,29 +242,38 @@ impl OnsetDetector {
                         current_flux = 0.0;
                     }
 
+                    // ── Goal 2: update energy EMA ─────────────────────────
+                    // Use asymmetric memory: rise fast so genuine attacks are
+                    // compared against a baseline that hasn't caught up yet,
+                    // decay slower so sustained notes keep the EMA elevated.
+                    let ema_memory = if frame_energy > energy_ema { 0.7 } else { 0.9 };
+                    energy_ema = energy_ema * ema_memory + frame_energy * (1.0 - ema_memory);
+
                     if samples_since_onset >= min_inter_onset_samples {
                         if tracker.update(current_flux) {
-                            // Use the transport's latency-compensated onset
-                            // stamping instead of a hardcoded delay.  The
-                            // sample_offset is the centre of the current
-                            // analysis window relative to the most recent
-                            // input buffer boundary.
-                            let window_centre_offset = window_size as i64 / 2;
+                            // ── Goal 1: suppress acoustic echo of device output ──
+                            // ── Goal 2: require a rapid energy increase ──────────
+                            // energy_ema tracks the recent baseline; an onset must
+                            // show at least a 2.5× jump above it.  Harmonic shifts
+                            // in sustained notes (throat singing, etc.) keep the
+                            // ratio near 1.0 and are therefore suppressed.
+                            let energy_rising = frame_energy > energy_ema * 2.5;
 
-                            // Estimate a velocity from the flux magnitude
-                            // (clamped to 0.0–1.0).
-                            let velocity = (current_flux / 50.0).clamp(0.0, 1.0);
+                            if !suppressed_by_output && energy_rising {
+                                let window_centre_offset = window_size as i64 / 2;
+                                let velocity = (current_flux / 50.0).clamp(0.0, 1.0);
+                                let event =
+                                    transport.stamp_onset(window_centre_offset, velocity);
 
-                            let event = transport.stamp_onset(window_centre_offset, velocity);
+                                log::trace!(
+                                    "onset @ beat {:.4} (raw offset {})",
+                                    event.beat_position,
+                                    event.raw_sample_offset,
+                                );
 
-                            log::trace!(
-                                "onset @ beat {:.4} (raw offset {})",
-                                event.beat_position,
-                                event.raw_sample_offset,
-                            );
-
-                            let _ = onset_tx.push(event);
-                            samples_since_onset = 0;
+                                let _ = onset_tx.push(event);
+                                samples_since_onset = 0;
+                            }
                         }
                     } else {
                         tracker.update(current_flux);

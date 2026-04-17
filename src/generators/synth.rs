@@ -218,7 +218,7 @@ impl Synthesizer {
                 SynthCommand::LinkMetronome(tx) => self.metro_cmd_tx = Some(tx),
                 SynthCommand::LoadFile(path_str, instrument) => {
                     let path = Path::new(&path_str);
-                    if let Ok(m) = load_midi_file(path, instrument) {
+                    if let Ok(m) = load_midi_file(path, instrument, None) {
                         self.measures = m;
                         self.is_playing_seq = false;
                         self.voices.clear();

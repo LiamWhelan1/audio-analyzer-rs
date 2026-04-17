@@ -7,15 +7,15 @@ pub mod testing;
 pub mod traits;
 
 use crate::analysis::tuner::{TunerCommand, TunerMode, TunerOutput, TuningSystem};
+use crate::audio_io::AudioPipeline;
 use crate::audio_io::dynamics::DynamicsOutput;
 use crate::audio_io::timing::{MusicalTransport, OnsetEvent};
-use crate::audio_io::AudioPipeline;
-use crate::practice as practice_mod;
 use crate::generators::player::PlayerController;
 use crate::generators::{
     metronome::{BeatStrength, MetronomeCommand},
     synth::SynthCommand,
 };
+use crate::practice as practice_mod;
 use rtrb::Producer;
 use std::sync::{Arc, Mutex};
 
@@ -360,7 +360,10 @@ pub struct PracticeSession {
 impl PracticeSession {
     /// Begin (or restart) the session over `start_measure..=end_measure` (0-indexed).
     pub fn start(&self, start_measure: u32, end_measure: u32) -> Result<(), AudioEngineError> {
-        self.inner.lock().map_err(lock_err)?.start(start_measure, end_measure)
+        self.inner
+            .lock()
+            .map_err(lock_err)?
+            .start(start_measure, end_measure)
     }
 
     /// Stop the session and join the polling thread.
@@ -377,7 +380,7 @@ impl PracticeSession {
     /// Transport snapshot enriched with practice position context.
     ///
     /// Call at ~60 Hz.  Returns the `TransportSnapshot` fields plus
-    /// `current_measure_idx`, `practice_start`, and `practice_end`.
+    /// `current_measure_idx`, `practice_start`, `practice_end`, and `in_countoff`.
     pub fn poll_transport(&self) -> String {
         self.inner
             .lock()
@@ -385,7 +388,7 @@ impl PracticeSession {
             .unwrap_or_else(|_| "{}".into())
     }
 
-    /// Drain pending live errors as a JSON array.  Call at ~10 Hz.
+    /// Drain pending live feedback events as a JSON array of `SendInfo`.  Call at ~10 Hz.
     pub fn poll_errors(&self) -> String {
         self.inner
             .lock()
@@ -403,10 +406,27 @@ impl PracticeSession {
 
     /// `true` while the polling thread is running (i.e. the session is active).
     pub fn is_running(&self) -> bool {
-        self.inner
-            .lock()
-            .map(|s| s.is_running())
-            .unwrap_or(false)
+        self.inner.lock().map(|s| s.is_running()).unwrap_or(false)
+    }
+
+    /// Change the tuner mode for the active session.
+    ///
+    /// Mirrors calling `Tuner::set_mode` — use this when you want a single call
+    /// that keeps the practice session in sync with the standalone tuner object.
+    pub fn set_tuner_mode(&self, mode: String) {
+        if let Ok(inner) = self.inner.lock() {
+            inner.set_tuner_mode(mode);
+        }
+    }
+
+    /// Change the transport BPM for the active session.
+    ///
+    /// Mirrors `Metronome::set_bpm` — use this to keep the practice session tempo
+    /// in sync when the user adjusts the metronome BPM.
+    pub fn set_bpm(&self, bpm: f32) {
+        if let Ok(inner) = self.inner.lock() {
+            inner.set_bpm(bpm);
+        }
     }
 }
 
@@ -640,10 +660,22 @@ impl AudioEngine {
         self.clean_input();
     }
 
+    /// Create a new practice session.
+    ///
+    /// * `midi_path`        — path to the MIDI reference file.
+    /// * `instrument`       — instrument name (e.g. `"Piano"`, `"Violin"`).
+    /// * `countoff_beats`   — number of metronome beats to play before analysis begins (0 = no count-off).
+    /// * `wait_for_onset`   — when `true`, measure progression waits for the user to play before advancing.
+    /// * `ability_level`    — `"Beginner"`, `"Intermediate"`, `"Advanced"`, or `"Expert"`.
+    ///                         Controls how wide error tolerances are.
     pub fn create_practice_session(
         &self,
         midi_path: String,
         instrument: String,
+        countoff_beats: u32,
+        wait_for_onset: bool,
+        ability_level: String,
+        bpm: f32,
     ) -> Result<Arc<PracticeSession>, AudioEngineError> {
         if self
             .active_practice_session
@@ -656,21 +688,49 @@ impl AudioEngine {
                 msg: "Already active".into(),
             });
         }
+
+        let level = match ability_level.to_ascii_lowercase().as_str() {
+            "beginner" => practice_mod::AbilityLevel::Beginner,
+            "intermediate" => practice_mod::AbilityLevel::Intermediate,
+            "advanced" => practice_mod::AbilityLevel::Advanced,
+            "expert" => practice_mod::AbilityLevel::Expert,
+            other => {
+                return Err(AudioEngineError::Internal {
+                    msg: format!(
+                        "Unknown ability level '{other}'. Expected one of: Beginner, Intermediate, Advanced, Expert"
+                    ),
+                });
+            }
+        };
+
         let tuner = self.start_tuner()?;
         let onset = self.start_onset_detection()?;
         let transport = self.transport()?;
         let dynamics = self.dynamics_output()?;
 
-        let inner = practice_mod::PracticeSession::new(
-            transport, tuner, onset, dynamics, &midi_path, &instrument,
-        )?;
+        let inner = match practice_mod::PracticeSession::new(
+            transport,
+            tuner,
+            onset,
+            dynamics,
+            &midi_path,
+            &instrument,
+            countoff_beats,
+            wait_for_onset,
+            level,
+            bpm,
+        ) {
+            Ok(i) => i,
+            Err(e) => {
+                self.stop_tuner();
+                self.stop_onset_detection();
+                return Err(e);
+            }
+        };
         let session = Arc::new(PracticeSession {
             inner: Mutex::new(inner),
         });
-        *self
-            .active_practice_session
-            .lock()
-            .map_err(lock_err)? = Some(session.clone());
+        *self.active_practice_session.lock().map_err(lock_err)? = Some(session.clone());
         Ok(session)
     }
 

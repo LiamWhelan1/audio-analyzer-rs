@@ -114,6 +114,13 @@ pub struct MusicalTransport {
     output_frames: AtomicI64,
     input_frames: AtomicI64,
 
+    // ── output-event gate for onset suppression ────────────────────────
+    /// Output frame number when the most recent synthesized audio tick
+    /// (metronome click, synth note, etc.) was rendered.  The onset
+    /// detector uses this to suppress detections that are acoustically
+    /// caused by device output rather than the user playing.
+    last_tick_output_frame: AtomicI64,
+
     // ── tempo / position ───────────────────────────────────────────────
     bpm_bits: AtomicU32,
     accumulated_beats_bits: AtomicU64,
@@ -157,6 +164,7 @@ impl MusicalTransport {
         Arc::new(Self {
             output_frames: AtomicI64::new(0),
             input_frames: AtomicI64::new(0),
+            last_tick_output_frame: AtomicI64::new(i64::MIN / 2),
             bpm_bits: AtomicU32::new(initial_bpm.to_bits()),
             accumulated_beats_bits: AtomicU64::new(0.0f64.to_bits()),
             is_playing: AtomicBool::new(false),
@@ -200,6 +208,15 @@ impl MusicalTransport {
     /// Call this at the top of every input audio callback.
     pub fn tick_input(&self, frames: i64) {
         self.input_frames.fetch_add(frames, Ordering::Relaxed);
+    }
+
+    /// Record that synthesized audio (metronome click, synth note, etc.) was
+    /// just rendered into the output buffer.  Call this whenever a generator
+    /// produces non-zero output so the onset detector can gate out the
+    /// acoustic echo that would otherwise appear at the microphone.
+    pub fn notify_tick(&self) {
+        self.last_tick_output_frame
+            .store(self.output_frames.load(Ordering::Relaxed), Ordering::Relaxed);
     }
 
     // =====================================================================
@@ -313,13 +330,13 @@ impl MusicalTransport {
         let prev_beat = previous.floor() as i64;
         let curr_beat = current.floor() as i64;
 
-        if curr_beat > prev_beat && previous >= 0.0 {
+        if curr_beat > prev_beat {
             // How many samples into this buffer the crossing happened.
             let frac_before_crossing = (prev_beat + 1) as f64 - previous;
             let sample_offset = (frac_before_crossing / beats_delta * frames as f64) as i64;
 
             Some(BeatCrossing {
-                beat_number: (prev_beat + 1) as u64,
+                beat_number: prev_beat + 1,
                 sample_offset_in_buffer: sample_offset,
             })
         } else {
@@ -440,6 +457,18 @@ impl MusicalTransport {
         in_t - out_t
     }
 
+    pub fn get_last_tick_output_frame(&self) -> i64 {
+        self.last_tick_output_frame.load(Ordering::Relaxed)
+    }
+
+    pub fn get_output_latency_samples(&self) -> i64 {
+        self.output_latency_samples.load(Ordering::Relaxed)
+    }
+
+    pub fn get_input_latency_samples(&self) -> i64 {
+        self.input_latency_samples.load(Ordering::Relaxed)
+    }
+
     pub fn is_playing(&self) -> bool {
         self.is_playing.load(Ordering::Relaxed)
     }
@@ -487,8 +516,8 @@ impl MusicalTransport {
 /// current buffer to place the metronome click for sample-accurate timing.
 #[derive(Debug, Clone, Copy)]
 pub struct BeatCrossing {
-    /// Which beat number was crossed (1-based from song start).
-    pub beat_number: u64,
+    /// Which beat number was crossed (signed so count-off beats are negative).
+    pub beat_number: i64,
     /// Sample offset within the current output buffer where the beat lands.
     /// Use this to align the metronome click sample-accurately.
     pub sample_offset_in_buffer: i64,

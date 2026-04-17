@@ -360,27 +360,47 @@ impl Metrics {
         measures
             .iter()
             .map(|m| {
-                let mut actual_beats: Vec<f64> = m.onsets.iter().map(|o| o.beat_position).collect();
-                actual_beats.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+                // Build matched pairs: (expected_beat, actual_onset_beat).
+                // Using the closest onset within NOTE_MATCH_WINDOW for each expected note
+                // ensures both expected_span and actual_span cover the *same* subset of
+                // notes.  Comparing all-expected-span against only-matched-actual-span
+                // produces systematic errors whenever the first or last expected note has
+                // no matching onset (e.g. beat 12 in measure 3 with a half note).
+                let mut matched: Vec<(f64, f64)> = m
+                    .expected_notes
+                    .iter()
+                    .filter_map(|en| {
+                        m.onsets
+                            .iter()
+                            .filter(|o| {
+                                (o.beat_position - en.beat_position).abs() < NOTE_MATCH_WINDOW
+                            })
+                            .min_by(|a, b| {
+                                (a.beat_position - en.beat_position)
+                                    .abs()
+                                    .partial_cmp(&(b.beat_position - en.beat_position).abs())
+                                    .unwrap_or(std::cmp::Ordering::Equal)
+                            })
+                            .map(|o| (en.beat_position, o.beat_position))
+                    })
+                    .collect();
 
-                let mut expected_beats: Vec<f64> =
-                    m.expected_notes.iter().map(|n| n.beat_position).collect();
-                expected_beats
-                    .sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+                matched.sort_by(|a, b| {
+                    a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal)
+                });
 
-                if actual_beats.len() < 2 || expected_beats.len() < 2 {
+                if matched.len() < 2 {
                     return tempo_bpm;
                 }
 
-                let actual_span = actual_beats.last().unwrap() - actual_beats.first().unwrap();
-                let expected_span =
-                    expected_beats.last().unwrap() - expected_beats.first().unwrap();
+                let expected_span = matched.last().unwrap().0 - matched.first().unwrap().0;
+                let actual_span = matched.last().unwrap().1 - matched.first().unwrap().1;
 
                 if actual_span < 1e-6 || expected_span < 1e-6 {
                     return tempo_bpm;
                 }
 
-                (tempo_bpm as f64 * expected_span / actual_span) as f64
+                tempo_bpm * expected_span / actual_span
             })
             .collect()
     }

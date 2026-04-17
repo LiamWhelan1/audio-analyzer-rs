@@ -244,7 +244,9 @@ impl STFT {
 
                 while available_samples >= window_size {
                     #[cfg(feature = "dev-tools")]
-                    { rerun_frame += 1; }
+                    {
+                        rerun_frame += 1;
+                    }
 
                     #[cfg(feature = "dev-tools")]
                     let mut dev_rerun_data: Option<(Vec<f32>, f32, f32)> = None;
@@ -256,7 +258,7 @@ impl STFT {
                         Vec::new() // Feed an empty list so tracker counts it as a miss for all
                     } else {
                         #[cfg(feature = "dev-tools")]
-                        let png_raw: Option<Vec<f32>> = if png_frame % 2500 == 0 {
+                        let png_raw: Option<Vec<f32>> = if png_frame % 1000 == 0 {
                             Some(
                                 (0..window_size)
                                     .map(|i| ring_buffer[(ring_read_pos + i) % ring_buffer_len])
@@ -457,7 +459,7 @@ impl STFT {
             if current_run > longest_run {
                 longest_run = current_run;
             }
-            if longest_run < 3 {
+            if longest_run < 3 && fund_mag < 10.0 * noise_floor {
                 scores[k] = 0.0;
             } else {
                 const STRUCT_BASE: f32 = 1.0;
@@ -486,7 +488,7 @@ impl STFT {
             .collect();
 
         // Suppress harmonic ghosts: if freq_i ≈ N × freq_j (N=2,3,4) and
-        // candidate i scores < 80% of candidate j, i is likely a ghost.
+        // candidate i scores < 97% of candidate j, i is likely a ghost.
         let suppressed: Vec<bool> = (0..candidates.len())
             .map(|i| {
                 let (bin_i, score_i) = candidates[i];
@@ -501,7 +503,7 @@ impl STFT {
                     nearest >= 2.0
                         && nearest <= 4.0
                         && (ratio / nearest - 1.0).abs() < 0.03
-                        && score_i < score_j * 0.8
+                        && score_i < score_j * 0.97
                 })
             })
             .collect();
@@ -547,7 +549,9 @@ impl STFT {
         }
         let midi = 69.0 + 12.0 * (freq / 440.0).log2();
         let midi_round = midi.round() as i32;
-        let names = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
+        let names = [
+            "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B",
+        ];
         let name = names[((midi_round % 12 + 12) % 12) as usize];
         let octave = midi_round / 12 - 1;
         let cents = ((midi - midi.round()) * 100.0) as i32;
@@ -582,17 +586,17 @@ impl STFT {
         rec.set_time_sequence("frame", frame as i64);
 
         let min_bin = ((min_freq / bin_width).ceil() as usize).max(1);
-        let max_bin =
-            ((max_freq / bin_width).floor() as usize).min(mags.len().saturating_sub(1));
+        let max_bin = ((max_freq / bin_width).floor() as usize).min(mags.len().saturating_sub(1));
 
         // Spectrum line — (log10(freq), magnitude) per bin.
         let spectrum_strip: Vec<[f32; 2]> = (min_bin..=max_bin)
-            .map(|b| [(b as f32 * bin_width).log10(), mags[b]])
+            .map(|b| [(b as f32 * bin_width).log10(), mags[b] / 10.0])
             .collect();
         let _ = rec.log(
             "spectrum/line",
             &rerun::LineStrips2D::new([spectrum_strip])
-                .with_colors([rerun::Color::from_rgb(100, 200, 255)]),
+                .with_colors([rerun::Color::from_rgb(100, 200, 255)])
+                .with_radii([0.005]),
         );
 
         // Noise floor — horizontal line across the full frequency range.
@@ -600,8 +604,11 @@ impl STFT {
         let x_hi = max_freq.log10();
         let _ = rec.log(
             "spectrum/noise_floor",
-            &rerun::LineStrips2D::new([vec![[x_lo, noise_floor], [x_hi, noise_floor]]])
-                .with_colors([rerun::Color::from_rgb(255, 80, 80)]),
+            &rerun::LineStrips2D::new([vec![
+                [x_lo, noise_floor / 10.0],
+                [x_hi, noise_floor / 10.0],
+            ]])
+            .with_colors([rerun::Color::from_rgb(255, 80, 80)]),
         );
 
         // Stable pitches — labeled points on the spectrum line.
@@ -611,14 +618,12 @@ impl STFT {
                 .map(|&(freq, _)| {
                     let bin = (freq / bin_width).round() as usize;
                     let mag = mags[bin.min(mags.len().saturating_sub(1))];
-                    [freq.log10(), mag]
+                    [freq.log10(), mag / 10.0]
                 })
                 .collect();
             let labels: Vec<String> = stable
                 .iter()
-                .map(|&(freq, score)| {
-                    format!("{} {:.1}", Self::freq_to_note_label(freq), score)
-                })
+                .map(|&(freq, score)| format!("{} {:.1}", Self::freq_to_note_label(freq), score))
                 .collect();
             let _ = rec.log(
                 "spectrum/pitches",
@@ -650,7 +655,7 @@ impl STFT {
 
         let path = format!("debug_frames/frame_{frame}.png");
         let root = BitMapBackend::new(&path, (1200, 1800)).into_drawing_area();
-        root.fill(&RGBColor(20, 20, 30))?;
+        root.fill(&WHITE)?;
 
         let areas = root.split_evenly((3, 1));
         let (area1, area2, area3) = (&areas[0], &areas[1], &areas[2]);
@@ -671,24 +676,25 @@ impl STFT {
             let mut chart = ChartBuilder::on(area1)
                 .caption(
                     format!("Raw Signal — Frame {frame}"),
-                    ("sans-serif", 18).into_font().color(&WHITE),
+                    ("sans-serif", 48).into_font().color(&BLACK),
                 )
                 .margin(15)
-                .x_label_area_size(30)
-                .y_label_area_size(70)
+                .x_label_area_size(40)
+                .y_label_area_size(80)
                 .build_cartesian_2d(0usize..raw.len(), y_lo..y_hi)?;
 
             chart
                 .configure_mesh()
-                .x_labels(5)
-                .y_labels(5)
-                .label_style(("sans-serif", 11).into_font().color(&WHITE))
-                .axis_style(RGBColor(100, 100, 120))
+                .x_labels(10)
+                .y_labels(10)
+                .label_style(("sans-serif", 24).into_font().color(&BLACK))
+                .axis_style(BLACK)
+                .light_line_style(RGBColor(220, 220, 220))
                 .draw()?;
 
             chart.draw_series(LineSeries::new(
                 raw.iter().enumerate().map(|(i, &v)| (i, v)),
-                ShapeStyle::from(&WHITE).stroke_width(1),
+                ShapeStyle::from(&RGBColor(209, 102, 102)).stroke_width(1),
             ))?;
         }
 
@@ -697,31 +703,31 @@ impl STFT {
             let mut chart = ChartBuilder::on(area2)
                 .caption(
                     "Hann-Windowed Signal",
-                    ("sans-serif", 18).into_font().color(&WHITE),
+                    ("sans-serif", 48).into_font().color(&BLACK),
                 )
                 .margin(15)
-                .x_label_area_size(30)
-                .y_label_area_size(70)
+                .x_label_area_size(40)
+                .y_label_area_size(80)
                 .build_cartesian_2d(0usize..windowed.len(), y_lo..y_hi)?;
 
             chart
                 .configure_mesh()
-                .x_labels(5)
-                .y_labels(5)
-                .label_style(("sans-serif", 11).into_font().color(&WHITE))
-                .axis_style(RGBColor(100, 100, 120))
+                .x_labels(10)
+                .y_labels(10)
+                .label_style(("sans-serif", 24).into_font().color(&BLACK))
+                .axis_style(BLACK)
+                /*.light_line_style(RGBColor(220, 220, 220))*/
                 .draw()?;
 
             chart.draw_series(LineSeries::new(
                 windowed.iter().enumerate().map(|(i, &v)| (i, v)),
-                ShapeStyle::from(&RGBColor(100, 200, 255)).stroke_width(1),
+                ShapeStyle::from(&RGBColor(209, 102, 102)).stroke_width(1),
             ))?;
         }
 
         // ── Panel 3: Log-scale FFT Spectrum ──────────────────────────────────────
         let min_bin = ((min_freq / bin_width).ceil() as usize).max(1);
-        let max_bin =
-            ((max_freq / bin_width).floor() as usize).min(mags.len().saturating_sub(1));
+        let max_bin = ((max_freq / bin_width).floor() as usize).min(mags.len().saturating_sub(1));
         let x_lo = min_freq.log10();
         let x_hi = max_freq.log10();
         let spec_max = mags[min_bin..=max_bin]
@@ -734,16 +740,16 @@ impl STFT {
             let mut chart = ChartBuilder::on(area3)
                 .caption(
                     "FFT Spectrum — Detected Pitches",
-                    ("sans-serif", 18).into_font().color(&WHITE),
+                    ("sans-serif", 48).into_font().color(&BLACK),
                 )
                 .margin(15)
-                .x_label_area_size(40)
-                .y_label_area_size(70)
+                .x_label_area_size(50)
+                .y_label_area_size(80)
                 .build_cartesian_2d(x_lo..x_hi, 0f32..spec_max)?;
 
             chart
                 .configure_mesh()
-                .x_labels(8)
+                .x_labels(12)
                 .x_label_formatter(&|x| {
                     let hz = 10f32.powf(*x);
                     if hz >= 1_000.0 {
@@ -752,26 +758,28 @@ impl STFT {
                         format!("{hz:.0}")
                     }
                 })
-                .y_labels(5)
-                .label_style(("sans-serif", 11).into_font().color(&WHITE))
-                .axis_style(RGBColor(100, 100, 120))
+                .y_labels(10)
+                .label_style(("sans-serif", 24).into_font().color(&BLACK))
+                .axis_style(BLACK)
+                /*.light_line_style(RGBColor(220, 220, 220))*/
                 .draw()?;
 
             // Spectrum line.
             chart.draw_series(LineSeries::new(
-                (min_bin..=max_bin)
-                    .map(|b| ((b as f32 * bin_width).log10(), mags[b])),
-                ShapeStyle::from(&RGBColor(100, 200, 255)).stroke_width(1),
+                (min_bin..=max_bin).map(|b| ((b as f32 * bin_width).log10(), mags[b])),
+                ShapeStyle::from(&RGBColor(209, 102, 102)).stroke_width(1),
             ))?;
 
-            // Noise floor — solid red line.
+            // Noise floor — dashed line in the same brand red, slightly dimmed.
             chart
                 .draw_series(LineSeries::new(
                     vec![(x_lo, noise_floor), (x_hi, noise_floor)],
-                    ShapeStyle::from(&RED).stroke_width(1),
+                    ShapeStyle::from(&RGBColor(161, 75, 75)).stroke_width(1),
                 ))?
                 .label("noise floor")
-                .legend(|(x, y)| PathElement::new(vec![(x, y), (x + 15, y)], RED));
+                .legend(|(x, y)| {
+                    PathElement::new(vec![(x, y), (x + 15, y)], RGBColor(209, 102, 102))
+                });
 
             // Pitch labels and circles.
             for &(freq, score) in stable {
@@ -786,18 +794,18 @@ impl STFT {
                 chart.draw_series(std::iter::once(Circle::new(
                     (x, y),
                     5i32,
-                    YELLOW.filled(),
+                    RGBColor(161, 75, 75).filled(),
                 )))?;
                 chart.draw_series(std::iter::once(Text::new(
                     format!("{} {score:.1}", Self::freq_to_note_label(freq)),
                     (x, y_label),
-                    ("sans-serif", 11).into_font().color(&YELLOW),
+                    ("sans-serif", 24).into_font().color(&BLACK),
                 )))?;
             }
 
             chart
                 .configure_series_labels()
-                .label_font(("sans-serif", 11).into_font().color(&WHITE))
+                .label_font(("sans-serif", 24).into_font().color(&BLACK))
                 .draw()?;
         }
 

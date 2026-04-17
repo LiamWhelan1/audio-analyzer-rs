@@ -195,6 +195,10 @@ impl Metronome {
             return;
         }
 
+        // Notify the transport so the onset detector can suppress the acoustic
+        // echo of this click arriving at the microphone.
+        self.transport.notify_tick();
+
         let (freq, vol_mod, decay_ms) = match strength {
             BeatStrength::Strong => (2500.0, 1.0, 100.0),
             BeatStrength::Medium => (2000.0, 0.7, 100.0),
@@ -295,17 +299,23 @@ impl AudioSource for Metronome {
         // tells us if a beat boundary fell inside this buffer, and where.
         if let Some(crossing) = self.transport.did_cross_beat(total_frames as i64) {
             if !self.pattern.is_empty() {
-                let strength = self.pattern[self.current_beat_index].clone();
+                let patt_len = self.pattern.len() as i64;
+                // Derive pattern index from the absolute beat number so that
+                // non-integer-multiple count-offs land on the correct beat
+                // strength when the performance begins.
+                let beat_idx = ((crossing.beat_number % patt_len + patt_len) % patt_len) as usize;
+                let strength = self.pattern[beat_idx].clone();
 
                 if strength != BeatStrength::None {
                     self.spawn_tick(&strength, crossing.sample_offset_in_buffer);
+                    self.current_beat_index = beat_idx;
                     self.load_active_subdivisions();
                 } else {
                     // FIX: Muted beats must immediately kill active polyrhythm counters!
                     self.active_subdivision_counters.clear();
                 }
 
-                self.current_beat_index = (self.current_beat_index + 1) % self.pattern.len();
+                self.current_beat_index = (beat_idx + 1) % self.pattern.len();
             }
         }
 
