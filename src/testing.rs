@@ -719,7 +719,6 @@ pub fn run_cli_simulation() {
                                     "accuracy_percent",
                                     "avg_cent_dev",
                                     "num_notes_missed",
-                                    "articulation_accuracy",
                                     "timing_consistency",
                                     "note_onset_accuracy",
                                     "microtiming_skew",

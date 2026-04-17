@@ -13,8 +13,6 @@ pub(crate) const ACCURACY_ERR_THRESHOLD: f64 = 0.80;
 pub(crate) const INTONATION_ERR_THRESHOLD: f64 = 25.0;
 /// Minimum dynamic accuracy (0.0–1.0) before a measure is flagged.
 pub(crate) const DYNAMICS_ERR_THRESHOLD: f64 = 0.50;
-/// Relative tolerance for articulation duration matching (fraction of expected duration).
-pub(crate) const ARTICULATION_TOLERANCE: f64 = 0.20;
 /// Beat window within which a detected onset/note is considered matched to an expected note.
 pub(crate) const NOTE_MATCH_WINDOW: f64 = 0.25;
 
@@ -72,9 +70,6 @@ pub struct Metrics {
     pub avg_cent_dev: f64,
     /// Number of MIDI reference notes with no matching detected note.
     pub num_notes_missed: u64,
-    /// Percentage (0–100) of matched notes whose actual duration is within
-    /// 20% of the MIDI reference duration.
-    pub articulation_accuracy: f64,
     /// Population std dev of onset timing errors in beats. Lower = more consistent.
     pub timing_consistency: f64,
     /// Population std dev of the difference between actual and expected dynamic
@@ -114,13 +109,11 @@ impl Metrics {
     ///
     /// * `start_measure` / `end_measure` — the measure range practiced.
     /// * `tempo_bpm` — reference tempo from the transport / MIDI file.
-    /// * `beats_per_measure` — time signature numerator (e.g. 4 for 4/4).
     /// * `measures` — per-measure data from the three live trackers and MIDI reference.
     pub fn compute(
         start_measure: u32,
         end_measure: u32,
         tempo_bpm: f64,
-        beats_per_measure: u32,
         measures: &[MeasureData],
     ) -> Self {
         let num_measures = end_measure.saturating_sub(start_measure) + 1;
@@ -128,7 +121,6 @@ impl Metrics {
         let accuracy_percent = Self::calc_accuracy_percent(measures);
         let avg_cent_dev = Self::calc_avg_cent_dev(measures);
         let num_notes_missed = Self::calc_num_notes_missed(measures);
-        let articulation_accuracy = Self::calc_articulation_accuracy(measures, beats_per_measure);
         let timing_consistency = Self::calc_timing_consistency(measures);
         let dynamics_consistency = Self::calc_dynamics_consistency(measures);
         let dynamics_accuracy = Self::calc_dynamics_accuracy(measures);
@@ -170,7 +162,6 @@ impl Metrics {
             accuracy_percent,
             avg_cent_dev,
             num_notes_missed,
-            articulation_accuracy,
             timing_consistency,
             dynamics_consistency,
             dynamics_accuracy,
@@ -197,12 +188,9 @@ impl Metrics {
         let mut total = 0usize;
         let mut matched = 0usize;
         for m in measures {
-            for expected in &m.expected_notes {
+            for (ei, _) in m.expected_notes.iter().enumerate() {
                 total += 1;
-                if m.notes.iter().any(|n| {
-                    n.midi_note == expected.midi_note
-                        && (n.beat_position - expected.beat_position).abs() < NOTE_MATCH_WINDOW
-                }) {
+                if Self::note_is_matched(&m.notes, &m.expected_notes, ei, NOTE_MATCH_WINDOW) {
                     matched += 1;
                 }
             }
@@ -233,64 +221,13 @@ impl Metrics {
     fn calc_num_notes_missed(measures: &[MeasureData]) -> u64 {
         let mut missed = 0u64;
         for m in measures {
-            for expected in &m.expected_notes {
-                if !m.notes.iter().any(|n| {
-                    n.midi_note == expected.midi_note
-                        && (n.beat_position - expected.beat_position).abs() < NOTE_MATCH_WINDOW
-                }) {
+            for (ei, _) in m.expected_notes.iter().enumerate() {
+                if !Self::note_is_matched(&m.notes, &m.expected_notes, ei, NOTE_MATCH_WINDOW) {
                     missed += 1;
                 }
             }
         }
         missed
-    }
-
-    // ── Articulation ──────────────────────────────────────────────────────────
-
-    /// Percentage of matched notes whose actual duration (time to the next `NoteEvent`
-    /// within the measure) is within `ARTICULATION_TOLERANCE` of the MIDI reference duration.
-    fn calc_articulation_accuracy(measures: &[MeasureData], beats_per_measure: u32) -> f64 {
-        let mut total_matched = 0usize;
-        let mut articulation_ok = 0usize;
-
-        for m in measures {
-            let mut sorted_notes: Vec<&NoteEvent> = m.notes.iter().collect();
-            sorted_notes.sort_by(|a, b| {
-                a.beat_position
-                    .partial_cmp(&b.beat_position)
-                    .unwrap_or(std::cmp::Ordering::Equal)
-            });
-
-            let measure_end_beat = (m.measure_index + 1) as f64 * beats_per_measure as f64;
-
-            for expected in &m.expected_notes {
-                let Some(idx) = sorted_notes.iter().position(|n| {
-                    n.midi_note == expected.midi_note
-                        && (n.beat_position - expected.beat_position).abs() < NOTE_MATCH_WINDOW
-                }) else {
-                    continue;
-                };
-
-                total_matched += 1;
-
-                let actual_duration = if idx + 1 < sorted_notes.len() {
-                    sorted_notes[idx + 1].beat_position - sorted_notes[idx].beat_position
-                } else {
-                    measure_end_beat - sorted_notes[idx].beat_position
-                };
-
-                let ratio = (actual_duration - expected.duration_beats).abs()
-                    / expected.duration_beats.max(1e-6);
-                if ratio < ARTICULATION_TOLERANCE {
-                    articulation_ok += 1;
-                }
-            }
-        }
-
-        if total_matched == 0 {
-            return 0.0;
-        }
-        articulation_ok as f64 / total_matched as f64 * 100.0
     }
 
     // ── Timing ────────────────────────────────────────────────────────────────
@@ -527,12 +464,9 @@ impl Metrics {
                 let matched = m
                     .expected_notes
                     .iter()
-                    .filter(|expected| {
-                        m.notes.iter().any(|n| {
-                            n.midi_note == expected.midi_note
-                                && (n.beat_position - expected.beat_position).abs()
-                                    < NOTE_MATCH_WINDOW
-                        })
+                    .enumerate()
+                    .filter(|(ei, _)| {
+                        Self::note_is_matched(&m.notes, &m.expected_notes, *ei, NOTE_MATCH_WINDOW)
                     })
                     .count();
                 (matched as f64 / total as f64) < ACCURACY_ERR_THRESHOLD
@@ -589,6 +523,33 @@ impl Metrics {
     }
 
     // ── Private helpers ───────────────────────────────────────────────────────
+
+    /// Returns `true` when a detected note constitutes a valid match for `expected_notes[ei]`.
+    ///
+    /// Two kinds of match are accepted:
+    /// * **Exact** — detected MIDI equals `expected[ei].midi_note` and beat is within `window`.
+    /// * **Timing-shifted neighbor** — detected MIDI equals `expected[ei-1].midi_note` or
+    ///   `expected[ei+1].midi_note` and beat is within `window`.  This means the player
+    ///   played the correct note from the sequence but one slot too early or too late —
+    ///   a timing error rather than a wrong-note error.
+    fn note_is_matched(
+        notes: &[NoteEvent],
+        expected_notes: &[ExpectedNote],
+        ei: usize,
+        window: f64,
+    ) -> bool {
+        let exp_beat = expected_notes[ei].beat_position;
+        let exact_midi = expected_notes[ei].midi_note;
+        let prev_midi = if ei > 0 { Some(expected_notes[ei - 1].midi_note) } else { None };
+        let next_midi = expected_notes.get(ei + 1).map(|e| e.midi_note);
+
+        notes.iter().any(|n| {
+            (n.beat_position - exp_beat).abs() < window
+                && (n.midi_note == exact_midi
+                    || Some(n.midi_note) == prev_midi
+                    || Some(n.midi_note) == next_midi)
+        })
+    }
 
     /// Returns the closest onset to `target_beat` that falls within `NOTE_MATCH_WINDOW`.
     fn closest_onset_within_window(onsets: &[OnsetEvent], target_beat: f64) -> Option<&OnsetEvent> {
@@ -960,7 +921,7 @@ mod tests {
                 expected(3.0, 65, 1.0),
             ],
         }];
-        let metrics = Metrics::compute(0, 0, 120.0, 4, &measures);
+        let metrics = Metrics::compute(0, 0, 120.0, &measures);
         assert!((metrics.accuracy_percent - 100.0).abs() < 1e-9);
         assert_eq!(metrics.num_notes_missed, 0);
         assert!((metrics.avg_cent_dev - 0.0).abs() < 1e-9);
@@ -975,7 +936,7 @@ mod tests {
             dynamics: vec![],
             expected_notes: vec![expected(0.0, 60, 1.0), expected(1.0, 64, 1.0)],
         }];
-        let metrics = Metrics::compute(0, 0, 120.0, 4, &measures);
+        let metrics = Metrics::compute(0, 0, 120.0, &measures);
         assert!((metrics.accuracy_percent - 0.0).abs() < 1e-9);
         assert_eq!(metrics.num_notes_missed, 2);
     }

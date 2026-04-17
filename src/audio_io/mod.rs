@@ -724,11 +724,23 @@ impl AudioPipeline {
     {
         let mut state = (None::<usize>, 0usize);
 
+        let in_sr = config.sample_rate.0 as f64;
+
         let stream = device.build_input_stream(
             config,
-            move |data: &[T], _: &cpal::InputCallbackInfo| {
+            move |data: &[T], info: &cpal::InputCallbackInfo| {
                 let frames = data.len() / channels;
                 transport.tick_input(frames as i64);
+
+                // Update input latency from actual hardware timestamps.
+                // callback fires after capture, so callback − capture = input latency.
+                let ts = info.timestamp();
+                if let Some(lat) = ts.callback.duration_since(&ts.capture) {
+                    let lat_samples = (lat.as_secs_f64() * in_sr) as i64;
+                    if lat_samples > 0 && lat_samples < (in_sr * 2.0) as i64 {
+                        transport.set_input_latency(lat_samples);
+                    }
+                }
 
                 if !running.load(Ordering::Relaxed) {
                     return;
@@ -861,6 +873,7 @@ impl AudioPipeline {
     {
         let default_buf_size = 1024 * channels;
         let mut local_f32_buffer = vec![0.0f32; default_buf_size];
+        let out_sr = config.sample_rate.0 as f64;
 
         // Use a monotonic clock for timestamping.  On most platforms
         // std::time::Instant is backed by CLOCK_MONOTONIC / mach_absolute_time.
@@ -868,12 +881,22 @@ impl AudioPipeline {
         transport.play();
         let stream = device.build_output_stream(
             config,
-            move |data: &mut [T], _info: &cpal::OutputCallbackInfo| {
+            move |data: &mut [T], info: &cpal::OutputCallbackInfo| {
                 let frames = data.len() / channels;
 
                 // Compute a monotonic timestamp in seconds for this callback.
                 let callback_time_s = epoch.elapsed().as_secs_f64();
                 transport.tick_output(frames as i64, callback_time_s);
+
+                // Update output latency from actual hardware timestamps.
+                // playback fires after callback, so playback − callback = output latency.
+                let ts = info.timestamp();
+                if let Some(lat) = ts.playback.duration_since(&ts.callback) {
+                    let lat_samples = (lat.as_secs_f64() * out_sr) as i64;
+                    if lat_samples > 0 && lat_samples < (out_sr * 2.0) as i64 {
+                        transport.set_output_latency(lat_samples);
+                    }
+                }
 
                 if !running.load(Ordering::Relaxed) {
                     data.fill(T::EQUILIBRIUM);

@@ -13,8 +13,8 @@ use crate::{AudioEngineError, OnsetDetection, Tuner, lock_err};
 pub mod metrics;
 
 use metrics::{
-    ARTICULATION_TOLERANCE, DynamicsEvent, ExpectedNote, INTONATION_ERR_THRESHOLD, MeasureData,
-    Metrics, NOTE_MATCH_WINDOW, NoteEvent, ONSET_TIMING_ERR_THRESHOLD,
+    DynamicsEvent, ExpectedNote, INTONATION_ERR_THRESHOLD, MeasureData, Metrics, NOTE_MATCH_WINDOW,
+    NoteEvent, ONSET_TIMING_ERR_THRESHOLD,
 };
 
 /// Minimum onset velocity (0.0–1.0) required to trigger an onset-driven note boundary.
@@ -88,8 +88,6 @@ pub enum MusicError {
     Intonation,
     /// Dynamic level is outside tolerance.
     Dynamics,
-    /// Note duration (articulation) is outside tolerance.
-    Articulation,
     /// No error — used as a sentinel when a `SendInfo` still carries useful context.
     None,
 }
@@ -494,7 +492,6 @@ impl PracticeSession {
             start_idx as u32,
             end_idx as u32,
             ref_measure.bpm as f64,
-            ref_measure.time_signature.0 as u32,
             completed,
         );
         serde_json::to_string(&metrics).unwrap_or_else(|_| "{}".into())
@@ -788,7 +785,7 @@ fn generate_measure_feedback(data: &MeasureData, ability_level: AbilityLevel) ->
     let mut feedback = Vec::new();
     let tol = ability_level.tolerance_scale();
 
-    // Pre-sort detected note indices by beat position for articulation duration.
+    // Sort detected note indices by beat position for sequential lookup.
     let mut sorted_idxs: Vec<usize> = (0..data.notes.len()).collect();
     sorted_idxs.sort_by(|&a, &b| {
         data.notes[a]
@@ -839,29 +836,10 @@ fn generate_measure_feedback(data: &MeasureData, ability_level: AbilityLevel) ->
                         received: received_label.clone(),
                     });
                 }
-
-                // Articulation (requires a subsequent detected note)
-                if sp + 1 < sorted_idxs.len() {
-                    let next = &data.notes[sorted_idxs[sp + 1]];
-                    let actual_dur = next.beat_position - note.beat_position;
-                    let ratio = (actual_dur - expected.duration_beats).abs()
-                        / expected.duration_beats.max(1e-6);
-                    let articulation_threshold = ARTICULATION_TOLERANCE / tol;
-                    if ratio > articulation_threshold {
-                        feedback.push(SendInfo {
-                            measure: data.measure_index,
-                            note_index: ei,
-                            error_type: MusicError::Articulation,
-                            intensity: ratio.min(1.0),
-                            expected: format!("{:.2} beats", expected.duration_beats),
-                            received: format!("{:.2} beats", actual_dur),
-                        });
-                    }
-                }
             }
             None => {
                 if any_note_played {
-                    // A note was played at the right time but it was the wrong pitch.
+                    // A note was played near the expected beat but with the wrong pitch.
                     let played_ni = sorted_idxs
                         .iter()
                         .find(|&&ni| {
@@ -869,17 +847,47 @@ fn generate_measure_feedback(data: &MeasureData, ability_level: AbilityLevel) ->
                                 < NOTE_MATCH_WINDOW * tol
                         })
                         .copied();
-                    let received_label = played_ni
-                        .map(|ni| midi_to_note_name(data.notes[ni].midi_note))
-                        .unwrap_or_else(|| "unknown".into());
-                    feedback.push(SendInfo {
-                        measure: data.measure_index,
-                        note_index: ei,
-                        error_type: MusicError::WrongNote,
-                        intensity: 1.0,
-                        expected: expected_note_label.clone(),
-                        received: received_label,
-                    });
+
+                    if let Some(pni) = played_ni {
+                        let played_midi = data.notes[pni].midi_note;
+                        let received_label = midi_to_note_name(played_midi);
+
+                        // Check if the played pitch matches the previous or next expected note.
+                        // If so, the player played the right note but at the wrong time —
+                        // classify as a timing error rather than a wrong-note error.
+                        let prev_midi =
+                            if ei > 0 { Some(data.expected_notes[ei - 1].midi_note) } else { None };
+                        let next_midi =
+                            data.expected_notes.get(ei + 1).map(|e| e.midi_note);
+                        let is_timing_shift =
+                            Some(played_midi) == prev_midi || Some(played_midi) == next_midi;
+
+                        if is_timing_shift {
+                            feedback.push(SendInfo {
+                                measure: data.measure_index,
+                                note_index: ei,
+                                error_type: MusicError::Timing,
+                                intensity: 0.8,
+                                expected: format!(
+                                    "{} at beat {:.2}",
+                                    expected_note_label, expected.beat_position
+                                ),
+                                received: format!(
+                                    "{} at beat {:.2}",
+                                    received_label, data.notes[pni].beat_position
+                                ),
+                            });
+                        } else {
+                            feedback.push(SendInfo {
+                                measure: data.measure_index,
+                                note_index: ei,
+                                error_type: MusicError::WrongNote,
+                                intensity: 1.0,
+                                expected: expected_note_label.clone(),
+                                received: received_label,
+                            });
+                        }
+                    }
                 } else {
                     // Nothing was played when a note was expected.
                     feedback.push(SendInfo {
@@ -934,38 +942,48 @@ fn generate_measure_feedback(data: &MeasureData, ability_level: AbilityLevel) ->
             }
         }
 
-        // ── Info event for error-free matched notes ───────────────────────
-        if let Some(ni) = matched_note_idx {
-            if feedback.len() == errors_before {
-                let note = &data.notes[ni];
-                let dyn_str = expected
-                    .dynamic
-                    .map(|d| format!(" {d}"))
-                    .unwrap_or_default();
-                let cents_str = if note.avg_cents.abs() > 1.0 {
-                    format!(" {:+.0}c", note.avg_cents)
+        // ── Info event for every note that passed all checks ─────────────
+        // Fires whenever no errors were generated for this expected note,
+        // regardless of whether the match was exact or timing-shifted.
+        if feedback.len() == errors_before {
+            let dyn_str = expected
+                .dynamic
+                .map(|d| format!(" {d}"))
+                .unwrap_or_default();
+            let (received_midi, received_beat, received_cents) =
+                if let Some(ni) = matched_note_idx {
+                    let note = &data.notes[ni];
+                    (note.midi_note, note.beat_position, note.avg_cents)
                 } else {
-                    String::new()
+                    // No detected note — use expected values as stand-in.
+                    (expected.midi_note, expected.beat_position, 0.0)
                 };
-                feedback.push(SendInfo {
-                    measure: data.measure_index,
-                    note_index: ei,
-                    error_type: MusicError::None,
-                    intensity: 0.0,
-                    expected: format!(
-                        "{} midi={} beat={:.2} dur={:.2}{}",
-                        expected_note_label,
-                        expected.midi_note,
-                        expected.beat_position,
-                        expected.duration_beats,
-                        dyn_str
-                    ),
-                    received: format!(
-                        "{}{} midi={} beat={:.2}",
-                        expected_note_label, cents_str, note.midi_note, note.beat_position
-                    ),
-                });
-            }
+            let cents_str = if received_cents.abs() > 1.0 {
+                format!(" {:+.0}c", received_cents)
+            } else {
+                String::new()
+            };
+            feedback.push(SendInfo {
+                measure: data.measure_index,
+                note_index: ei,
+                error_type: MusicError::None,
+                intensity: 0.0,
+                expected: format!(
+                    "{} midi={} beat={:.2} dur={:.2}{}",
+                    expected_note_label,
+                    expected.midi_note,
+                    expected.beat_position,
+                    expected.duration_beats,
+                    dyn_str
+                ),
+                received: format!(
+                    "{}{} midi={} beat={:.2}",
+                    midi_to_note_name(received_midi),
+                    cents_str,
+                    received_midi,
+                    received_beat
+                ),
+            });
         }
     }
 
@@ -983,8 +1001,7 @@ fn generate_measure_feedback(data: &MeasureData, ability_level: AbilityLevel) ->
                 (note.beat_position - expected.beat_position).abs() < NOTE_MATCH_WINDOW * tol
             });
             if !is_substitution {
-                // Truly unexpected — played when silence was expected.
-                // Attribute to the nearest expected note (by beat) for a meaningful index.
+                // Find the nearest expected note by beat position.
                 let nearest_idx = data
                     .expected_notes
                     .iter()
@@ -997,14 +1014,53 @@ fn generate_measure_feedback(data: &MeasureData, ability_level: AbilityLevel) ->
                     })
                     .map(|(i, _)| i)
                     .unwrap_or(data.expected_notes.len());
-                feedback.push(SendInfo {
-                    measure: data.measure_index,
-                    note_index: nearest_idx,
-                    error_type: MusicError::UnexpectedNote,
-                    intensity: 0.5,
-                    expected: "silence".into(),
-                    received: midi_to_note_name(note.midi_note),
-                });
+
+                // Check if this note's MIDI matches the nearest expected note or one of
+                // its immediate neighbors. If so, the player played the right note from
+                // the sequence outside its expected time window — a timing error, not
+                // an unexpected note.
+                let is_timing_shift = if nearest_idx < data.expected_notes.len() {
+                    let nei = nearest_idx;
+                    let exact_midi = data.expected_notes[nei].midi_note;
+                    let prev_midi =
+                        if nei > 0 { Some(data.expected_notes[nei - 1].midi_note) } else { None };
+                    let next_midi = data.expected_notes.get(nei + 1).map(|e| e.midi_note);
+                    note.midi_note == exact_midi
+                        || Some(note.midi_note) == prev_midi
+                        || Some(note.midi_note) == next_midi
+                } else {
+                    false
+                };
+
+                if is_timing_shift {
+                    let nearest_beat = data
+                        .expected_notes
+                        .get(nearest_idx)
+                        .map(|e| e.beat_position)
+                        .unwrap_or(note.beat_position);
+                    feedback.push(SendInfo {
+                        measure: data.measure_index,
+                        note_index: nearest_idx.min(data.expected_notes.len().saturating_sub(1)),
+                        error_type: MusicError::Timing,
+                        intensity: 0.7,
+                        expected: format!("beat {:.2}", nearest_beat),
+                        received: format!(
+                            "{} at beat {:.2}",
+                            midi_to_note_name(note.midi_note),
+                            note.beat_position
+                        ),
+                    });
+                } else {
+                    // Truly unexpected — played when silence was expected.
+                    feedback.push(SendInfo {
+                        measure: data.measure_index,
+                        note_index: nearest_idx.min(data.expected_notes.len().saturating_sub(1)),
+                        error_type: MusicError::UnexpectedNote,
+                        intensity: 0.5,
+                        expected: "silence".into(),
+                        received: midi_to_note_name(note.midi_note),
+                    });
+                }
             }
         }
     }

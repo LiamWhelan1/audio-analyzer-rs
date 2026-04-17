@@ -190,6 +190,7 @@ impl DynamicsTracker {
     }
 
     /// Process one slot in place: apply AGC gain and update dynamics state.
+    /// Process one slot in place: apply AGC gain and update dynamics state.
     pub fn process_slot(&mut self, slot: &mut [f32]) {
         // ── 1. Pre-gain slot RMS ──────────────────────────────────────────
         let rms_linear = {
@@ -199,9 +200,6 @@ impl DynamicsTracker {
         let rms_db = linear_to_db(rms_linear);
 
         // ── 2. Long history (quiet frames only) → noise floor ────────────────
-        // Compute noise floor from existing data *before* deciding whether to
-        // add this frame.  Only non-active frames enter the buffer so that a
-        // sustained note cannot contaminate the noise-floor estimate.
         let long_len = self.long_history.len();
         let long_n = if self.long_filled {
             long_len
@@ -222,8 +220,6 @@ impl DynamicsTracker {
         };
 
         // ── 3. Active-frame gate ──────────────────────────────────────────
-        // Use the noise floor once we have enough data; fall back to a fixed
-        // threshold before the estimate is reliable.
         let floor_db = if long_n >= 32 {
             noise_floor_db
         } else {
@@ -232,11 +228,6 @@ impl DynamicsTracker {
         let is_active = rms_db > floor_db + self.active_snr_db;
 
         // ── 3b. Broadband detection (kurtosis) ───────────────────────────
-        // Kurtosis of a pure sine ≈ 1.5; white/broadband noise ≈ 3.0.
-        // Frames that are "active" by RMS but broadband by spectral shape are
-        // environmental noise (fan, HVAC) — not music.  Route them into the
-        // noise-floor buffer so the floor can adapt upward when the ambient
-        // level rises, and exclude them from play_history / gain / level.
         let is_broadband = if is_active {
             let n = slot.len() as f32;
             let mean_sq = rms_linear * rms_linear;
@@ -253,7 +244,14 @@ impl DynamicsTracker {
             } else {
                 3.0
             };
-            kurtosis >= 2.7
+
+            // CRITICAL FIX: True broadband noise (Gaussian) sits tightly around 3.0.
+            // Hardware noise reduction removes the low-level background ("super low bins"),
+            // heavily sparsifying the signal. Sparsified/gated signals have artificially
+            // inflated kurtosis that easily spikes > 4.5.
+            // We cap the kurtosis to prevent misclassifying gated notes as broadband noise.
+            // We also add a realistic dBFS ceiling: true background room noise shouldn't be extremely loud.
+            kurtosis >= 2.7 && kurtosis <= 4.5 && rms_db < -25.0
         } else {
             false
         };
@@ -304,23 +302,15 @@ impl DynamicsTracker {
             let gain_db = (self.target_db - p95_db).clamp(0.0, self.max_boost_db);
             (gain_db, median_db)
         } else {
-            // Bootstrap: no active frames yet — no boost, no reference.
             (0.0, rms_db)
         };
 
         // ── 6. Smooth gain ────────────────────────────────────────────────
-        //
-        // Active  → smooth toward computed target at ~15 s TC.
-        //           Long TC = the gain shifts only as the session character
-        //           changes, not per phrase.
-        // Silent  → decay toward 0 dB at ~10 s TC so prolonged silence does
-        //           not amplify background noise to the ceiling.
         if is_playing {
             let target_linear = db_to_linear(raw_gain_db);
             self.current_gain_linear +=
                 self.smooth_alpha * (target_linear - self.current_gain_linear);
         } else {
-            // Decay toward unity gain (0 dB).
             self.current_gain_linear += self.silence_decay_alpha * (1.0 - self.current_gain_linear);
         }
 

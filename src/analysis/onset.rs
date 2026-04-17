@@ -189,11 +189,13 @@ impl OnsetDetector {
                 let in_lat = transport.get_input_latency_samples();
                 let last_tick = transport.get_last_tick_output_frame();
                 let current_input = transport.get_input_frames();
-                // Estimated input frame at which the click arrives at the mic.
-                let expected_arrival = last_tick + out_lat + in_lat + acoustic_margin_samples;
-                let time_since_arrival = current_input - expected_arrival;
-                let suppressed_by_output =
-                    time_since_arrival >= 0 && time_since_arrival < click_duration_samples;
+                // Earliest frame at which the click echo can arrive at the mic:
+                // last_tick + output hardware buffer + input hardware buffer.
+                // The echo can arrive any time in [echo_start, echo_start +
+                // acoustic_margin_samples], then decays over click_duration_samples.
+                let echo_start = last_tick + out_lat + in_lat;
+                let echo_end = echo_start + acoustic_margin_samples + click_duration_samples;
+                let suppressed_by_output = current_input >= echo_start && current_input < echo_end;
 
                 while available_samples >= window_size {
                     for i in 0..window_size {
@@ -257,13 +259,15 @@ impl OnsetDetector {
                             // show at least a 2.5× jump above it.  Harmonic shifts
                             // in sustained notes (throat singing, etc.) keep the
                             // ratio near 1.0 and are therefore suppressed.
-                            let energy_rising = frame_energy > energy_ema * 2.5;
+                            let energy_rising = frame_energy > energy_ema * 1.25;
 
                             if !suppressed_by_output && energy_rising {
-                                let window_centre_offset = window_size as i64 / 2;
+                                // The onset centre is window_size/2 samples behind the
+                                // current ring-buffer write position.  Negate so
+                                // stamp_onset shifts the beat position backwards in time.
+                                let window_centre_offset = -(window_size as i64 / 2);
                                 let velocity = (current_flux / 50.0).clamp(0.0, 1.0);
-                                let event =
-                                    transport.stamp_onset(window_centre_offset, velocity);
+                                let event = transport.stamp_onset(window_centre_offset, velocity);
 
                                 log::trace!(
                                     "onset @ beat {:.4} (raw offset {})",
