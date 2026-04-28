@@ -1,3 +1,0 @@
-2026-04-28T16:03:00.455840Z DEBUG cpal_wasapi_out audio_engine::generators::synth: [synth] NoteOn: freq=261.63 vel=127 voices=0 already_active=false
-2026-04-28T16:03:00.755234Z TRACE cpal_wasapi_out audio_engine::generators::synth: [voice] 261.63 Hz: attack→decay
-2026-04-28T16:03:00.844433Z DEBUG cpal_wasapi_out audio_engine::generators::synth: [voice] 261.63 Hz: decay→sustain (envelope=0.900)
