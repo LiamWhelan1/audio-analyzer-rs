@@ -171,6 +171,9 @@ impl Metronome {
         if !self.pattern.is_empty() {
             let strength = self.pattern[0].clone();
             if strength != BeatStrength::None {
+                // At reset time output_frames is at or near 0; use current value
+                // as the click frame (echo window is opened from frame 0 onward).
+                self.transport.notify_tick_at_frame(self.transport.get_output_frames());
                 self.spawn_tick(&strength, 0);
                 self.current_beat_index = 0;
                 self.load_active_subdivisions();
@@ -189,15 +192,14 @@ impl Metronome {
 
     /// Spawn one or more tick generators for the given `BeatStrength`,
     /// with an optional sample-offset delay for sub-buffer accuracy.
+    ///
+    /// Callers must call `transport.notify_tick_at_frame(click_frame)` before
+    /// this function so the suppression window is anchored to the correct frame.
     fn spawn_tick(&mut self, strength: &BeatStrength, delay_samples: i64) {
         // log::trace!("Tick at {:.4}", self.transport.get_accumulated_beats());
         if self.muted {
             return;
         }
-
-        // Notify the transport so the onset detector can suppress the acoustic
-        // echo of this click arriving at the microphone.
-        self.transport.notify_tick();
 
         let (freq, vol_mod, decay_ms) = match strength {
             BeatStrength::Strong => (2500.0, 1.0, 100.0),
@@ -293,6 +295,13 @@ impl AudioSource for Metronome {
 
         let total_frames = buffer.len() / channels;
 
+        // Output frames were already incremented by tick_output before process()
+        // is called.  The start of this buffer is therefore at:
+        //   output_frames_now − total_frames
+        // Any click at sample offset S from the buffer start is at absolute frame:
+        //   buffer_start_frame + S
+        let buffer_start_frame = self.transport.get_output_frames() - total_frames as i64;
+
         // ── Detect beat crossing for this buffer ───────────────────────
         // did_cross_beat looks at the accumulated beats position (which
         // was already advanced by tick_output in the audio callback) and
@@ -307,6 +316,10 @@ impl AudioSource for Metronome {
                 let strength = self.pattern[beat_idx].clone();
 
                 if strength != BeatStrength::None {
+                    // Record the actual click frame so the onset detector's
+                    // suppression window opens at the right time.
+                    let click_frame = buffer_start_frame + crossing.sample_offset_in_buffer;
+                    self.transport.notify_tick_at_frame(click_frame);
                     self.spawn_tick(&strength, crossing.sample_offset_in_buffer);
                     self.current_beat_index = beat_idx;
                     self.load_active_subdivisions();
@@ -321,6 +334,8 @@ impl AudioSource for Metronome {
 
         // ── Per-sample rendering ───────────────────────────────────────
         for frame_idx in (0..buffer.len()).step_by(channels) {
+            let sample_in_buffer = (frame_idx / channels) as i64;
+
             // Subdivision counters still run per-sample since they are
             // sub-divisions of the beat, not aligned to transport beats.
             for i in 0..self.active_subdivision_counters.len() {
@@ -337,6 +352,7 @@ impl AudioSource for Metronome {
                         (phase * self.samples_per_beat as f64) as u64
                     };
                     if beat_phase_samples > guard_samples {
+                        self.transport.notify_tick_at_frame(buffer_start_frame + sample_in_buffer);
                         self.spawn_tick(&BeatStrength::Subdivision(div), 0);
                     }
                 }

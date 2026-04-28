@@ -70,6 +70,7 @@ struct InstrumentParams {
 }
 
 /// ADSR envelope states used by voices.
+#[derive(Copy, Clone, PartialEq, Debug)]
 enum EnvState {
     Attack,
     Decay,

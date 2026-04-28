@@ -15,16 +15,18 @@ fn main() -> anyhow::Result<()> {
             .with_level(true);
 
         let console_layer = fmt::layer()
-            .with_writer(std::io::stdout) // stays attached to your console
+            .with_writer(std::io::stderr) // stays attached to your console
             .with_ansi(true)
             .with_target(false)
             .with_thread_names(true)
             .with_level(true);
 
-        tracing_subscriber::registry()
-            .with(console_layer)
-            .with(file_layer)
-            .init();
+        if !cfg!(feature = "dev-tools") {
+            tracing_subscriber::registry()
+                .with(console_layer)
+                .with(file_layer)
+                .init();
+        }
         run_cli_simulation();
     }
     Ok(())

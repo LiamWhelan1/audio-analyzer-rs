@@ -97,11 +97,6 @@ pub struct Metrics {
     pub measure_tempo_map: Vec<f64>,
     /// (min_dynamic, max_dynamic) labels of the dynamic range used across the session.
     pub dynamics_range_used: (String, String),
-    /// NOTE: Cannot be determined analytically without repeat-section markers in the
-    /// MIDI file. The MIDI reference would need to encode which measures are repetitions
-    /// of earlier sections (e.g. via MIDI marker meta-events or a separate section map).
-    /// Currently returns 0.0 as a placeholder.
-    pub consistency_across_repetitions: f64,
 }
 
 impl Metrics {
@@ -176,7 +171,6 @@ impl Metrics {
             tempo_stability,
             measure_tempo_map,
             dynamics_range_used,
-            consistency_across_repetitions: 0.0,
         }
     }
 
@@ -322,9 +316,7 @@ impl Metrics {
                     })
                     .collect();
 
-                matched.sort_by(|a, b| {
-                    a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal)
-                });
+                matched.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
 
                 if matched.len() < 2 {
                     return tempo_bpm;
@@ -540,7 +532,11 @@ impl Metrics {
     ) -> bool {
         let exp_beat = expected_notes[ei].beat_position;
         let exact_midi = expected_notes[ei].midi_note;
-        let prev_midi = if ei > 0 { Some(expected_notes[ei - 1].midi_note) } else { None };
+        let prev_midi = if ei > 0 {
+            Some(expected_notes[ei - 1].midi_note)
+        } else {
+            None
+        };
         let next_midi = expected_notes.get(ei + 1).map(|e| e.midi_note);
 
         notes.iter().any(|n| {
@@ -761,7 +757,10 @@ mod tests {
             expected_notes: vec![],
         }];
         let dev = Metrics::calc_avg_cent_dev(&measures);
-        assert!((dev - 20.0).abs() < 1e-9, "expected 20 cents avg dev, got {dev}");
+        assert!(
+            (dev - 20.0).abs() < 1e-9,
+            "expected 20 cents avg dev, got {dev}"
+        );
     }
 
     #[test]
@@ -825,7 +824,10 @@ mod tests {
             expected_notes: vec![expected(1.0, 60, 1.0)],
         }];
         let skew = Metrics::calc_microtiming_skew(&measures);
-        assert!((skew - 0.0).abs() < 1e-9, "no data should give skew = 0, got {skew}");
+        assert!(
+            (skew - 0.0).abs() < 1e-9,
+            "no data should give skew = 0, got {skew}"
+        );
     }
 
     // ── dynamics_accuracy ─────────────────────────────────────────────────────
@@ -840,7 +842,10 @@ mod tests {
             expected_notes: vec![expected_with_dyn(0.5, 60, 1.0, DynamicLevel::Mf)],
         }];
         let acc = Metrics::calc_dynamics_accuracy(&measures);
-        assert!((acc - 100.0).abs() < 1e-9, "exact match should give 100%, got {acc}");
+        assert!(
+            (acc - 100.0).abs() < 1e-9,
+            "exact match should give 100%, got {acc}"
+        );
     }
 
     #[test]
@@ -854,7 +859,10 @@ mod tests {
             expected_notes: vec![expected_with_dyn(0.5, 60, 1.0, DynamicLevel::Fff)],
         }];
         let acc = Metrics::calc_dynamics_accuracy(&measures);
-        assert!((acc - 0.0).abs() < 1e-9, "large mismatch should give 0%, got {acc}");
+        assert!(
+            (acc - 0.0).abs() < 1e-9,
+            "large mismatch should give 0%, got {acc}"
+        );
     }
 
     // ── tempo_stability ───────────────────────────────────────────────────────
@@ -877,7 +885,10 @@ mod tests {
             stability < 1.0,
             "variable tempo should give stability < 1.0, got {stability}"
         );
-        assert!(stability >= 0.0, "stability must be non-negative, got {stability}");
+        assert!(
+            stability >= 0.0,
+            "stability must be non-negative, got {stability}"
+        );
     }
 
     // ── std_dev_f64 ───────────────────────────────────────────────────────────

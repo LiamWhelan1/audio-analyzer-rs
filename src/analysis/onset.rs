@@ -172,9 +172,16 @@ impl OnsetDetector {
                             available_samples += 1;
                         }
                     }
-                    slots.release(idx);
-                    let _ = reclaim.send(idx);
+                    if slots.release(idx) {
+                        let _ = reclaim.send(idx);
+                    }
                     new_data = true;
+                }
+
+                if available_samples > ring_buffer_len {
+                    let excess = available_samples - ring_buffer_len;
+                    ring_read_pos = (ring_read_pos + excess) % ring_buffer_len;
+                    available_samples = ring_buffer_len;
                 }
 
                 if !new_data && available_samples < window_size {

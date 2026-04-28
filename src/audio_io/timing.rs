@@ -219,6 +219,20 @@ impl MusicalTransport {
             .store(self.output_frames.load(Ordering::Relaxed), Ordering::Relaxed);
     }
 
+    /// Like `notify_tick`, but records the *exact* output frame where the
+    /// click starts (rather than the accumulated frames at callback end).
+    ///
+    /// The metronome places clicks at a sub-buffer offset (`delay_samples`
+    /// from the buffer start), so the actual click frame is:
+    ///   `output_frames_at_callback_end − buffer_size + delay_samples`
+    ///
+    /// Passing that value here makes the echo-suppression window in the onset
+    /// detector start at the right time instead of up to one buffer late.
+    pub fn notify_tick_at_frame(&self, click_output_frame: i64) {
+        self.last_tick_output_frame
+            .store(click_output_frame, Ordering::Relaxed);
+    }
+
     // =====================================================================
     // Onset alignment
     // =====================================================================

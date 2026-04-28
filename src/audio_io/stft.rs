@@ -12,11 +12,7 @@ use rtrb::Producer;
 use rustfft::num_complex::Complex;
 
 use crate::{
-    audio_io::{
-        SlotPool,
-        dynamics::{DynamicLevel, DynamicsOutput},
-        timing::MusicalTransport,
-    },
+    audio_io::{SlotPool, dynamics::DynamicsOutput, timing::MusicalTransport},
     dsp::fft::FftProcessor,
 };
 
@@ -216,7 +212,6 @@ impl STFT {
                 }
 
                 let mut new_data = false;
-                let is_silence = dynamics_output.read().level == DynamicLevel::Silence;
 
                 while let Ok(idx) = cons.pop() {
                     // Bounds checking prevents out-of-bounds on slot slices
@@ -229,14 +224,21 @@ impl STFT {
                         let slot_slice = &*slots.slots[idx].get();
                         for &sample in slot_slice.iter() {
                             // If silence, feed zeroes to keep the clock aligned and decay seamlessly
-                            ring_buffer[ring_write_pos] = if is_silence { 0.0 } else { sample };
+                            ring_buffer[ring_write_pos] = sample;
                             ring_write_pos = (ring_write_pos + 1) % ring_buffer_len;
                             available_samples += 1;
                         }
                     }
-                    slots.release(idx);
-                    let _ = reclaim.send(idx);
+                    if slots.release(idx) {
+                        let _ = reclaim.send(idx);
+                    }
                     new_data = true;
+                }
+
+                if available_samples > ring_buffer_len {
+                    let excess = available_samples - ring_buffer_len;
+                    ring_read_pos = (ring_read_pos + excess) % ring_buffer_len;
+                    available_samples = ring_buffer_len;
                 }
 
                 if !new_data && available_samples < window_size {
@@ -256,9 +258,7 @@ impl STFT {
                     let mut dev_png_data: Option<(Vec<f32>, Vec<f32>)> = None;
 
                     // Bypass the FFT entirely during silence
-                    let raw_pitches = if is_silence {
-                        Vec::new() // Feed an empty list so tracker counts it as a miss for all
-                    } else {
+                    let raw_pitches = {
                         #[cfg(feature = "dev-tools")]
                         let png_raw: Option<Vec<f32>> = if png_frame % 1000 == 0 {
                             Some(

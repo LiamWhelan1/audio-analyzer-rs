@@ -155,6 +155,17 @@ struct SessionState {
     /// Tuner beat (audio-aligned) when `pending_midi` was first observed.
     /// Used as `last_note_beat` when the boundary is eventually confirmed.
     pending_first_beat: f64,
+
+    // ── Count-off onset calibration ───────────────────────────────────
+    /// Raw fractional beat offsets (detected − nearest integer beat) collected
+    /// during the count-off.  Filtered and averaged at count-off end to derive
+    /// `onset_beat_offset`.
+    countoff_offsets: Vec<f64>,
+    /// Systematic lag in beats between detected onset positions and true beat
+    /// positions, measured during the count-off.  Subtracted from every onset
+    /// beat position during the performance phase.  `0.0` if no count-off data
+    /// was collected (fallback: no correction applied).
+    onset_beat_offset: f64,
 }
 
 impl SessionState {
@@ -188,6 +199,8 @@ impl SessionState {
             pending_midi: None,
             pending_count: 0,
             pending_first_beat: 0.0,
+            countoff_offsets: Vec::new(),
+            onset_beat_offset: 0.0,
         }
     }
 
@@ -525,11 +538,12 @@ fn run_session(
     running: Arc<AtomicBool>,
     ability_level: AbilityLevel,
 ) {
+    let tol = ability_level.tolerance_scale();
     while running.load(Ordering::Relaxed) {
         let beat = transport.get_accumulated_beats();
 
         // ── 1. Drain onset ring buffer ────────────────────────────────────
-        let new_onsets = onset.drain_onset_events();
+        let new_onsets_raw = onset.drain_onset_events();
 
         // ── 2. Sample tuner (short read lock) ─────────────────────────────
         let (note_names, note_cents, tuner_beat): (Vec<String>, Vec<f64>, f64) = {
@@ -556,29 +570,77 @@ fn run_session(
         let mut onsets_handled = false;
         if s.in_countoff {
             if beat >= s.first_measure_beat {
+                // ── Compute calibration offset from count-off detections ──────
+                // During count-off we collected the fractional beat offset of each
+                // detected onset (detected_beat − nearest_integer_beat).  Any
+                // consistent positive offset is the system input latency.
+                // Filter: accept offsets in (0.01, 0.60) beats to reject noise and
+                // outliers. Require ≥ 2 samples; fall back to 0.0 if insufficient.
+                let valid: Vec<f64> = s
+                    .countoff_offsets
+                    .iter()
+                    .copied()
+                    .filter(|&o| o > 0.01 && o < 0.60)
+                    .collect();
+                if valid.len() >= 2 {
+                    s.onset_beat_offset =
+                        valid.iter().sum::<f64>() / valid.len() as f64;
+                    log::info!(
+                        "Onset calibration: {:.4} beats from {} count-off samples",
+                        s.onset_beat_offset,
+                        valid.len()
+                    );
+                }
+                // (else: onset_beat_offset stays 0.0 — no correction applied)
+
                 s.in_countoff = false;
+                // Prevent any onset from the count-off drain batch (beat < first_measure_beat)
+                // from triggering a note boundary in the pitch-stability block below.
+                s.note_refractory_until = s.first_measure_beat;
                 // Discard all count-off onsets accumulated so far.
                 s.current_onsets.clear();
                 // Due to input pipeline latency, the ring buffer may deliver a count-off
-                // onset in the same drain batch as the beat-0 transition (e.g. the user's
-                // last clap lands in new_onsets after the clear).  Only admit performance-
-                // period onsets so they don't skew measure-0 timing metrics.
+                // onset in the same drain batch as the beat-0 transition.  Admit only
+                // performance-period onsets (after calibration correction) so they don't
+                // skew measure-0 timing metrics.
                 let first_beat = s.first_measure_beat;
-                for o in &new_onsets {
-                    if o.beat_position >= first_beat {
-                        s.current_onsets.push(*o);
+                let cal = s.onset_beat_offset;
+                for o in &new_onsets_raw {
+                    let corrected = o.beat_position - cal;
+                    if corrected >= first_beat {
+                        s.current_onsets.push(crate::audio_io::timing::OnsetEvent {
+                            beat_position: corrected,
+                            ..*o
+                        });
                     }
                 }
                 onsets_handled = true;
             } else {
-                // Still counting off — collect onsets (kept for timing baseline)
-                // but skip all note/dynamic analysis.
-                s.current_onsets.extend_from_slice(&new_onsets);
+                // Still counting off — collect onset offsets for calibration but
+                // skip all note/dynamic analysis.
+                for o in &new_onsets_raw {
+                    // offset = how many beats late the onset arrived relative to
+                    // the nearest integer beat (count-off clicks are on integers).
+                    let offset = o.beat_position - o.beat_position.round();
+                    s.countoff_offsets.push(offset);
+                }
+                s.current_onsets.extend_from_slice(&new_onsets_raw);
                 drop(s);
                 thread::sleep(Duration::from_millis(5));
                 continue;
             }
         }
+
+        // Apply calibration offset to create beat-corrected onset events.
+        // During count-off the offset is 0.0 so this is a no-op until calibrated.
+        let cal = s.onset_beat_offset;
+        let new_onsets: Vec<crate::audio_io::timing::OnsetEvent> = new_onsets_raw
+            .into_iter()
+            .map(|o| crate::audio_io::timing::OnsetEvent {
+                beat_position: o.beat_position - cal,
+                ..o
+            })
+            .collect();
 
         if !onsets_handled {
             s.current_onsets.extend_from_slice(&new_onsets);
@@ -604,6 +666,8 @@ fn run_session(
                 }
             }
         }
+
+        let prev_note_count = s.current_notes.len();
 
         // ── Pitch-stability hysteresis note-boundary detection ─────────────────
         //
@@ -699,6 +763,68 @@ fn run_session(
             }
         }
 
+        // ── Live per-note feedback ────────────────────────────────────────────
+        // Emits a SendInfo immediately each time a note is finalized, without
+        // waiting for the measure boundary.  The [live] prefix in `expected`
+        // distinguishes these events from the authoritative measure-end events.
+        let live_item: Option<SendInfo> = if s.current_notes.len() > prev_note_count {
+            let note = s.current_notes.last().unwrap();
+            let expected_notes = build_expected_notes(&measures[s.current_measure_idx]);
+            let closest = expected_notes.iter().enumerate().min_by(|(_, a), (_, b)| {
+                (a.beat_position - note.beat_position)
+                    .abs()
+                    .partial_cmp(&(b.beat_position - note.beat_position).abs())
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            });
+            Some(if let Some((ei, exp)) = closest {
+                let dist = (note.beat_position - exp.beat_position).abs();
+                let within = dist < NOTE_MATCH_WINDOW * tol;
+                let matched_midi = within && exp.midi_note == note.midi_note;
+                SendInfo {
+                    measure: s.current_measure_idx as u32,
+                    note_index: ei,
+                    error_type: if matched_midi {
+                        MusicError::None
+                    } else if within {
+                        MusicError::WrongNote
+                    } else {
+                        MusicError::UnexpectedNote
+                    },
+                    intensity: 0.0,
+                    expected: format!(
+                        "[live] {} midi={} beat={:.3} (dist={:.3} window={:.3})",
+                        midi_to_note_name(exp.midi_note),
+                        exp.midi_note,
+                        exp.beat_position,
+                        dist,
+                        NOTE_MATCH_WINDOW * tol,
+                    ),
+                    received: format!(
+                        "{} midi={} beat={:.3}",
+                        midi_to_note_name(note.midi_note),
+                        note.midi_note,
+                        note.beat_position,
+                    ),
+                }
+            } else {
+                SendInfo {
+                    measure: s.current_measure_idx as u32,
+                    note_index: 0,
+                    error_type: MusicError::UnexpectedNote,
+                    intensity: 0.0,
+                    expected: "[live] silence (no expected notes)".into(),
+                    received: format!(
+                        "{} midi={} beat={:.3}",
+                        midi_to_note_name(note.midi_note),
+                        note.midi_note,
+                        note.beat_position,
+                    ),
+                }
+            })
+        } else {
+            None
+        };
+
         // Dynamics-change detection (suppress Silence→Silence no-ops).
         if current_level != DynamicLevel::Silence && s.last_dynamic != Some(current_level) {
             s.current_dynamics.push(DynamicsEvent {
@@ -764,6 +890,9 @@ fn run_session(
             drop(s);
 
             if let Ok(mut guard) = feedback.lock() {
+                if let Some(item) = live_item {
+                    guard.push(item);
+                }
                 guard.extend(new_feedback);
             }
 
@@ -773,6 +902,11 @@ fn run_session(
             }
         } else {
             drop(s);
+            if let Some(item) = live_item {
+                if let Ok(mut guard) = feedback.lock() {
+                    guard.push(item);
+                }
+            }
         }
 
         thread::sleep(Duration::from_millis(5));

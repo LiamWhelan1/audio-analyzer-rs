@@ -601,19 +601,23 @@ pub fn run_cli_simulation() {
                             let expected = ev["expected"].as_str().unwrap_or("?");
                             let received = ev["received"].as_str().unwrap_or("?");
 
-                            if err_type == "None" {
+                            let is_live = expected.starts_with("[live]");
+
+                            if err_type == "None" && !is_live {
                                 continue;
                             }
 
-                            let marker = if intensity > 0.7 {
-                                "!!"
+                            let marker = if is_live {
+                                ">> "
+                            } else if intensity > 0.7 {
+                                "!! "
                             } else if intensity > 0.3 {
-                                "! "
+                                "!  "
                             } else {
-                                "  "
+                                "   "
                             };
                             println!(
-                                "  | {marker} [{err_type}] m{measure}:n{note_idx}  \
+                                "  | {marker}[{err_type}] m{measure}:n{note_idx}  \
                                  expected={expected}  received={received}  \
                                  intensity={intensity:.2}"
                             );

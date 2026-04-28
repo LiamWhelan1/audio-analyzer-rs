@@ -3,6 +3,7 @@ pub mod audio_io;
 pub mod dsp;
 pub mod generators;
 pub mod practice;
+#[cfg(debug_assertions)]
 pub mod testing;
 pub mod traits;
 

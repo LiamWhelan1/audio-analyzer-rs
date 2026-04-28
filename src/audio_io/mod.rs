@@ -334,67 +334,67 @@ impl AudioPipeline {
                 slot_len_reducer,
                 -18.0, // target dBFS (measured against p95 of active-frame RMS)
                 36.0,  // max boost dB
-                15.0,  // gain smoothing TC (seconds) — long TC keeps gain
+                30.0,  // gain smoothing TC (seconds) — long TC keeps gain
                 // session-stable rather than phrase-by-phrase
                 dynamics_output_reducer,
             );
 
-            let calc_biquad = |freq: f32, is_lpf: bool| -> (f32, f32, f32, f32, f32) {
-                let w0 = 2.0 * PI * freq / sample_rate;
-                let cos_w0 = w0.cos();
-                let sin_w0 = w0.sin();
-                let alpha = sin_w0 / (2.0 * 0.707);
+            // let calc_biquad = |freq: f32, is_lpf: bool| -> (f32, f32, f32, f32, f32) {
+            //     let w0 = 2.0 * PI * freq / sample_rate;
+            //     let cos_w0 = w0.cos();
+            //     let sin_w0 = w0.sin();
+            //     let alpha = sin_w0 / (2.0 * 0.707);
 
-                let (b0, b1, b2, a0, a1, a2) = if is_lpf {
-                    (
-                        (1.0 - cos_w0) / 2.0,
-                        1.0 - cos_w0,
-                        (1.0 - cos_w0) / 2.0,
-                        1.0 + alpha,
-                        -2.0 * cos_w0,
-                        1.0 - alpha,
-                    )
-                } else {
-                    (
-                        (1.0 + cos_w0) / 2.0,
-                        -(1.0 + cos_w0),
-                        (1.0 + cos_w0) / 2.0,
-                        1.0 + alpha,
-                        -2.0 * cos_w0,
-                        1.0 - alpha,
-                    )
-                };
-                (b0 / a0, b1 / a0, b2 / a0, a1 / a0, a2 / a0)
-            };
+            //     let (b0, b1, b2, a0, a1, a2) = if is_lpf {
+            //         (
+            //             (1.0 - cos_w0) / 2.0,
+            //             1.0 - cos_w0,
+            //             (1.0 - cos_w0) / 2.0,
+            //             1.0 + alpha,
+            //             -2.0 * cos_w0,
+            //             1.0 - alpha,
+            //         )
+            //     } else {
+            //         (
+            //             (1.0 + cos_w0) / 2.0,
+            //             -(1.0 + cos_w0),
+            //             (1.0 + cos_w0) / 2.0,
+            //             1.0 + alpha,
+            //             -2.0 * cos_w0,
+            //             1.0 - alpha,
+            //         )
+            //     };
+            //     (b0 / a0, b1 / a0, b2 / a0, a1 / a0, a2 / a0)
+            // };
 
-            let (hp_b0, hp_b1, hp_b2, hp_a1, hp_a2) = calc_biquad(80.0, false);
-            let (lp_b0, lp_b1, lp_b2, lp_a1, lp_a2) = calc_biquad(12000.0, true);
+            // let (hp_b0, hp_b1, hp_b2, hp_a1, hp_a2) = calc_biquad(80.0, false);
+            // let (lp_b0, lp_b1, lp_b2, lp_a1, lp_a2) = calc_biquad(12000.0, true);
 
-            let mut hp_x1 = 0.0;
-            let mut hp_x2 = 0.0;
-            let mut hp_y1 = 0.0;
-            let mut hp_y2 = 0.0;
+            // let mut hp_x1 = 0.0;
+            // let mut hp_x2 = 0.0;
+            // let mut hp_y1 = 0.0;
+            // let mut hp_y2 = 0.0;
 
-            let mut lp_x1 = 0.0;
-            let mut lp_x2 = 0.0;
-            let mut lp_y1 = 0.0;
-            let mut lp_y2 = 0.0;
+            // let mut lp_x1 = 0.0;
+            // let mut lp_x2 = 0.0;
+            // let mut lp_y1 = 0.0;
+            // let mut lp_y2 = 0.0;
 
-            let gate_threshold_db: f32 = -60.0;
-            let gate_threshold_linear: f32 = 10.0f32.powf(gate_threshold_db / 20.0);
-            let mut envelope: f32 = 0.0;
+            // let gate_threshold_db: f32 = -60.0;
+            // let gate_threshold_linear: f32 = 10.0f32.powf(gate_threshold_db / 20.0);
+            // let mut envelope: f32 = 0.0;
 
-            // Faster release (40 ms) means the gate closes sooner after a
-            // note ends, reducing background noise audibility between notes.
-            // The previous 100 ms release kept the gate open for ~400 ms
-            // after a loud note, letting noise through at full amplitude.
-            let release_coeff = (-1.0 / (0.040 * sample_rate)).exp();
+            // // Faster release (40 ms) means the gate closes sooner after a
+            // // note ends, reducing background noise audibility between notes.
+            // // The previous 100 ms release kept the gate open for ~400 ms
+            // // after a loud note, letting noise through at full amplitude.
+            // let release_coeff = (-1.0 / (0.040 * sample_rate)).exp();
 
-            // Hold: keep the gate fully open for this many samples after the
-            // envelope drops below threshold, preserving natural note tails
-            // without holding long enough for noise to become audible.
-            let gate_hold_samples = (0.020 * sample_rate) as usize; // 20 ms
-            let mut gate_hold_remaining: usize = 0;
+            // // Hold: keep the gate fully open for this many samples after the
+            // // envelope drops below threshold, preserving natural note tails
+            // // without holding long enough for noise to become audible.
+            // let gate_hold_samples = (0.020 * sample_rate) as usize; // 20 ms
+            // let mut gate_hold_remaining: usize = 0;
 
             loop {
                 while let Ok((name, prod)) = reducer_add_rx.try_recv() {
@@ -411,56 +411,56 @@ impl AudioPipeline {
                         unsafe {
                             let slot = &mut *slots_clone.slots[idx].get();
 
-                            for i in 0..slot.len() {
-                                let mut x = slot[i];
+                            // for i in 0..slot.len() {
+                            //     let mut x = slot[i];
 
-                                let hp_out = hp_b0 * x + hp_b1 * hp_x1 + hp_b2 * hp_x2
-                                    - hp_a1 * hp_y1
-                                    - hp_a2 * hp_y2;
-                                hp_x2 = hp_x1;
-                                hp_x1 = x;
-                                hp_y2 = hp_y1;
-                                hp_y1 = hp_out;
-                                x = hp_out;
+                            //     let hp_out = hp_b0 * x + hp_b1 * hp_x1 + hp_b2 * hp_x2
+                            //         - hp_a1 * hp_y1
+                            //         - hp_a2 * hp_y2;
+                            //     hp_x2 = hp_x1;
+                            //     hp_x1 = x;
+                            //     hp_y2 = hp_y1;
+                            //     hp_y1 = hp_out;
+                            //     x = hp_out;
 
-                                let lp_out = lp_b0 * x + lp_b1 * lp_x1 + lp_b2 * lp_x2
-                                    - lp_a1 * lp_y1
-                                    - lp_a2 * lp_y2;
-                                lp_x2 = lp_x1;
-                                lp_x1 = x;
-                                lp_y2 = lp_y1;
-                                lp_y1 = lp_out;
-                                x = lp_out;
+                            //     let lp_out = lp_b0 * x + lp_b1 * lp_x1 + lp_b2 * lp_x2
+                            //         - lp_a1 * lp_y1
+                            //         - lp_a2 * lp_y2;
+                            //     lp_x2 = lp_x1;
+                            //     lp_x1 = x;
+                            //     lp_y2 = lp_y1;
+                            //     lp_y1 = lp_out;
+                            //     x = lp_out;
 
-                                let abs_in = x.abs();
+                            //     let abs_in = x.abs();
 
-                                // Envelope follower: instantaneous attack,
-                                // 40 ms exponential release.
-                                if abs_in > envelope {
-                                    envelope = abs_in;
-                                    gate_hold_remaining = gate_hold_samples;
-                                } else {
-                                    envelope =
-                                        release_coeff * envelope + (1.0 - release_coeff) * abs_in;
-                                }
+                            //     // Envelope follower: instantaneous attack,
+                            //     // 40 ms exponential release.
+                            //     if abs_in > envelope {
+                            //         envelope = abs_in;
+                            //         gate_hold_remaining = gate_hold_samples;
+                            //     } else {
+                            //         envelope =
+                            //             release_coeff * envelope + (1.0 - release_coeff) * abs_in;
+                            //     }
 
-                                // Gate gain:
-                                //  • Above threshold or within hold period → 1.0
-                                //  • Below threshold after hold expires    → ratio^4
-                                //    (steeper than the previous ratio^2, so background
-                                //    noise is attenuated more aggressively)
-                                let gain = if envelope >= gate_threshold_linear {
-                                    1.0
-                                } else if gate_hold_remaining > 0 {
-                                    gate_hold_remaining -= 1;
-                                    1.0
-                                } else {
-                                    let ratio = envelope / gate_threshold_linear;
-                                    ratio * ratio * ratio * ratio
-                                };
+                            //     // Gate gain:
+                            //     //  • Above threshold or within hold period → 1.0
+                            //     //  • Below threshold after hold expires    → ratio^4
+                            //     //    (steeper than the previous ratio^2, so background
+                            //     //    noise is attenuated more aggressively)
+                            //     let gain = if envelope >= gate_threshold_linear {
+                            //         1.0
+                            //     } else if gate_hold_remaining > 0 {
+                            //         gate_hold_remaining -= 1;
+                            //         1.0
+                            //     } else {
+                            //         let ratio = envelope / gate_threshold_linear;
+                            //         ratio * ratio * ratio * ratio
+                            //     };
 
-                                slot[i] = x * gain;
-                            }
+                            //     slot[i] = x * gain;
+                            // }
 
                             // AGC: measure loudness, compute and apply
                             // smoothed gain so all consumers receive a
@@ -914,6 +914,7 @@ impl AudioPipeline {
                         *out_sample = T::from_sample(*f32_sample);
                     }
                 } else {
+                    log::warn!("[audio] mixer try_lock failed — outputting silence (potential plosive source)");
                     data.fill(T::EQUILIBRIUM);
                 }
             },

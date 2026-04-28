@@ -112,6 +112,7 @@ impl Voice {
                 if self.envelope >= 1.0 {
                     self.envelope = 1.0;
                     self.state = EnvState::Decay;
+                    log::trace!("[voice] {:.2} Hz: attack→decay", self.freq);
                 }
             }
             EnvState::Decay => {
@@ -121,6 +122,7 @@ impl Voice {
                 if self.envelope <= self.params.sustain_level {
                     self.envelope = self.params.sustain_level;
                     self.state = EnvState::Sustain;
+                    log::debug!("[voice] {:.2} Hz: decay→sustain (envelope={:.3})", self.freq, self.envelope);
                 }
             }
             EnvState::Sustain => {
@@ -128,6 +130,7 @@ impl Voice {
                     *rem -= beats_delta;
                     if *rem <= 0.0 {
                         self.state = EnvState::Release;
+                        log::debug!("[voice] {:.2} Hz: sustain→release (timer expired)", self.freq);
                     }
                 }
             }
@@ -138,12 +141,13 @@ impl Voice {
                 if self.envelope <= 0.0 {
                     self.envelope = 0.0;
                     self.state = EnvState::Finished;
+                    log::debug!("[voice] {:.2} Hz: release→finished", self.freq);
                 }
             }
             _ => {}
         }
 
-        raw_sig * self.envelope * self.velocity * 3.0
+        raw_sig * self.envelope * self.velocity
     }
 }
 
@@ -235,11 +239,34 @@ impl Synthesizer {
                     velocity,
                     instrument,
                 } => {
-                    let norm_vel = velocity / MAX_MIDI_VELOCITY;
-                    self.voices
-                        .push(Voice::new(freq, norm_vel, None, instrument));
+                    // If a voice at this freq is already actively playing (not
+                    // yet in Release/Finished), don't re-trigger it — doing so
+                    // would create a discontinuity audible as a click.  This
+                    // makes NoteOn idempotent for sustained drone use-cases
+                    // where the caller may poll play_note() at UI frame-rate.
+                    let already_active = self.voices.iter().any(|v| {
+                        (v.freq - freq).abs() < 0.1
+                            && !matches!(v.state, EnvState::Release | EnvState::Finished)
+                    });
+                    log::debug!(
+                        "[synth] NoteOn: freq={:.2} vel={:.0} voices={} already_active={}",
+                        freq, velocity, self.voices.len(), already_active
+                    );
+                    if !already_active {
+                        for v in &mut self.voices {
+                            if (v.freq - freq).abs() < 0.1
+                                && !matches!(v.state, EnvState::Finished)
+                            {
+                                v.state = EnvState::Release;
+                            }
+                        }
+                        let norm_vel = velocity / MAX_MIDI_VELOCITY;
+                        self.voices
+                            .push(Voice::new(freq, norm_vel, None, instrument));
+                    }
                 }
                 SynthCommand::NoteOff { freq } => {
+                    log::debug!("[synth] NoteOff: freq={:.2} voices={}", freq, self.voices.len());
                     for v in &mut self.voices {
                         if (v.freq - freq).abs() < 0.1 {
                             v.state = EnvState::Release;
@@ -304,6 +331,7 @@ impl AudioSource for Synthesizer {
         let bpm = self.transport.get_bpm();
         let beats_per_sample = (bpm / 60.0) / self.sample_rate;
 
+        let voices_before_buf = self.voices.len();
         for frame_idx in (0..buffer.len()).step_by(channels) {
             if self.is_playing_seq {
                 let prev_cursor = self.playback_cursor_global_beats;
@@ -377,8 +405,6 @@ impl AudioSource for Synthesizer {
                     active_count += 1.0;
                 }
             }
-            self.voices
-                .retain(|v| !matches!(v.state, EnvState::Finished));
 
             let norm_factor = if active_count > 1.0 {
                 1.0 / active_count.sqrt()
@@ -390,6 +416,17 @@ impl AudioSource for Synthesizer {
             for ch in 0..channels {
                 buffer[frame_idx + ch] += final_val;
             }
+        }
+
+        self.voices
+            .retain(|v| !matches!(v.state, EnvState::Finished));
+        if self.voices.len() != voices_before_buf {
+            log::debug!(
+                "[synth] voices: {} → {} ({} removed this buffer)",
+                voices_before_buf,
+                self.voices.len(),
+                voices_before_buf - self.voices.len()
+            );
         }
     }
 }
