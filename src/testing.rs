@@ -314,6 +314,16 @@ mod ffi_tests {
 
 /// Interactive CLI simulation for testing the new Object-Oriented API.
 pub fn run_cli_simulation() {
+    // --- Gather inputs interactively ---
+    macro_rules! prompt {
+        ($msg:expr) => {{
+            print!($msg);
+            io::stdout().flush().unwrap();
+            let mut buf = String::new();
+            io::stdin().read_line(&mut buf).ok();
+            buf.trim().to_string()
+        }};
+    }
     println!("\nCadenza CLI Simulation Layer (UniFFI Mode)");
     println!("Initializing Audio Engine...");
 
@@ -382,6 +392,15 @@ pub fn run_cli_simulation() {
                     // Logic for a middle C (261.63 Hz) at max velocity
                     s.play_note(261.63, 127.0, "Violin".into());
                     println!("Playing Middle C...");
+                }
+            }
+            "synth load" => {
+                if let Some(s) = engine.active_synth.lock().unwrap().as_ref() {
+                    let midi_path = prompt!("MIDI file path: ");
+                    if !midi_path.is_empty() {
+                        s.load_file(midi_path, "violin".into());
+                        s.play(0);
+                    }
                 }
             }
             "synth stop" => {
@@ -474,17 +493,6 @@ pub fn run_cli_simulation() {
                 }
 
                 let wait_for_onset = cmd == "practice start wait";
-
-                // --- Gather inputs interactively ---
-                macro_rules! prompt {
-                    ($msg:expr) => {{
-                        print!($msg);
-                        io::stdout().flush().unwrap();
-                        let mut buf = String::new();
-                        io::stdin().read_line(&mut buf).ok();
-                        buf.trim().to_string()
-                    }};
-                }
 
                 let midi_path = prompt!("MIDI file path: ");
                 if midi_path.is_empty() {

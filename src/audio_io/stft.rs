@@ -257,7 +257,6 @@ impl STFT {
                     #[cfg(feature = "dev-tools")]
                     let mut dev_png_data: Option<(Vec<f32>, Vec<f32>)> = None;
 
-                    // Bypass the FFT entirely during silence
                     let raw_pitches = {
                         #[cfg(feature = "dev-tools")]
                         let png_raw: Option<Vec<f32>> = if png_frame % 1000 == 0 {

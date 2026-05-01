@@ -65,15 +65,39 @@ impl Voice {
     }
 
     /// Create a new voice instance.
-    fn new(freq: f32, velocity: f32, duration_beats: Option<f32>, instrument: Instrument) -> Self {
-        let params = Self::get_instrument_params(&instrument);
+    ///
+    /// When `bpm` is provided and `duration_beats` is `Some`, the ADSR params are
+    /// scaled so the entire envelope (attack + decay + sustain + release) completes
+    /// exactly at `duration_beats`, eliminating overlap with subsequent notes.
+    fn new(freq: f32, velocity: f32, duration_beats: Option<f32>, instrument: Instrument, bpm: Option<f32>) -> Self {
+        let mut params = Self::get_instrument_params(&instrument);
+
+        let remaining_beats = match (duration_beats, bpm) {
+            (Some(dur_beats), Some(bpm)) => {
+                let dur_secs = dur_beats * 60.0 / bpm;
+                let natural_env_secs = params.attack_sec + params.decay_sec + params.release_sec;
+                if natural_env_secs <= dur_secs {
+                    let sustain_secs = dur_secs - natural_env_secs;
+                    Some(sustain_secs * bpm / 60.0)
+                } else {
+                    // Note shorter than the natural envelope: compress all phases.
+                    let scale = dur_secs / natural_env_secs;
+                    params.attack_sec *= scale;
+                    params.decay_sec *= scale;
+                    params.release_sec *= scale;
+                    Some(0.0)
+                }
+            }
+            _ => duration_beats,
+        };
+
         Self {
             freq,
             velocity,
             instrument,
             params,
             phase: 0.0,
-            remaining_beats: duration_beats,
+            remaining_beats,
             envelope: 0.0,
             state: EnvState::Attack,
         }
@@ -122,7 +146,11 @@ impl Voice {
                 if self.envelope <= self.params.sustain_level {
                     self.envelope = self.params.sustain_level;
                     self.state = EnvState::Sustain;
-                    log::debug!("[voice] {:.2} Hz: decay→sustain (envelope={:.3})", self.freq, self.envelope);
+                    log::debug!(
+                        "[voice] {:.2} Hz: decay→sustain (envelope={:.3})",
+                        self.freq,
+                        self.envelope
+                    );
                 }
             }
             EnvState::Sustain => {
@@ -130,7 +158,10 @@ impl Voice {
                     *rem -= beats_delta;
                     if *rem <= 0.0 {
                         self.state = EnvState::Release;
-                        log::debug!("[voice] {:.2} Hz: sustain→release (timer expired)", self.freq);
+                        log::debug!(
+                            "[voice] {:.2} Hz: sustain→release (timer expired)",
+                            self.freq
+                        );
                     }
                 }
             }
@@ -250,23 +281,29 @@ impl Synthesizer {
                     });
                     log::debug!(
                         "[synth] NoteOn: freq={:.2} vel={:.0} voices={} already_active={}",
-                        freq, velocity, self.voices.len(), already_active
+                        freq,
+                        velocity,
+                        self.voices.len(),
+                        already_active
                     );
                     if !already_active {
                         for v in &mut self.voices {
-                            if (v.freq - freq).abs() < 0.1
-                                && !matches!(v.state, EnvState::Finished)
+                            if (v.freq - freq).abs() < 0.1 && !matches!(v.state, EnvState::Finished)
                             {
                                 v.state = EnvState::Release;
                             }
                         }
                         let norm_vel = velocity / MAX_MIDI_VELOCITY;
                         self.voices
-                            .push(Voice::new(freq, norm_vel, None, instrument));
+                            .push(Voice::new(freq, norm_vel, None, instrument, None));
                     }
                 }
                 SynthCommand::NoteOff { freq } => {
-                    log::debug!("[synth] NoteOff: freq={:.2} voices={}", freq, self.voices.len());
+                    log::debug!(
+                        "[synth] NoteOff: freq={:.2} voices={}",
+                        freq,
+                        self.voices.len()
+                    );
                     for v in &mut self.voices {
                         if (v.freq - freq).abs() < 0.1 {
                             v.state = EnvState::Release;
@@ -386,6 +423,7 @@ impl AudioSource for Synthesizer {
                                 velocity,
                                 Some(note.duration_beats),
                                 note.instrument,
+                                Some(bpm),
                             ));
                         }
                     }
@@ -425,7 +463,7 @@ impl AudioSource for Synthesizer {
                 "[synth] voices: {} → {} ({} removed this buffer)",
                 voices_before_buf,
                 self.voices.len(),
-                voices_before_buf - self.voices.len()
+                voices_before_buf as isize - self.voices.len() as isize
             );
         }
     }

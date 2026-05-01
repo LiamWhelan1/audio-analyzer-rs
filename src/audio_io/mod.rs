@@ -368,7 +368,7 @@ impl AudioPipeline {
             };
 
             let (hp_b0, hp_b1, hp_b2, hp_a1, hp_a2) = calc_biquad(20.0, false);
-            let (lp_b0, lp_b1, lp_b2, lp_a1, lp_a2) = calc_biquad(12000.0, true);
+            let (lp_b0, lp_b1, lp_b2, lp_a1, lp_a2) = calc_biquad(14000.0, true);
 
             let mut hp_x1 = 0.0;
             let mut hp_x2 = 0.0;
