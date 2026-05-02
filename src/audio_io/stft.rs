@@ -1,7 +1,7 @@
 use std::{
     sync::{
         Arc,
-        atomic::{AtomicI8, Ordering},
+        atomic::{AtomicBool, AtomicI8, Ordering},
     },
     thread,
     time::Duration,
@@ -12,7 +12,11 @@ use rtrb::Producer;
 use rustfft::num_complex::Complex;
 
 use crate::{
-    audio_io::{SlotPool, dynamics::DynamicsOutput, timing::MusicalTransport},
+    audio_io::{
+        SlotPool,
+        dynamics::{DynamicLevel, DynamicsOutput},
+        timing::MusicalTransport,
+    },
     dsp::fft::FftProcessor,
 };
 
@@ -42,7 +46,7 @@ impl PitchTracker {
         }
     }
 
-    fn process(&mut self, raw_pitches: Vec<(f32, f32)>) -> Vec<(f32, f32)> {
+    fn process(&mut self, raw_pitches: Vec<(f32, f32)>, onset: bool) -> Vec<(f32, f32)> {
         let mut matched = vec![false; self.tracks.len()];
         let mut active_pitches = Vec::new();
 
@@ -55,7 +59,14 @@ impl PitchTracker {
                 }
 
                 if (track.freq - raw_freq).abs() / track.freq < self.tolerance {
-                    track.freq = track.freq * 0.6 + raw_freq * 0.4;
+                    // On a real onset, snap directly to the new frequency
+                    // instead of EMA-blending — otherwise the displayed pitch
+                    // crosses through wrong values during fast transitions.
+                    if onset {
+                        track.freq = raw_freq;
+                    } else {
+                        track.freq = track.freq * 0.6 + raw_freq * 0.4;
+                    }
                     track.score = raw_score;
                     // Hit: Increase life, clamped to max_life
                     track.life = (track.life + 1).min(self.max_life);
@@ -76,12 +87,18 @@ impl PitchTracker {
             }
         }
 
-        // 3. Process misses, reap dead tracks, and emit stable ones
+        // 3. Process misses, reap dead tracks, and emit stable ones.
+        // On a real onset, drop unmatched tracks immediately rather than
+        // letting them coast for `max_life` frames — they're previous notes
+        // that are no longer present.
         let mut i = 0;
         while i < self.tracks.len() {
             if !matched[i] {
-                // Miss: Decrease life
-                self.tracks[i].life -= 1;
+                if onset {
+                    self.tracks[i].life = 0;
+                } else {
+                    self.tracks[i].life -= 1;
+                }
             }
 
             if self.tracks[i].life <= 0 {
@@ -149,6 +166,7 @@ impl STFT {
         note_tx: Producer<(Vec<(f32, f32)>, f64)>,
         dynamics_output: Arc<parking_lot::RwLock<DynamicsOutput>>,
         transport: Arc<MusicalTransport>,
+        onset_pending: Arc<AtomicBool>,
     ) {
         // Prevent panics caused by 0-length window initialization
         if slot_len < 4 {
@@ -169,7 +187,7 @@ impl STFT {
         thread::spawn(move || {
             let mut note_tx = note_tx;
 
-            let hann = Self::hann_window(window_size);
+            let window = Self::blackman_harris_window(window_size);
             let mut fft_processor = FftProcessor::new(window_size);
 
             let mut pitch_tracker = PitchTracker::new();
@@ -198,6 +216,19 @@ impl STFT {
 
             // Allocate safely using window_size to prevent bounds mismatch
             let mut complex_output: Vec<Complex<f32>> = vec![Complex::default(); window_size];
+
+            // Per-bin noise floor — asymmetric IIR follower. Tracks the local
+            // background magnitude at each FFT bin so that low-frequency
+            // rumble doesn't raise the threshold for upper harmonics. Falls
+            // fast (α=ATTACK) when a bin drops below its current floor; rises
+            // slowly (α=RELEASE) when above, so tonal peaks don't drag the
+            // floor up. Clamped to the global noise floor each frame so it
+            // never reads below true silence.
+            let mut noise_floor_per_bin: Vec<f32> = vec![0.0; half_size];
+            let mut floor_initialized = false;
+            let mut effective_floor: Vec<f32> = vec![0.0; half_size];
+            const FLOOR_ATTACK: f32 = 0.2; // mag < floor: fall fast
+            const FLOOR_RELEASE: f32 = 0.001; // mag > floor: rise slow
 
             while state.load(Ordering::Relaxed) != -1 || !cons.is_empty() {
                 if state.load(Ordering::Relaxed) == 0 || state.load(Ordering::Relaxed) == -1 {
@@ -271,7 +302,7 @@ impl STFT {
 
                         for i in 0..window_size {
                             let idx = (ring_read_pos + i) % ring_buffer_len;
-                            time_domain_window[i] = ring_buffer[idx] * hann[i];
+                            time_domain_window[i] = ring_buffer[idx] * window[i];
                         }
 
                         #[cfg(feature = "dev-tools")]
@@ -295,13 +326,43 @@ impl STFT {
 
                         let bin_width = sr as f32 / window_size as f32;
 
-                        let noise_floor = 10.0f32
-                            .powf(dynamics_output.read().noise_floor_db / 20.0)
-                            * half_size as f32
-                            / 2.0;
+                        let (noise_floor_db, dyn_level) = {
+                            let d = dynamics_output.read();
+                            (d.noise_floor_db, d.level)
+                        };
+                        let global_floor =
+                            10.0f32.powf(noise_floor_db / 20.0) * half_size as f32 / 2.0;
+
+                        // Only update the per-bin floor on silent frames. A
+                        // sustained tonal note would otherwise pull its own bin's
+                        // floor up via the slow-rise IIR and eventually suppress
+                        // itself — the same failure mode the dynamics tracker
+                        // avoids by only updating noise_floor_db on
+                        // !is_playing frames.
+                        let is_silent = dyn_level == DynamicLevel::Silence;
+                        if !floor_initialized {
+                            for k in 0..half_size {
+                                noise_floor_per_bin[k] = magnitudes[k].max(global_floor);
+                            }
+                            floor_initialized = true;
+                        } else if is_silent {
+                            for k in 0..half_size {
+                                let mag = magnitudes[k];
+                                let alpha = if mag < noise_floor_per_bin[k] {
+                                    FLOOR_ATTACK
+                                } else {
+                                    FLOOR_RELEASE
+                                };
+                                noise_floor_per_bin[k] += alpha * (mag - noise_floor_per_bin[k]);
+                            }
+                        }
+                        for k in 0..half_size {
+                            effective_floor[k] = noise_floor_per_bin[k].max(global_floor);
+                        }
+
                         #[cfg(feature = "dev-tools")]
                         {
-                            dev_rerun_data = Some((magnitudes.clone(), bin_width, noise_floor));
+                            dev_rerun_data = Some((magnitudes.clone(), bin_width, global_floor));
                         }
                         Self::extract_pitches(
                             &magnitudes,
@@ -309,12 +370,17 @@ impl STFT {
                             bin_width,
                             MIN_FREQ,
                             MAX_FREQ,
-                            noise_floor,
+                            &effective_floor,
                         )
                     };
 
+                    // Consume any pending onset signal (set by the OnsetDetector
+                    // thread); when present, the tracker drops stale pitches and
+                    // snaps to new ones rather than crossfading.
+                    let onset = onset_pending.swap(false, Ordering::Relaxed);
+
                     // Send raw array to tracker (empty array decays notes, array with hits feeds notes)
-                    let stable_pitches = pitch_tracker.process(raw_pitches);
+                    let stable_pitches = pitch_tracker.process(raw_pitches, onset);
 
                     // Rerun live viewer — log every frame.
                     #[cfg(feature = "dev-tools")]
@@ -373,7 +439,7 @@ impl STFT {
         bin_width: f32,
         min_freq: f32,
         max_freq: f32,
-        noise_floor: f32,
+        noise_floor: &[f32],
     ) -> Vec<(f32, f32)> {
         const MAX_HARMONICS: usize = 12;
         const MAX_NOTES: usize = 8;
@@ -389,7 +455,7 @@ impl STFT {
         let mut peak_bins: Vec<usize> = Vec::new();
         for k in (min_bin + 1)..max_bin {
             let m = magnitudes[k];
-            if m > noise_floor && m >= magnitudes[k - 1] && m >= magnitudes[k + 1] {
+            if m > noise_floor[k] && m >= magnitudes[k - 1] && m >= magnitudes[k + 1] {
                 is_peak[k] = true;
                 peak_bins.push(k);
             }
@@ -403,7 +469,7 @@ impl STFT {
         let mut frac_bins = vec![0.0f32; half_size];
         for &k in &peak_bins {
             let fund_mag = magnitudes[k];
-            if fund_mag < noise_floor * 5.0 {
+            if fund_mag < noise_floor[k] * 2.0 {
                 scores[k] = 0.0;
                 continue;
             }
@@ -461,7 +527,7 @@ impl STFT {
             if current_run > longest_run {
                 longest_run = current_run;
             }
-            if longest_run < 3 && fund_mag < 10.0 * noise_floor {
+            if longest_run < 2 && fund_mag < 5.0 * noise_floor[k] {
                 scores[k] = 0.0;
             } else {
                 const STRUCT_BASE: f32 = 1.0;
@@ -518,6 +584,25 @@ impl STFT {
 
         candidates
             .sort_unstable_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+
+        // Same-peak dedup: two candidates closer than half the window's main
+        // lobe width are the same physical peak split into adjacent local
+        // maxima by windowing artifacts. Lobe-width is bin-domain, so the
+        // threshold is in bins, not cents — a fixed cents threshold scales
+        // wrongly across the spectrum. Blackman-Harris main lobe is ~6 bins;
+        // half-lobe = 3.0 bins. (Hann's ~4-bin lobe is also covered.)
+        const MIN_BIN_SEPARATION: f32 = 3.0;
+        let mut deduped: Vec<(usize, f32)> = Vec::with_capacity(candidates.len());
+        for cand in candidates {
+            let frac_i = frac_bins[cand.0];
+            let conflict = deduped
+                .iter()
+                .any(|&(bin_j, _)| (frac_i - frac_bins[bin_j]).abs() < MIN_BIN_SEPARATION);
+            if !conflict {
+                deduped.push(cand);
+            }
+        }
+        candidates = deduped;
         candidates.truncate(MAX_NOTES);
 
         candidates
@@ -534,11 +619,21 @@ impl STFT {
             .collect()
     }
 
-    fn hann_window(n: usize) -> Vec<f32> {
+    /// Blackman-Harris 4-term window. Sidelobes at -92 dB (vs Hann's -32 dB)
+    /// strongly suppress leakage from low-frequency rumble into higher bins;
+    /// main lobe widens from ~4 bins (Hann) to ~6 bins.
+    fn blackman_harris_window(n: usize) -> Vec<f32> {
+        const A0: f32 = 0.35875;
+        const A1: f32 = 0.48829;
+        const A2: f32 = 0.14128;
+        const A3: f32 = 0.01168;
+        let denom = (n.saturating_sub(1)).max(1) as f32;
         (0..n)
             .map(|i| {
-                let x = (i as f32) / (n as f32);
-                0.5 - 0.5 * (2.0 * std::f32::consts::PI * x).cos()
+                let x = (i as f32) / denom;
+                let two_pi = 2.0 * std::f32::consts::PI;
+                A0 - A1 * (two_pi * x).cos() + A2 * (2.0 * two_pi * x).cos()
+                    - A3 * (3.0 * two_pi * x).cos()
             })
             .collect()
     }
@@ -617,11 +712,7 @@ impl STFT {
         if !stable.is_empty() {
             let positions: Vec<[f32; 2]> = stable
                 .iter()
-                .map(|&(freq, _)| {
-                    let bin = (freq / bin_width).round() as usize;
-                    let mag = mags[bin.min(mags.len().saturating_sub(1))];
-                    [freq.log10(), mag / 10.0]
-                })
+                .map(|&(freq, _)| [freq.log10(), noise_floor / 10.0])
                 .collect();
             let labels: Vec<String> = stable
                 .iter()
@@ -633,6 +724,11 @@ impl STFT {
                     .with_labels(labels)
                     .with_colors([rerun::Color::from_rgb(255, 220, 50)])
                     .with_radii([rerun::Radius::new_scene_units(0.003)]),
+            );
+        } else {
+            let _ = rec.log(
+                "spectrum/pitches",
+                &rerun::Points2D::new(Vec::<[f32; 2]>::new()),
             );
         }
     }

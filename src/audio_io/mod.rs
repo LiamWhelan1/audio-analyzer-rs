@@ -200,6 +200,13 @@ pub struct AudioPipeline {
     output_error: Arc<AtomicBool>,
     mixer: Arc<spin::Mutex<Mixer>>,
 
+    /// One-shot signal from OnsetDetector → STFT pitch tracker. The detector
+    /// stores `true` on each detected onset; the STFT thread swaps it back to
+    /// `false` and uses it to flush stale pitch tracks instead of letting them
+    /// crossfade across the transition. Always present so spawn ordering
+    /// doesn't matter — if no onset detector runs, it just stays `false`.
+    onset_pending: Arc<AtomicBool>,
+
     reclaimer_handle: Option<thread::JoinHandle<()>>,
     reducer_handle: Option<thread::JoinHandle<()>>,
 
@@ -255,6 +262,7 @@ impl AudioPipeline {
             available_handles: Arc::new(std::sync::Mutex::new((0..u8::MAX).collect())),
             output_error: Arc::new(AtomicBool::new(false)),
             mixer,
+            onset_pending: Arc::new(AtomicBool::new(false)),
             reclaimer_handle: None,
             reducer_handle: None,
             input_stream: None,
@@ -332,7 +340,7 @@ impl AudioPipeline {
             let mut dynamics = DynamicsTracker::new(
                 sample_rate,
                 slot_len_reducer,
-                -18.0, // target dBFS (measured against p95 of active-frame RMS)
+                -14.0, // target dBFS (measured against p95 of active-frame RMS)
                 36.0,  // max boost dB
                 30.0,  // gain smoothing TC (seconds) — long TC keeps gain
                 // session-stable rather than phrase-by-phrase
@@ -367,7 +375,7 @@ impl AudioPipeline {
                 (b0 / a0, b1 / a0, b2 / a0, a1 / a0, a2 / a0)
             };
 
-            let (hp_b0, hp_b1, hp_b2, hp_a1, hp_a2) = calc_biquad(20.0, false);
+            let (hp_b0, hp_b1, hp_b2, hp_a1, hp_a2) = calc_biquad(40.0, false);
             let (lp_b0, lp_b1, lp_b2, lp_a1, lp_a2) = calc_biquad(14000.0, true);
 
             let mut hp_x1 = 0.0;
@@ -1004,6 +1012,7 @@ impl AudioPipeline {
             note_tx,
             self.dynamics_output.clone(),
             self.transport.clone(),
+            self.onset_pending.clone(),
         );
         let (tuner, cmd_tx, output) = tuner::Tuner::new(note_rx, stft);
         tuner.run();
@@ -1045,6 +1054,7 @@ impl AudioPipeline {
             cons,
             self.reclaim_tx.clone(),
             onset_tx,
+            self.onset_pending.clone(),
         );
         Ok((onset, onset_rx))
     }

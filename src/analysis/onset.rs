@@ -1,7 +1,7 @@
 use std::{
     sync::{
         Arc,
-        atomic::{AtomicI8, Ordering},
+        atomic::{AtomicBool, AtomicI8, Ordering},
     },
     thread,
     time::Duration,
@@ -107,6 +107,7 @@ impl OnsetDetector {
         mut cons: Consumer<usize>,
         reclaim: Sender<usize>,
         mut onset_tx: Producer<OnsetEvent>,
+        onset_pending: Arc<AtomicBool>,
     ) {
         self.state.store(1, Ordering::Relaxed);
         let state = self.state.clone();
@@ -283,6 +284,7 @@ impl OnsetDetector {
                                 );
 
                                 let _ = onset_tx.push(event);
+                                onset_pending.store(true, Ordering::Relaxed);
                                 samples_since_onset = 0;
                             }
                         }
