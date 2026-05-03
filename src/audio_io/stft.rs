@@ -159,7 +159,6 @@ impl STFT {
     pub fn detect_pitches(
         &mut self,
         slots: Arc<SlotPool>,
-        slot_len: usize,
         mut cons: rtrb::Consumer<usize>,
         reclaim: Sender<usize>,
         sr: u32,
@@ -168,20 +167,14 @@ impl STFT {
         transport: Arc<MusicalTransport>,
         onset_pending: Arc<AtomicBool>,
     ) {
-        // Prevent panics caused by 0-length window initialization
-        if slot_len < 4 {
-            println!("STFT Error: slot_len too small");
-            return;
-        }
-
         self.state.store(1, Ordering::Relaxed);
         let state = self.state.clone();
 
-        let hop_size = slot_len / 4;
-        let window_size = slot_len;
+        let hop_size = 2048 / 4;
+        let window_size = 2048;
         let ring_buffer_len = 8192.max(window_size * 4);
 
-        const MIN_FREQ: f32 = 30.0;
+        const MIN_FREQ: f32 = 24.0; // Just below lowest piano note and just above 1 period at 48 kHz sr and 2048 window
         const MAX_FREQ: f32 = 10_000.0;
 
         thread::spawn(move || {
@@ -227,8 +220,8 @@ impl STFT {
             let mut noise_floor_per_bin: Vec<f32> = vec![0.0; half_size];
             let mut floor_initialized = false;
             let mut effective_floor: Vec<f32> = vec![0.0; half_size];
-            const FLOOR_ATTACK: f32 = 0.2; // mag < floor: fall fast
-            const FLOOR_RELEASE: f32 = 0.001; // mag > floor: rise slow
+            const FLOOR_ATTACK: f32 = 0.15; // mag > floor: rise fast
+            const FLOOR_RELEASE: f32 = 0.007; // mag < floor: fall slow
 
             while state.load(Ordering::Relaxed) != -1 || !cons.is_empty() {
                 if state.load(Ordering::Relaxed) == 0 || state.load(Ordering::Relaxed) == -1 {
@@ -284,7 +277,7 @@ impl STFT {
                     }
 
                     #[cfg(feature = "dev-tools")]
-                    let mut dev_rerun_data: Option<(Vec<f32>, f32, f32)> = None;
+                    let mut dev_rerun_data: Option<(Vec<f32>, f32, Vec<f32>)> = None;
                     #[cfg(feature = "dev-tools")]
                     let mut dev_png_data: Option<(Vec<f32>, Vec<f32>)> = None;
 
@@ -348,7 +341,7 @@ impl STFT {
                         } else if is_silent {
                             for k in 0..half_size {
                                 let mag = magnitudes[k];
-                                let alpha = if mag < noise_floor_per_bin[k] {
+                                let alpha = if mag > noise_floor_per_bin[k] {
                                     FLOOR_ATTACK
                                 } else {
                                     FLOOR_RELEASE
@@ -357,12 +350,13 @@ impl STFT {
                             }
                         }
                         for k in 0..half_size {
-                            effective_floor[k] = noise_floor_per_bin[k].max(global_floor);
+                            effective_floor[k] = noise_floor_per_bin[k].min(global_floor);
                         }
 
                         #[cfg(feature = "dev-tools")]
                         {
-                            dev_rerun_data = Some((magnitudes.clone(), bin_width, global_floor));
+                            dev_rerun_data =
+                                Some((magnitudes.clone(), bin_width, effective_floor.clone()));
                         }
                         Self::extract_pitches(
                             &magnitudes,
@@ -384,7 +378,7 @@ impl STFT {
 
                     // Rerun live viewer — log every frame.
                     #[cfg(feature = "dev-tools")]
-                    if let Some((ref mags, bw, nf)) = dev_rerun_data {
+                    if let Some((ref mags, bw, ref nf)) = dev_rerun_data {
                         Self::dbg_log_rerun(
                             &rec,
                             rerun_frame - 1,
@@ -401,7 +395,7 @@ impl STFT {
                     #[cfg(feature = "dev-tools")]
                     {
                         if let Some((ref raw, ref windowed)) = dev_png_data {
-                            if let Some((ref mags, bw, nf)) = dev_rerun_data {
+                            if let Some((ref mags, bw, ref nf)) = dev_rerun_data {
                                 if let Err(e) = Self::dbg_export_png(
                                     png_frame,
                                     raw,
@@ -441,7 +435,7 @@ impl STFT {
         max_freq: f32,
         noise_floor: &[f32],
     ) -> Vec<(f32, f32)> {
-        const MAX_HARMONICS: usize = 12;
+        const MAX_HARMONICS: usize = 14;
         const MAX_NOTES: usize = 8;
 
         let min_bin = ((min_freq / bin_width).ceil() as usize).max(1);
@@ -527,7 +521,7 @@ impl STFT {
             if current_run > longest_run {
                 longest_run = current_run;
             }
-            if longest_run < 2 && fund_mag < 5.0 * noise_floor[k] {
+            if longest_run < 3 && fund_mag < 10.0 * noise_floor[k] {
                 scores[k] = 0.0;
             } else {
                 const STRUCT_BASE: f32 = 1.0;
@@ -555,8 +549,8 @@ impl STFT {
             })
             .collect();
 
-        // Suppress harmonic ghosts: if freq_i ≈ N × freq_j (N=2,3,4) and
-        // candidate i scores < 97% of candidate j, i is likely a ghost.
+        // Suppress harmonic ghosts: if freq_i ≈ N × freq_j (N=2,3,4,5) and
+        // candidate i scores < 120% of candidate j, i is likely a ghost.
         let suppressed: Vec<bool> = (0..candidates.len())
             .map(|i| {
                 let (bin_i, score_i) = candidates[i];
@@ -569,9 +563,9 @@ impl STFT {
                     let ratio = freq_i / freq_j;
                     let nearest = ratio.round();
                     nearest >= 2.0
-                        && nearest <= 4.0
+                        && nearest <= 5.0
                         && (ratio / nearest - 1.0).abs() < 0.03
-                        && score_i < score_j * 0.97
+                        && score_i < score_j * 1.2
                 })
             })
             .collect();
@@ -677,7 +671,7 @@ impl STFT {
         bin_width: f32,
         min_freq: f32,
         max_freq: f32,
-        noise_floor: f32,
+        noise_floor: &[f32],
         stable: &[(f32, f32)],
     ) {
         rec.set_time_sequence("frame", frame as i64);
@@ -696,23 +690,21 @@ impl STFT {
                 .with_radii([0.005]),
         );
 
-        // Noise floor — horizontal line across the full frequency range.
-        let x_lo = min_freq.log10();
-        let x_hi = max_freq.log10();
+        // Per-bin noise floor — drawn as a curve, same y-scaling as the spectrum.
+        let floor_strip: Vec<[f32; 2]> = (min_bin..=max_bin)
+            .map(|b| [(b as f32 * bin_width).log10(), noise_floor[b] / 10.0])
+            .collect();
         let _ = rec.log(
             "spectrum/noise_floor",
-            &rerun::LineStrips2D::new([vec![
-                [x_lo, noise_floor / 10.0],
-                [x_hi, noise_floor / 10.0],
-            ]])
-            .with_colors([rerun::Color::from_rgb(255, 80, 80)]),
+            &rerun::LineStrips2D::new([floor_strip])
+                .with_colors([rerun::Color::from_rgb(255, 80, 80)]),
         );
 
         // Stable pitches — labeled points on the spectrum line.
         if !stable.is_empty() {
             let positions: Vec<[f32; 2]> = stable
                 .iter()
-                .map(|&(freq, _)| [freq.log10(), noise_floor / 10.0])
+                .map(|&(freq, _)| [freq.log10(), 0.0])
                 .collect();
             let labels: Vec<String> = stable
                 .iter()
@@ -746,7 +738,7 @@ impl STFT {
         bin_width: f32,
         min_freq: f32,
         max_freq: f32,
-        noise_floor: f32,
+        noise_floor: &[f32],
         stable: &[(f32, f32)],
     ) -> Result<(), Box<dyn std::error::Error>> {
         use plotters::prelude::*;
@@ -828,11 +820,15 @@ impl STFT {
         let max_bin = ((max_freq / bin_width).floor() as usize).min(mags.len().saturating_sub(1));
         let x_lo = min_freq.log10();
         let x_hi = max_freq.log10();
+        let floor_max = noise_floor[min_bin..=max_bin]
+            .iter()
+            .cloned()
+            .fold(0.0f32, f32::max);
         let spec_max = mags[min_bin..=max_bin]
             .iter()
             .cloned()
             .fold(0.0f32, f32::max)
-            .max(noise_floor * 2.0);
+            .max(floor_max * 2.0);
 
         {
             let mut chart = ChartBuilder::on(area3)
@@ -868,10 +864,11 @@ impl STFT {
                 ShapeStyle::from(&RGBColor(209, 102, 102)).stroke_width(1),
             ))?;
 
-            // Noise floor — dashed line in the same brand red, slightly dimmed.
+            // Per-bin noise floor — drawn as a curve so the asymmetric-IIR
+            // shape across frequency is visible.
             chart
                 .draw_series(LineSeries::new(
-                    vec![(x_lo, noise_floor), (x_hi, noise_floor)],
+                    (min_bin..=max_bin).map(|b| ((b as f32 * bin_width).log10(), noise_floor[b])),
                     ShapeStyle::from(&RGBColor(161, 75, 75)).stroke_width(1),
                 ))?
                 .label("noise floor")

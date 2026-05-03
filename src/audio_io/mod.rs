@@ -122,7 +122,7 @@ impl AudioMeta {
         let in_channels = in_conf.channels();
         let out_channels = out_conf.channels();
 
-        let frames = 2048;
+        let frames = 1024;
         let pool = 1024;
         let slot_len = frames;
 
@@ -1005,7 +1005,6 @@ impl AudioPipeline {
 
         stft.detect_pitches(
             self.slots.clone(),
-            self.meta.slot_len,
             cons,
             self.reclaim_tx.clone(),
             self.meta.in_sr,
