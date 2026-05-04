@@ -481,18 +481,38 @@ impl AudioEngine {
 
     // --- Creators ---
 
-    pub fn create_metronome(&self, bpm: f32) -> Result<Arc<Metronome>, AudioEngineError> {
+    pub fn create_metronome(
+        &self,
+        bpm: f32,
+        pattern: Vec<i32>,
+        polys: Vec<Vec<u64>>,
+        volume: f32,
+        restart: bool,
+    ) -> Result<Arc<Metronome>, AudioEngineError> {
         if self.active_metronome.lock().map_err(lock_err)?.is_some() {
             return Err(AudioEngineError::SpawnFailed {
                 component: "metronome".into(),
                 msg: "Already active".into(),
             });
         }
+        let pattern = pattern
+            .into_iter()
+            .map(|p| match p {
+                3 => BeatStrength::Strong,
+                2 => BeatStrength::Medium,
+                1 => BeatStrength::Weak,
+                _ => BeatStrength::None,
+            })
+            .collect();
+        let polys = polys
+            .into_iter()
+            .map(|s| s.into_iter().map(|s| s as usize).collect())
+            .collect();
         let producer = self
             .pipeline
             .lock()
             .map_err(lock_err)?
-            .spawn_metronome(Some(bpm), None, None, true)
+            .spawn_metronome(Some(bpm), Some(pattern), Some(polys), volume, restart)
             .map_err(spawn_err("metronome"))?;
         let metronome = Arc::new(Metronome {
             producer: Mutex::new(producer),

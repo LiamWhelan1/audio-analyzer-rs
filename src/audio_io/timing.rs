@@ -215,8 +215,10 @@ impl MusicalTransport {
     /// produces non-zero output so the onset detector can gate out the
     /// acoustic echo that would otherwise appear at the microphone.
     pub fn notify_tick(&self) {
-        self.last_tick_output_frame
-            .store(self.output_frames.load(Ordering::Relaxed), Ordering::Relaxed);
+        self.last_tick_output_frame.store(
+            self.output_frames.load(Ordering::Relaxed),
+            Ordering::Relaxed,
+        );
     }
 
     /// Like `notify_tick`, but records the *exact* output frame where the
@@ -403,7 +405,7 @@ impl MusicalTransport {
         self.is_playing.store(playing, Ordering::SeqCst);
     }
 
-    /// Seek to a specific beat position.  Typically called when the user
+    /// Seek to a specific beat position. Typically called when the user
     /// scrubs the cursor.
     pub fn seek_to_beat(&self, beat: f64) {
         self.accumulated_beats_bits

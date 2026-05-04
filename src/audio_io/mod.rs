@@ -1064,6 +1064,7 @@ impl AudioPipeline {
         bpm: Option<f32>,
         pattern: Option<Vec<BeatStrength>>,
         polys: Option<Vec<Vec<usize>>>,
+        volume: f32,
         restart: bool,
     ) -> Result<Producer<MetronomeCommand>> {
         self.start_output()?;
@@ -1073,6 +1074,7 @@ impl AudioPipeline {
             bpm,
             pattern,
             polys,
+            volume,
             restart,
             self.transport.clone(),
         );

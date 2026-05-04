@@ -19,7 +19,9 @@ mod ffi_tests {
         assert!(engine.start_output().is_ok());
 
         // 3. Create a worker
-        let metronome = engine.create_metronome(120.0).expect("metronome failed");
+        let metronome = engine
+            .create_metronome(120.0, vec![3, 1, 1, 1], vec![], 0.8, false)
+            .expect("metronome failed");
 
         // 4. Test methods directly on the object
         assert!(metronome.set_bpm(140.0));
@@ -36,10 +38,10 @@ mod ffi_tests {
         let engine = AudioEngine::new().expect("engine init failed");
         engine.start_output().expect("output stream failed");
         let _ = engine
-            .create_metronome(120.0)
+            .create_metronome(120.0, vec![3, 1, 1, 1], vec![], 0.8, false)
             .expect("first metronome failed");
 
-        let result = engine.create_metronome(120.0);
+        let result = engine.create_metronome(120.0, vec![3, 1, 1, 1], vec![], 0.8, false);
         assert!(result.is_err(), "second create_metronome should fail");
         let err = result.err().unwrap();
 
@@ -60,11 +62,13 @@ mod ffi_tests {
     fn stop_metronome_allows_re_creation() {
         let engine = AudioEngine::new().expect("engine init failed");
         engine.start_output().expect("output stream failed");
-        engine.create_metronome(120.0).expect("first create failed");
+        engine
+            .create_metronome(120.0, vec![3, 1, 1, 1], vec![], 0.8, false)
+            .expect("first create failed");
         engine.stop_metronome();
         // Should succeed after stopping
         engine
-            .create_metronome(90.0)
+            .create_metronome(90.0, vec![3, 1, 1, 1], vec![], 0.8, false)
             .expect("re-creation after stop failed");
         engine.stop_metronome();
     }
@@ -75,7 +79,9 @@ mod ffi_tests {
     fn metronome_set_pattern_accepts_valid_strength_ints() {
         let engine = AudioEngine::new().expect("engine init failed");
         engine.start_output().expect("output stream failed");
-        let metronome = engine.create_metronome(120.0).expect("metronome failed");
+        let metronome = engine
+            .create_metronome(120.0, vec![3, 1, 1, 1], vec![], 0.8, false)
+            .expect("metronome failed");
 
         // 3=Strong, 2=Medium, 1=Weak, 0=None; unknown values fall back to None
         assert!(metronome.set_pattern(vec![3, 2, 1, 0]));
@@ -354,7 +360,7 @@ pub fn run_cli_simulation() {
         match command.as_str() {
             // --- Metronome ---
             "met start" => {
-                let _ = engine.create_metronome(120.0);
+                let _ = engine.create_metronome(120.0, vec![3, 1, 1, 1], vec![], 0.8, true);
                 println!("Metronome created at 120 BPM.");
             }
             "met stop" => {
@@ -548,7 +554,7 @@ pub fn run_cli_simulation() {
 
                 // Create a metronome so the count-off click is audible.
                 // If one already exists this is a no-op (returns Err which we ignore).
-                let _ = engine.create_metronome(bpm);
+                let _ = engine.create_metronome(bpm, vec![3, 1, 1, 1], vec![], 0.8, false);
 
                 // --- Create the session ---
                 let session = match engine.create_practice_session(

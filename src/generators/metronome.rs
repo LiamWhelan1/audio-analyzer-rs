@@ -100,6 +100,7 @@ impl Metronome {
         bpm: Option<f32>,
         pattern: Option<Vec<BeatStrength>>,
         mut polys: Option<Vec<Vec<usize>>>,
+        volume: f32,
         restart: bool,
         transport: Arc<MusicalTransport>,
     ) -> (Self, Producer<MetronomeCommand>) {
@@ -143,7 +144,7 @@ impl Metronome {
         let mut met = Self {
             sample_rate: sample_rate as f32,
             transport,
-            volume: 0.8,
+            volume,
             muted: false,
             pattern: initial_pattern,
             beat_polyrhythms,
@@ -173,7 +174,8 @@ impl Metronome {
             if strength != BeatStrength::None {
                 // At reset time output_frames is at or near 0; use current value
                 // as the click frame (echo window is opened from frame 0 onward).
-                self.transport.notify_tick_at_frame(self.transport.get_output_frames());
+                self.transport
+                    .notify_tick_at_frame(self.transport.get_output_frames());
                 self.spawn_tick(&strength, 0);
                 self.current_beat_index = 0;
                 self.load_active_subdivisions();
@@ -294,70 +296,80 @@ impl AudioSource for Metronome {
         }
 
         let total_frames = buffer.len() / channels;
-
-        // Output frames were already incremented by tick_output before process()
-        // is called.  The start of this buffer is therefore at:
-        //   output_frames_now − total_frames
-        // Any click at sample offset S from the buffer start is at absolute frame:
-        //   buffer_start_frame + S
         let buffer_start_frame = self.transport.get_output_frames() - total_frames as i64;
 
-        // ── Detect beat crossing for this buffer ───────────────────────
-        // did_cross_beat looks at the accumulated beats position (which
-        // was already advanced by tick_output in the audio callback) and
-        // tells us if a beat boundary fell inside this buffer, and where.
-        if let Some(crossing) = self.transport.did_cross_beat(total_frames as i64) {
+        // ── 1. Detect beat crossing for this buffer (Block Level) ────────
+        let crossing_opt = self.transport.did_cross_beat(total_frames as i64);
+        let mut load_new_subdivisions = false;
+
+        if let Some(crossing) = &crossing_opt {
             if !self.pattern.is_empty() {
                 let patt_len = self.pattern.len() as i64;
-                // Derive pattern index from the absolute beat number so that
-                // non-integer-multiple count-offs land on the correct beat
-                // strength when the performance begins.
                 let beat_idx = ((crossing.beat_number % patt_len + patt_len) % patt_len) as usize;
                 let strength = self.pattern[beat_idx].clone();
 
                 if strength != BeatStrength::None {
-                    // Record the actual click frame so the onset detector's
-                    // suppression window opens at the right time.
                     let click_frame = buffer_start_frame + crossing.sample_offset_in_buffer;
                     self.transport.notify_tick_at_frame(click_frame);
+
+                    // Spawn the MAIN beat tick with its precise offset
                     self.spawn_tick(&strength, crossing.sample_offset_in_buffer);
+
                     self.current_beat_index = beat_idx;
-                    self.load_active_subdivisions();
+                    // Flag that we need to load subdivisions, but DON'T do it yet
+                    load_new_subdivisions = true;
                 } else {
-                    // FIX: Muted beats must immediately kill active polyrhythm counters!
+                    // Muted beats: we can clear immediately as silence doesn't need sample-accuracy
                     self.active_subdivision_counters.clear();
                 }
 
+                // Advance index for the next beat
                 self.current_beat_index = (beat_idx + 1) % self.pattern.len();
             }
         }
 
-        // ── Per-sample rendering ───────────────────────────────────────
+        // ── 2. Per-sample rendering ───────────────────────────────────────
         for frame_idx in (0..buffer.len()).step_by(channels) {
             let sample_in_buffer = (frame_idx / channels) as i64;
 
-            // Subdivision counters still run per-sample since they are
-            // sub-divisions of the beat, not aligned to transport beats.
+            // ── 3. Sync Subdivision Counters to the Transport Offset ──────
+            // If a beat happens in this buffer, wait until we hit the exact sample
+            if let Some(crossing) = &crossing_opt {
+                if sample_in_buffer == crossing.sample_offset_in_buffer && load_new_subdivisions {
+                    self.load_active_subdivisions();
+
+                    // CRITICAL: Force counters to 0 exactly on the beat.
+                    // This prevents them from immediately firing on the "1" and
+                    // perfectly phase-locks them to the transport's beat crossing.
+                    for (_div, counter) in &mut self.active_subdivision_counters {
+                        *counter = 0;
+                    }
+                }
+            }
+
+            // ── 4. Advance and Spawn Subdivisions ─────────────────────────
             for i in 0..self.active_subdivision_counters.len() {
                 let (div, ref mut counter) = self.active_subdivision_counters[i];
                 let samples_per_sub = self.samples_per_beat / (div as u64);
+
                 *counter += 1;
+
                 if *counter >= samples_per_sub {
                     *counter -= samples_per_sub;
-                    // Avoid firing a subdivision tick right on top of the
-                    // main beat tick (first ~10ms of the beat).
-                    let guard_samples = (self.sample_rate / 100.0) as u64;
-                    let beat_phase_samples = {
-                        let phase = self.transport.get_accumulated_beats().fract();
-                        (phase * self.samples_per_beat as f64) as u64
-                    };
-                    if beat_phase_samples > guard_samples {
-                        self.transport.notify_tick_at_frame(buffer_start_frame + sample_in_buffer);
+
+                    // The 10ms guard is removed. Because we phase-locked the counter
+                    // to 0 on the main beat, it will only trigger here on true off-beats.
+                    if crossing_opt.is_none() {
+                        self.transport
+                            .notify_tick_at_frame(buffer_start_frame + sample_in_buffer);
+
+                        // Offset is 0 because we are spawning precisely at this sample frame
                         self.spawn_tick(&BeatStrength::Subdivision(div), 0);
                     }
                 }
             }
 
+            // ── 5. Render Active Ticks ────────────────────────────────────
             let mut sample = 0.0;
             self.active_ticks.retain(|t| t.envelope > MIN_ENVELOPE);
             for tick in &mut self.active_ticks {
