@@ -270,7 +270,7 @@ impl Metronome {
         if self.current_beat_index < self.beat_polyrhythms.len() {
             let divs = &self.beat_polyrhythms[self.current_beat_index];
             for &div in divs {
-                if div > 0 {
+                if div > 1 {
                     self.active_subdivision_counters.push((div, 0));
                 }
             }
@@ -322,22 +322,16 @@ impl AudioSource for Metronome {
                     // Muted beats: we can clear immediately as silence doesn't need sample-accuracy
                     self.active_subdivision_counters.clear();
                 }
-
-                // Advance index for the next beat
-                self.current_beat_index = (beat_idx + 1) % self.pattern.len();
             }
         }
 
         // ── 2. Per-sample rendering ───────────────────────────────────────
         for frame_idx in (0..buffer.len()).step_by(channels) {
             let sample_in_buffer = (frame_idx / channels) as i64;
-
-            // ── 3. Sync Subdivision Counters to the Transport Offset ──────
-            // If a beat happens in this buffer, wait until we hit the exact sample
             if let Some(crossing) = &crossing_opt {
                 if sample_in_buffer == crossing.sample_offset_in_buffer && load_new_subdivisions {
                     self.load_active_subdivisions();
-
+                    load_new_subdivisions = false;
                     // CRITICAL: Force counters to 0 exactly on the beat.
                     // This prevents them from immediately firing on the "1" and
                     // perfectly phase-locks them to the transport's beat crossing.

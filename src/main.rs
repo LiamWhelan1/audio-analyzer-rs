@@ -25,6 +25,18 @@ fn main() -> anyhow::Result<()> {
                 .with(file_layer)
                 .init();
         }
+        // use audio_engine::AudioEngine;
+        // let engine = AudioEngine::new().expect("engine init failed");
+        // engine.start_output().expect("output stream failed");
+        // let _ = engine
+        //     .create_metronome(
+        //         120.0,
+        //         vec![3, 1, 1],
+        //         vec![vec![2], vec![1], vec![1]],
+        //         0.8,
+        //         true,
+        //     )
+        //     .expect("met create failed");
         run_cli_simulation();
     }
     Ok(())
