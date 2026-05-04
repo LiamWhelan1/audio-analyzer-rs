@@ -14,6 +14,7 @@ pub enum TuningSystem {
     #[default]
     EqualTemperament,
     JustIntonation,
+    Pythagorean,
 }
 
 #[derive(PartialEq, Clone, Copy, Debug, Serialize, Default)]
@@ -174,7 +175,10 @@ impl Tuner {
 
                 if notes_data.len() == 1 || self.mode == TunerMode::SinglePitch {
                     // Pick the note with the most hits
-                    let best = notes_data.iter().max_by(|a, b| a.1.total_cmp(&b.1)).unwrap();
+                    let best = notes_data
+                        .iter()
+                        .max_by(|a, b| a.1.total_cmp(&b.1))
+                        .unwrap();
                     let note = Note::from_freq(best.0, Some(self.base));
                     label = note.get_name();
                     cents = note.get_cents();

@@ -37,6 +37,16 @@ fn main() -> anyhow::Result<()> {
         //         true,
         //     )
         //     .expect("met create failed");
+        // use audio_engine::analysis::theory::{Interval, Note};
+        // let f1 = 440.0;
+        // let f2 = 522.0;
+        // let n1 = Note::from_freq(f1, None);
+        // let n2 = Note::from_freq(f2, None);
+        // let int = Interval::new(
+        //     &[f1, f2],
+        //     Some(audio_engine::analysis::tuner::TuningSystem::Pythagorean),
+        // );
+        // println!("Note 1: {n1}, Note 2: {n2}, Interval: {int:?}");
         run_cli_simulation();
     }
     Ok(())

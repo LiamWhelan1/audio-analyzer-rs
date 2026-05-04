@@ -346,7 +346,8 @@ impl STFT {
                                 } else {
                                     FLOOR_RELEASE
                                 };
-                                noise_floor_per_bin[k] += alpha * (mag - noise_floor_per_bin[k]);
+                                noise_floor_per_bin[k] +=
+                                    alpha * (mag - noise_floor_per_bin[k] + 0.1);
                             }
                         }
                         for k in 0..half_size {

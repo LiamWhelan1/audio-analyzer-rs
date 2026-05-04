@@ -140,7 +140,7 @@ impl Note {
                 return Err(format!(
                     "Invalid note letter '{}' in \"{note}\" — expected one of C D E F G A B",
                     other as char
-                ))
+                ));
             }
         };
 
@@ -160,9 +160,7 @@ impl Note {
 
         let octave_str = &note[octave_start..];
         let octave: u8 = octave_str.parse().map_err(|_| {
-            format!(
-                "Invalid octave \"{octave_str}\" in \"{note}\" — expected a number like 4"
-            )
+            format!("Invalid octave \"{octave_str}\" in \"{note}\" — expected a number like 4")
         })?;
 
         Ok((name, accidental, octave))
@@ -313,7 +311,34 @@ impl Interval {
         }
         let ratios: [f32; 13] = match system {
             Some(TuningSystem::JustIntonation) => [
-                1.0, 1.0667, 1.125, 1.2, 1.25, 1.3333, 1.4063, 1.5, 1.6, 1.6667, 1.8, 1.875, 2.0,
+                1.0,
+                16.0 / 15.0,
+                9.0 / 8.0,
+                6.0 / 5.0,
+                5.0 / 4.0,
+                4.0 / 3.0,
+                45.0 / 32.0,
+                3.0 / 2.0,
+                8.0 / 5.0,
+                5.0 / 3.0,
+                9.0 / 5.0,
+                15.0 / 8.0,
+                2.0,
+            ],
+            Some(TuningSystem::Pythagorean) => [
+                1.0,
+                256.0 / 243.0,
+                9.0 / 8.0,
+                32.0 / 27.0,
+                81.0 / 64.0,
+                4.0 / 3.0,
+                729.0 / 512.0,
+                3.0 / 2.0,
+                128.0 / 81.0,
+                27.0 / 16.0,
+                32.0 / 9.0,
+                243.0 / 128.0,
+                2.0,
             ],
             _ => [
                 1.0, 1.0595, 1.1225, 1.1892, 1.2599, 1.3348, 1.4142, 1.4983, 1.5874, 1.6818,
@@ -347,7 +372,7 @@ impl Interval {
         };
         return Self {
             name,
-            accuracy: (closest_ratio - ratio) * 100.0,
+            accuracy: -(closest_ratio / ratio).ln() * 1732.5,
         };
     }
 
@@ -484,7 +509,10 @@ mod tests {
         );
         let msg = result.err().unwrap();
         assert!(
-            msg.contains("X") || msg.contains("note") || msg.contains("invalid") || msg.to_lowercase().contains("invalid"),
+            msg.contains("X")
+                || msg.contains("note")
+                || msg.contains("invalid")
+                || msg.to_lowercase().contains("invalid"),
             "error message should describe the problem, got: {msg}"
         );
     }
@@ -501,7 +529,10 @@ mod tests {
     #[test]
     fn note_try_new_empty_string_returns_err_not_panic() {
         let result = Note::try_new("");
-        assert!(result.is_err(), "try_new(\"\") should return Err, not panic");
+        assert!(
+            result.is_err(),
+            "try_new(\"\") should return Err, not panic"
+        );
     }
 
     // ── Interval detection ────────────────────────────────────────────────────
