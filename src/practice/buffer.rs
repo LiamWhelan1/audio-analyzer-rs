@@ -7,6 +7,9 @@ use crate::generators::Measure;
 use crate::practice::metrics::{ExpectedNote, MeasureData};
 use crate::practice::types::TrackedNoteStart;
 
+const LOOKAHEAD_NOTES: u8 = 2;
+const LOOKBEHIND_NOTES: u8 = 1;
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum SlotStatus {
     Pending,
@@ -115,6 +118,69 @@ impl MeasureBuffer {
             }
         }
         None
+    }
+
+    /// All slots whose duration window (half-open [start, start+dur))
+    /// covers `beat`, plus the next LOOKAHEAD_NOTES not-yet-Matched slots
+    /// after `frontier`, plus the previous LOOKBEHIND_NOTES already-passed
+    /// slots before `frontier`. Slots of any status (Pending/Matched/Missed)
+    /// are returned; the matcher's scoring rules differentiate based on status.
+    pub fn candidates(&self, beat: f64, frontier: (usize, usize)) -> Vec<Candidate> {
+        let measure_indices: Vec<usize> = [self.past_idx, Some(self.current_idx), self.future_idx]
+            .iter()
+            .copied()
+            .flatten()
+            .collect();
+
+        // Collect every slot in the active measures with its expected note.
+        let mut all: Vec<(usize, usize, ExpectedNote)> = Vec::new();
+        for m_idx in measure_indices {
+            let expected = build_expected_notes(&self.measures[m_idx]);
+            for (n_idx, exp) in expected.into_iter().enumerate() {
+                all.push((m_idx, n_idx, exp));
+            }
+        }
+
+        // Sort by beat position.
+        all.sort_by(|a, b| {
+            a.2.beat_position
+                .partial_cmp(&b.2.beat_position)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+
+        // Find frontier's index in `all`.
+        let frontier_pos = all.iter().position(|&(m, n, _)| (m, n) == frontier);
+
+        let mut out = Vec::new();
+        for (i, (m_idx, n_idx, exp)) in all.iter().enumerate() {
+            let key = (*m_idx, *n_idx);
+            let Some(slot) = self.slots.get(&key) else { continue };
+            let in_window = beat >= exp.beat_position
+                && beat < exp.beat_position + exp.duration_beats;
+
+            let kind = if in_window {
+                CandidateKind::InWindow
+            } else if let Some(fp) = frontier_pos {
+                let delta = i as isize - fp as isize;
+                if delta > 0 && delta <= LOOKAHEAD_NOTES as isize {
+                    CandidateKind::Lookahead(delta as u8)
+                } else if delta < 0 && (-delta) <= LOOKBEHIND_NOTES as isize {
+                    CandidateKind::Lookbehind((-delta) as u8)
+                } else {
+                    continue;
+                }
+            } else {
+                continue;
+            };
+
+            out.push(Candidate {
+                key,
+                expected: exp.clone(),
+                status: slot.status.clone(),
+                kind,
+            });
+        }
+        out
     }
 
     fn populate_slots(&mut self, m_idx: usize) {
@@ -354,5 +420,22 @@ mod tests {
         let measures = Arc::new(vec![dummy_measure(0.0, 1), dummy_measure(4.0, 2)]);
         let buf = MeasureBuffer::new(measures, 0, 1);
         assert_eq!(buf.next_pending_after((0, 0)), Some((1, 0)));
+    }
+
+    #[test]
+    fn candidates_includes_in_window_lookahead_and_lookbehind() {
+        let measures = Arc::new(vec![dummy_measure(0.0, 4)]);
+        let mut buf = MeasureBuffer::new(measures, 0, 0);
+        // Mark slot 0 as Matched (it'll show up as Lookbehind from frontier=(0,1)).
+        buf.record_match((0, 0), &fake_tracked(60, 0.0), true);
+
+        // Frontier is (0, 1). beat=1.5 is inside slot 1's duration window [1,2)
+        // and slot 2 is +1 lookahead, slot 3 is +2 lookahead.
+        let cands = buf.candidates(1.5, (0, 1));
+        let keys: Vec<_> = cands.iter().map(|c| (c.key, format!("{:?}", c.kind))).collect();
+        assert!(keys.iter().any(|(k, _)| *k == (0, 1)));    // InWindow
+        assert!(keys.iter().any(|(k, _)| *k == (0, 2)));    // Lookahead(1)
+        assert!(keys.iter().any(|(k, _)| *k == (0, 3)));    // Lookahead(2)
+        assert!(keys.iter().any(|(k, _)| *k == (0, 0)));    // Lookbehind(1)
     }
 }
