@@ -47,6 +47,9 @@ pub struct MeasureBuffer {
     current_idx: usize,
     future_idx: Option<usize>,
     slots: HashMap<(usize, usize), NoteSlot>,
+    /// Set once `practice_end` has been aged out. Subsequent `advance()` calls
+    /// return empty so the polling loop sees a clean terminal state.
+    done: bool,
 }
 
 impl MeasureBuffer {
@@ -64,6 +67,7 @@ impl MeasureBuffer {
             current_idx: practice_start,
             future_idx,
             slots: HashMap::new(),
+            done: false,
         };
         buf.populate_slots(practice_start);
         if let Some(f) = future_idx {
@@ -77,6 +81,29 @@ impl MeasureBuffer {
     pub fn future_idx(&self) -> Option<usize> { self.future_idx }
     pub fn slot(&self, key: (usize, usize)) -> Option<&NoteSlot> { self.slots.get(&key) }
     pub fn measures(&self) -> &[Measure] { &self.measures }
+    pub fn practice_end(&self) -> usize { self.practice_end }
+    pub fn is_done(&self) -> bool { self.done }
+
+    /// Return the measure index whose half-open duration window
+    /// `[global_start_beat, global_start_beat + duration_beats)` contains `beat`,
+    /// scanning the three active measures (past / current / future). Falls back
+    /// to `current_idx` if none of them claim the beat (e.g. `beat` lies in the
+    /// count-off, before practice_start, or beyond the last loaded measure).
+    pub fn measure_for_beat(&self, beat: f64) -> usize {
+        for m_idx in [self.past_idx, Some(self.current_idx), self.future_idx]
+            .iter()
+            .copied()
+            .flatten()
+        {
+            let m = &self.measures[m_idx];
+            let start = m.global_start_beat;
+            let end = start + m.duration_beats();
+            if beat >= start && beat < end {
+                return m_idx;
+            }
+        }
+        self.current_idx
+    }
 
     pub fn record_match(&mut self, key: (usize, usize), tracked: &TrackedNoteStart, pitch_correct: bool) {
         if let Some(slot) = self.slots.get_mut(&key) {
@@ -204,6 +231,9 @@ impl MeasureBuffer {
     /// accumulators (notes, onsets, dynamics, durations, doubled_seqs) are
     /// filled in by the ModeController in Phase 4).
     pub fn advance(&mut self, transport_beat: f64) -> Vec<MeasureData> {
+        if self.done {
+            return Vec::new();
+        }
         let current_end = self.measures[self.current_idx].global_start_beat
             + self.measures[self.current_idx].duration_beats();
 
@@ -231,6 +261,13 @@ impl MeasureBuffer {
         };
         if let Some(f) = self.future_idx {
             self.populate_slots(f);
+        }
+
+        // Terminal state: the measure that just aged out is the last one in
+        // the practice range. Block any further advance() calls so the loop
+        // doesn't keep yielding the same measure on every tick.
+        if aged_idx == self.practice_end {
+            self.done = true;
         }
 
         // Note: any still-Pending slot in the now-past measure stays in `slots`
@@ -421,6 +458,49 @@ mod tests {
         let measures = Arc::new(vec![dummy_measure(0.0, 1), dummy_measure(4.0, 2)]);
         let buf = MeasureBuffer::new(measures, 0, 1);
         assert_eq!(buf.next_pending_after((0, 0)), Some((1, 0)));
+    }
+
+    #[test]
+    fn measure_for_beat_returns_correct_measure() {
+        let measures = Arc::new(vec![
+            dummy_measure(0.0, 1),
+            dummy_measure(4.0, 1),
+            dummy_measure(8.0, 1),
+        ]);
+        // Practice 0..=2 so all three measures land in the past/current/future window
+        // after one advance.
+        let mut buf = MeasureBuffer::new(measures, 0, 2);
+        // Before any advance: only current (0) and future (1) are active.
+        assert_eq!(buf.measure_for_beat(2.0), 0);
+        assert_eq!(buf.measure_for_beat(5.0), 1);
+        // Beat in measure 2's range — not yet in buffer's three-measure window,
+        // so falls back to current_idx.
+        assert_eq!(buf.measure_for_beat(9.0), 0);
+        // Boundary: 4.0 lies in measure 1's [4, 8) window, not measure 0's [0, 4).
+        assert_eq!(buf.measure_for_beat(4.0), 1);
+        // Advance into measure 1 → past=0, current=1, future=2.
+        let _ = buf.advance(4.5);
+        assert_eq!(buf.measure_for_beat(2.0), 0);   // look-behind
+        assert_eq!(buf.measure_for_beat(5.0), 1);   // current
+        assert_eq!(buf.measure_for_beat(9.0), 2);   // look-ahead
+    }
+
+    #[test]
+    fn advance_marks_done_after_aging_out_practice_end() {
+        let measures = Arc::new(vec![dummy_measure(0.0, 1), dummy_measure(4.0, 1)]);
+        let mut buf = MeasureBuffer::new(measures, 0, 1);
+        assert!(!buf.is_done());
+        // Cross into measure 1 (still inside practice range).
+        let aged = buf.advance(4.5);
+        assert_eq!(aged.len(), 1);
+        assert!(!buf.is_done(), "should not be done after aging out non-final measure");
+        // Cross past measure 1 (which IS practice_end).
+        let aged = buf.advance(8.5);
+        assert_eq!(aged.len(), 1);
+        assert!(buf.is_done(), "should be done after aging out practice_end");
+        // Subsequent advances are no-ops.
+        let aged = buf.advance(20.0);
+        assert!(aged.is_empty(), "advance() must yield empty once done");
     }
 
     #[test]

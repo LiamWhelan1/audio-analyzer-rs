@@ -173,9 +173,9 @@ impl OnsetDetector {
             let mut noise_floor_per_bin: Vec<f32> = vec![0.0; half_size];
             let mut floor_initialized = false;
             let mut floor_silent_count: u32 = 0;
-            const FLOOR_ATTACK: f32 = 0.2; // silent: mag > floor → rise fast
-            const FLOOR_RELEASE: f32 = 0.1; // silent: mag < floor → fall slower
-            const FLOOR_RISE_ACTIVE: f32 = 0.1; // active: rise only, slower
+            const FLOOR_ATTACK: f32 = 0.2; // silent: mag > floor → rise slow
+            const FLOOR_RELEASE: f32 = 0.3; // silent: mag < floor → fall fast
+            const FLOOR_RISE_ACTIVE: f32 = 0.2; // active: rise only, faster
 
             // ── Goal 1: static parameters for output-event gate ───────────
             // Suppress onsets whose input-frame position falls inside the
@@ -183,8 +183,16 @@ impl OnsetDetector {
             let sr = transport.get_sample_rate() as i64;
             // 100 ms of acoustic travel margin (generous for typical room sizes).
             let acoustic_margin_samples = sr / 10;
-            // Metronome clicks decay over ~100 ms; allow 150 ms to be safe.
-            let click_duration_samples = sr * 15 / 100;
+            // Metronome clicks should be blocked within this range ~150ms.
+            let click_duration_samples = sr / 100;
+            let bin_width = sr as f32 / window_size as f32;
+
+            #[cfg(feature = "dev-tools")]
+            let mut rerun_frame: usize = 0;
+            #[cfg(feature = "dev-tools")]
+            let rec = rerun::RecordingStreamBuilder::new("audio_analyzer")
+                .spawn()
+                .expect("failed to spawn Rerun viewer");
 
             while state.load(Ordering::Relaxed) != -1 || !cons.is_empty() {
                 if state.load(Ordering::Relaxed) == 0 || state.load(Ordering::Relaxed) == -1 {
@@ -244,6 +252,12 @@ impl OnsetDetector {
                 let suppressed_by_output = current_input >= echo_start && current_input < echo_end;
 
                 while available_samples >= window_size {
+                    #[cfg(feature = "dev-tools")]
+                    {
+                        rerun_frame += 1;
+                    }
+                    #[cfg(feature = "dev-tools")]
+                    let mut dev_contributing_bins = Vec::new();
                     for i in 0..window_size {
                         let idx = (ring_read_pos + i) % ring_buffer_len;
                         time_domain_window[i] = ring_buffer[idx] * hann[i];
@@ -276,6 +290,8 @@ impl OnsetDetector {
 
                         if diff > 0.0 {
                             current_flux += diff * weight;
+                            #[cfg(feature = "dev-tools")]
+                            dev_contributing_bins.push((i as f32 * bin_width, smoothed_mag));
                         }
 
                         prev_magnitude[i] = mag;
@@ -330,8 +346,10 @@ impl OnsetDetector {
                     for k in 0..half_size {
                         let floor_k = noise_floor_per_bin[k].max(floor_eps);
                         let r = current_mags[k] / floor_k;
-                        if r > 2.5 {
+                        if r > 1.5 {
                             bin_burst_count += 1;
+                            #[cfg(feature = "dev-tools")]
+                            dev_contributing_bins.push((k as f32 * bin_width, current_mags[k]));
                         }
                         if r > max_bin_excess {
                             max_bin_excess = r;
@@ -437,6 +455,17 @@ impl OnsetDetector {
                         samples_since_onset += hop_size;
                     }
 
+                    #[cfg(feature = "dev-tools")]
+                    Self::dbg_log_rerun(
+                        &rec,
+                        rerun_frame,
+                        &current_mags,
+                        bin_width,
+                        &noise_floor_per_bin,
+                        &dev_contributing_bins,
+                        onset_detected,
+                    );
+
                     ring_read_pos = (ring_read_pos + hop_size) % ring_buffer_len;
                     available_samples -= hop_size;
                 }
@@ -452,5 +481,76 @@ impl OnsetDetector {
                 0.5 - 0.5 * (2.0 * std::f32::consts::PI * x).cos()
             })
             .collect()
+    }
+}
+
+#[cfg(feature = "dev-tools")]
+impl OnsetDetector {
+    /// Log onset detection data to the Rerun live viewer.
+    fn dbg_log_rerun(
+        rec: &rerun::RecordingStream,
+        frame: usize,
+        mags: &[f32],
+        bin_width: f32,
+        noise_floor: &[f32],
+        contributing_bins: &[(f32, f32)],
+        onset_detected: bool,
+    ) {
+        let min_freq = 20.0f32;
+        let max_freq = 20_000.0f32;
+        rec.set_time_sequence("frame", frame as i64);
+
+        let min_bin = ((min_freq / bin_width).ceil() as usize).max(1);
+        let max_bin = ((max_freq / bin_width).floor() as usize).min(mags.len().saturating_sub(1));
+
+        // 1. Spectrum Line (Gray)
+        let spectrum_points: Vec<[f32; 2]> = (min_bin..=max_bin)
+            .map(|b| [(b as f32 * bin_width) / 1000.0, mags[b]])
+            .collect();
+        let _ = rec.log(
+            "spectrum/line",
+            &rerun::LineStrips2D::new([spectrum_points])
+                .with_colors([rerun::Color::from_rgb(100, 100, 100)]),
+        );
+
+        // 2. Noise Floor (Red/Brown)
+        let nf_points: Vec<[f32; 2]> = (min_bin..=max_bin)
+            .map(|b| [(b as f32 * bin_width) / 1000.0, noise_floor[b]])
+            .collect();
+        let _ = rec.log(
+            "spectrum/noise_floor",
+            &rerun::LineStrips2D::new([nf_points])
+                .with_colors([rerun::Color::from_rgb(161, 75, 75)]),
+        );
+
+        // 3. Contributing Onset Bins (Red dots on the magnitudes)
+        if !contributing_bins.is_empty() {
+            let positions: Vec<[f32; 2]> = contributing_bins
+                .iter()
+                .map(|&(f, m)| [f / 1000.0, m])
+                .collect();
+            let _ = rec.log(
+                "spectrum/onset_bins",
+                &rerun::Points2D::new(positions)
+                    .with_colors([rerun::Color::from_rgb(255, 80, 80)])
+                    .with_radii([rerun::Radius::new_scene_units(0.02)]),
+            );
+        } else {
+            let _ = rec.log("spectrum/onset_bins", &rerun::Points2D::clear_fields());
+        }
+
+        // 4. Onset Flag (Corner indicator)
+        let flag_pos = [min_freq / 1000.0, 0.0];
+        if onset_detected {
+            let _ = rec.log(
+                "spectrum/onset_flag",
+                &rerun::Points2D::new([flag_pos])
+                    .with_labels(["ONSET DETECTED"])
+                    .with_colors([rerun::Color::from_rgb(0, 255, 0)])
+                    .with_radii([rerun::Radius::new_scene_units(0.1)]),
+            );
+        } else {
+            let _ = rec.log("spectrum/onset_flag", &rerun::Points2D::clear_fields());
+        }
     }
 }

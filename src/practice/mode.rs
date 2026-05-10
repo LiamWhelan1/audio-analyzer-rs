@@ -88,10 +88,12 @@ impl ModeController {
         // 1. Conditioner.
         let events = self.conditioner.ingest(inputs.tuner_frame, inputs.new_onsets);
 
-        // 2. Onsets accumulator (raw).
-        self.in_progress_onsets.entry(self.buffer.current_idx())
-            .or_default()
-            .extend_from_slice(inputs.new_onsets);
+        // 2. Onsets accumulator (raw). Bucket by the onset's own beat — late-bucketed
+        // onsets at a measure boundary belong to the measure that owns that beat.
+        for o in inputs.new_onsets {
+            let mi = self.buffer.measure_for_beat(o.beat_position);
+            self.in_progress_onsets.entry(mi).or_default().push(*o);
+        }
 
         // 3. Dynamics accumulator.
         if inputs.dynamic_level != DynamicLevel::Silence
@@ -129,14 +131,22 @@ impl ModeController {
         let aged = self.buffer.advance(inputs.transport_beat);
         for mut m in aged {
             let mi = m.measure_index as usize;
-            // Mark any remaining Pending slots Missed.
+            // Mark any remaining Pending slots Missed AND emit a live MissingNote
+            // SendInfo per spec §5 step 9 ("emit MissingNote SendInfo" for each
+            // remaining Pending slot when the measure ages out).
             let mut to_miss: Vec<(usize, usize)> = (0..m.expected_notes.len())
                 .filter(|i| matches!(self.buffer.slot((mi, *i)).map(|s| &s.status),
                                      Some(SlotStatus::Pending)))
                 .map(|i| (mi, i))
                 .collect();
             for k in to_miss.drain(..) {
+                self.feedback.push(missing_note_send_info(k, &self.buffer));
                 self.buffer.mark_missed(k);
+                // Frontier may have stalled on this Pending slot; advance it past
+                // the now-missed key so subsequent matches don't trip on it.
+                if self.frontier == k {
+                    self.frontier = step_forward(&self.buffer, k);
+                }
             }
             // Drain in-progress accumulators.
             m.onsets    = self.in_progress_onsets.remove(&mi).unwrap_or_default();
@@ -151,7 +161,11 @@ impl ModeController {
     }
 
     fn handle_outcome(&mut self, t: &TrackedNoteStart, outcome: &MatchOutcome, transport_beat: f64) {
-        let mi = self.buffer.current_idx();
+        // Bucket the played note into the measure whose duration window contains
+        // its start_beat — not into `current_idx`. A note Started at the very
+        // end of a tick can have a start_beat that already belongs to the next
+        // measure even though buffer.advance() hasn't run yet this tick.
+        let mi = self.buffer.measure_for_beat(t.start_beat);
         self.in_progress_played_notes.entry(mi).or_default().push(NoteEvent {
             beat_position: t.start_beat,
             midi_note: t.midi_note,
@@ -178,6 +192,8 @@ impl ModeController {
                 // Live feedback for the match.
                 let prim = if !*pitch_correct {
                     send_info(*key, crate::practice::MusicError::WrongNote, &exp, t)
+                } else if *upgrade {
+                    upgrade_send_info(*key, &exp, t)
                 } else {
                     send_info(*key, crate::practice::MusicError::None, &exp, t)
                 };
@@ -282,6 +298,24 @@ fn send_info(
         error_type: err,
         intensity: 0.0,
         expected: format!("midi={} beat={:.2}", exp.midi_note, exp.beat_position),
+        received: format!("midi={} beat={:.3}", t.midi_note, t.start_beat),
+    }
+}
+
+fn upgrade_send_info(
+    key: (usize, usize),
+    exp: &crate::practice::metrics::ExpectedNote,
+    t: &TrackedNoteStart,
+) -> crate::practice::SendInfo {
+    crate::practice::SendInfo {
+        measure: key.0 as u32,
+        note_index: key.1,
+        error_type: crate::practice::MusicError::None,
+        intensity: 0.0,
+        expected: format!(
+            "midi={} beat={:.2} (corrected from earlier wrong note)",
+            exp.midi_note, exp.beat_position
+        ),
         received: format!("midi={} beat={:.3}", t.midi_note, t.start_beat),
     }
 }
@@ -400,6 +434,68 @@ mod tests {
             });
         }
         assert_eq!(mc.frontier, (0, 1));
+    }
+
+    #[test]
+    fn aged_out_pending_slots_emit_live_missing_note_feedback() {
+        // 1-measure practice range with 3 notes, all silent → all should age
+        // out as live MissingNote events when transport crosses past the measure.
+        let mut mc = make_mc(PracticeMode::Performance);
+        // Drive a few empty ticks inside the measure.
+        let _ = mc.tick(TickInputs {
+            transport_beat: 1.0,
+            tuner_frame: None,
+            new_onsets: &[],
+            dynamic_level: DynamicLevel::Silence,
+        });
+        assert!(mc.feedback.is_empty(), "no events emitted mid-measure");
+        // Cross past beat 4 → measure 0 ages out, all 3 Pending slots become Missed.
+        let outputs = mc.tick(TickInputs {
+            transport_beat: 4.5,
+            tuner_frame: None,
+            new_onsets: &[],
+            dynamic_level: DynamicLevel::Silence,
+        });
+        assert_eq!(outputs.aged_measures.len(), 1);
+        let missing_count = mc
+            .feedback
+            .iter()
+            .filter(|e| e.error_type == crate::practice::MusicError::MissingNote)
+            .count();
+        assert_eq!(missing_count, 3, "expected 3 live MissingNote events, got: {:?}", mc.feedback);
+    }
+
+    #[test]
+    fn note_started_at_measure_boundary_buckets_into_correct_measure() {
+        // 2-measure practice range. Detect a stable C4 starting near the very
+        // end of measure 0 (start_beat = 3.95) — within measure 0's [0, 4) window.
+        // Another stable C4 starting at 4.05 — must land in measure 1.
+        let measures = Arc::new(vec![
+            Measure {
+                notes: vec![SynthNote {
+                    freq: 261.626, start_beat_in_measure: 0.0, duration_beats: 1.0,
+                    velocity: 0.5, instrument: Instrument::Piano,
+                }],
+                time_signature: (4, 4), bpm: 120.0, global_start_beat: 0.0,
+            },
+            Measure {
+                notes: vec![SynthNote {
+                    freq: 261.626, start_beat_in_measure: 0.0, duration_beats: 1.0,
+                    velocity: 0.5, instrument: Instrument::Piano,
+                }],
+                time_signature: (4, 4), bpm: 120.0, global_start_beat: 4.0,
+            },
+        ]);
+        let transport = MusicalTransport::new(120.0, 48000.0);
+        transport.play();
+        let buffer = MeasureBuffer::new(measures.clone(), 0, 1);
+        let conditioner = InputConditioner::new(transport.clone());
+        let clock = ClockManager::new(transport.clone(), ClockConfig::default(), 120.0);
+        let mut mc = ModeController::new(PracticeMode::Performance, transport, conditioner, buffer, clock, 0);
+
+        // measure_for_beat sanity: 4.05 should map to measure 1, not measure 0.
+        assert_eq!(mc.buffer.measure_for_beat(4.05), 1);
+        assert_eq!(mc.buffer.measure_for_beat(3.95), 0);
     }
 
     #[test]

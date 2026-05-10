@@ -559,16 +559,16 @@ pub fn run_cli_simulation() {
                     let s = prompt!(
                         "Practice mode [FollowAlong/Performance/Rubato, default={default_mode}]: "
                     );
-                    if s.is_empty() { default_mode.to_string() } else { s }
+                    if s.is_empty() {
+                        default_mode.to_string()
+                    } else {
+                        s
+                    }
                 };
 
                 // --- Ensure streams are running ---
                 let _ = engine.start_input();
                 let _ = engine.start_output();
-
-                // Create a metronome so the count-off click is audible.
-                // If one already exists this is a no-op (returns Err which we ignore).
-                let _ = engine.create_metronome(bpm, vec![3, 1, 1, 1], vec![], 0.8, false);
 
                 // --- Create the session ---
                 let session = match engine.create_practice_session(
@@ -585,6 +585,10 @@ pub fn run_cli_simulation() {
                         continue;
                     }
                 };
+
+                // Create a metronome so the count-off click is audible.
+                // If one already exists this is a no-op (returns Err which we ignore).
+                let _ = engine.create_metronome(bpm, vec![3, 1, 1, 1], vec![], 0.8, false);
 
                 // --- Start the session ---
                 if let Err(e) = session.start(start_measure, end_measure) {

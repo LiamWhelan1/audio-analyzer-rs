@@ -737,7 +737,7 @@ impl AudioEngine {
         let onset = self.start_onset_detection()?;
         let transport = self.transport()?;
         let dynamics = self.dynamics_output()?;
-
+        std::thread::sleep(std::time::Duration::from_millis(1000));
         let inner = match practice_mod::PracticeSession::new(
             transport,
             tuner,

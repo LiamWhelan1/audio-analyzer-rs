@@ -10,13 +10,13 @@ use crate::audio_io::timing::MusicalTransport;
 use crate::generators::{Instrument, Measure, load_midi_file};
 use crate::{AudioEngineError, OnsetDetection, Tuner, lock_err};
 
-pub mod metrics;
-pub mod types;
 pub mod buffer;
+pub mod clock;
 pub mod conditioner;
 pub mod matcher;
-pub mod clock;
+pub mod metrics;
 pub mod mode;
+pub mod types;
 
 use metrics::{
     DynamicsEvent, ExpectedNote, INTONATION_ERR_THRESHOLD, MeasureData, Metrics, NOTE_MATCH_WINDOW,
@@ -257,12 +257,8 @@ impl PracticeSession {
         } - 0.001;
 
         // Reset state for a clean run.
-        *self.state.lock().map_err(lock_err)? = SessionState::new(
-            start,
-            end,
-            self.countoff_beats > 0,
-            first_beat,
-        );
+        *self.state.lock().map_err(lock_err)? =
+            SessionState::new(start, end, self.countoff_beats > 0, first_beat);
         self.feedback.lock().map_err(lock_err)?.clear();
 
         // Stop any already-running polling thread before starting fresh.
@@ -469,14 +465,28 @@ fn run_session(
 
     let (practice_start, practice_end, in_countoff_initial, first_measure_beat) = {
         let s = state.lock().unwrap();
-        (s.practice_start, s.practice_end, s.in_countoff, s.first_measure_beat)
+        (
+            s.practice_start,
+            s.practice_end,
+            s.in_countoff,
+            s.first_measure_beat,
+        )
     };
 
     let buffer = MeasureBuffer::new(measures.clone(), practice_start, practice_end);
     let conditioner = InputConditioner::new(transport.clone());
-    let clock = ClockManager::new(transport.clone(), ClockConfig::default(), transport.get_bpm());
+    let clock = ClockManager::new(
+        transport.clone(),
+        ClockConfig::default(),
+        transport.get_bpm(),
+    );
     let mut mc = ModeController::new(
-        mode, transport.clone(), conditioner, buffer, clock, practice_start,
+        mode,
+        transport.clone(),
+        conditioner,
+        buffer,
+        clock,
+        practice_start,
     );
 
     let mut last_tuner_beat: Option<f64> = None;
@@ -488,7 +498,9 @@ fn run_session(
         if in_countoff {
             if beat >= first_measure_beat {
                 in_countoff = false;
-                if let Ok(mut s) = state.lock() { s.in_countoff = false; }
+                if let Ok(mut s) = state.lock() {
+                    s.in_countoff = false;
+                }
             } else {
                 thread::sleep(Duration::from_millis(10));
                 continue;
@@ -498,17 +510,26 @@ fn run_session(
         let new_onsets: Vec<crate::audio_io::timing::OnsetEvent> = onset.drain_onset_events();
         let (note_names, note_cents, raw_tuner_beat) = {
             let out = tuner_output.read();
-            (out.notes.clone(), out.accuracies.iter().map(|&c| c as f64).collect::<Vec<_>>(), out.beat_position)
+            (
+                out.notes.clone(),
+                out.accuracies.iter().map(|&c| c as f64).collect::<Vec<_>>(),
+                out.beat_position,
+            )
         };
         let calibrated_tuner_beat = transport.calibrated_beat(raw_tuner_beat);
         let tuner_frame: Option<TunerFrame> = if last_tuner_beat == Some(calibrated_tuner_beat) {
             None
         } else {
             last_tuner_beat = Some(calibrated_tuner_beat);
-            let pairs: Vec<(u8, f64)> = note_names.iter().zip(note_cents.iter())
+            let pairs: Vec<(u8, f64)> = note_names
+                .iter()
+                .zip(note_cents.iter())
                 .filter_map(|(n, c)| note_name_to_midi(n).map(|m| (m, *c)))
                 .collect();
-            Some(TunerFrame { notes: pairs, tuner_beat: calibrated_tuner_beat })
+            Some(TunerFrame {
+                notes: pairs,
+                tuner_beat: calibrated_tuner_beat,
+            })
         };
         let dynamic_level = dynamics_output.read().level;
 
@@ -540,8 +561,19 @@ fn run_session(
             }
         }
 
-        // Done condition.
-        if mc.frontier.0 > practice_end {
+        // Done condition. The session ends when the buffer has aged out the
+        // last measure in the practice range (covers silent / Performance-mode
+        // runs where the frontier never advances) OR when the frontier itself
+        // has stepped past the last note (covers normal runs that match through
+        // to the end before transport crosses the final boundary).
+        if mc.buffer.is_done() || mc.frontier.0 > practice_end {
+            // Drain any final feedback emissions to the shared queue so the
+            // last measure's events aren't lost when we break.
+            if !mc.feedback.is_empty() {
+                if let Ok(mut g) = feedback.lock() {
+                    g.extend(std::mem::take(&mut mc.feedback));
+                }
+            }
             running.store(false, Ordering::Relaxed);
             break;
         }
@@ -652,10 +684,12 @@ fn generate_measure_feedback(
                         // Check if the played pitch matches the previous or next expected note.
                         // If so, the player played the right note but at the wrong time —
                         // classify as a timing error rather than a wrong-note error.
-                        let prev_midi =
-                            if ei > 0 { Some(data.expected_notes[ei - 1].midi_note) } else { None };
-                        let next_midi =
-                            data.expected_notes.get(ei + 1).map(|e| e.midi_note);
+                        let prev_midi = if ei > 0 {
+                            Some(data.expected_notes[ei - 1].midi_note)
+                        } else {
+                            None
+                        };
+                        let next_midi = data.expected_notes.get(ei + 1).map(|e| e.midi_note);
                         let is_timing_shift =
                             Some(played_midi) == prev_midi || Some(played_midi) == next_midi;
 
@@ -747,14 +781,14 @@ fn generate_measure_feedback(
                 .dynamic
                 .map(|d| format!(" {d}"))
                 .unwrap_or_default();
-            let (received_midi, received_beat, received_cents) =
-                if let Some(ni) = matched_note_idx {
-                    let note = &data.notes[ni];
-                    (note.midi_note, note.beat_position, note.avg_cents)
-                } else {
-                    // No detected note — use expected values as stand-in.
-                    (expected.midi_note, expected.beat_position, 0.0)
-                };
+            let (received_midi, received_beat, received_cents) = if let Some(ni) = matched_note_idx
+            {
+                let note = &data.notes[ni];
+                (note.midi_note, note.beat_position, note.avg_cents)
+            } else {
+                // No detected note — use expected values as stand-in.
+                (expected.midi_note, expected.beat_position, 0.0)
+            };
             let cents_str = if received_cents.abs() > 1.0 {
                 format!(" {:+.0}c", received_cents)
             } else {
@@ -819,8 +853,11 @@ fn generate_measure_feedback(
                 let is_timing_shift = if nearest_idx < data.expected_notes.len() {
                     let nei = nearest_idx;
                     let exact_midi = data.expected_notes[nei].midi_note;
-                    let prev_midi =
-                        if nei > 0 { Some(data.expected_notes[nei - 1].midi_note) } else { None };
+                    let prev_midi = if nei > 0 {
+                        Some(data.expected_notes[nei - 1].midi_note)
+                    } else {
+                        None
+                    };
                     let next_midi = data.expected_notes.get(nei + 1).map(|e| e.midi_note);
                     note.midi_note == exact_midi
                         || Some(note.midi_note) == prev_midi
@@ -868,11 +905,15 @@ fn generate_measure_feedback(
     // reference duration. Threshold: ±25% per HOLD_TOLERANCE_PCT.
     for (i, dur_opt) in data.note_durations.iter().enumerate() {
         let Some(actual) = *dur_opt else { continue };
-        let Some(note) = data.notes.get(i) else { continue };
+        let Some(note) = data.notes.get(i) else {
+            continue;
+        };
         let Some(exp) = data.expected_notes.iter().find(|e| {
             (e.beat_position - note.beat_position).abs() < NOTE_MATCH_WINDOW * tol
                 && e.midi_note == note.midi_note
-        }) else { continue };
+        }) else {
+            continue;
+        };
         if actual > exp.duration_beats * (1.0 + HOLD_TOLERANCE_PCT) {
             feedback.push(SendInfo {
                 measure: data.measure_index,
@@ -900,7 +941,9 @@ fn generate_measure_feedback(
     // Each entry indexes into `data.notes` (parallel to `note_durations`).
     for &doubled_idx in &data.doubled_note_seqs {
         let idx = doubled_idx as usize;
-        let Some(note) = data.notes.get(idx) else { continue };
+        let Some(note) = data.notes.get(idx) else {
+            continue;
+        };
         feedback.push(SendInfo {
             measure: data.measure_index,
             note_index: idx,
@@ -1323,7 +1366,11 @@ mod tests {
                 dynamic: None,
             }],
         );
-        let fb = generate_measure_feedback(&data, AbilityLevel::Advanced, crate::practice::types::PracticeMode::Performance);
+        let fb = generate_measure_feedback(
+            &data,
+            AbilityLevel::Advanced,
+            crate::practice::types::PracticeMode::Performance,
+        );
         assert!(
             fb.iter().all(|e| e.error_type == MusicError::None),
             "perfect performance should produce no error feedback: {fb:?}"
@@ -1342,7 +1389,11 @@ mod tests {
                 dynamic: None,
             }],
         );
-        let fb = generate_measure_feedback(&data, AbilityLevel::Advanced, crate::practice::types::PracticeMode::Performance);
+        let fb = generate_measure_feedback(
+            &data,
+            AbilityLevel::Advanced,
+            crate::practice::types::PracticeMode::Performance,
+        );
         assert!(
             fb.iter().any(|e| e.error_type == MusicError::MissingNote),
             "should flag MissingNote when nothing is played"
@@ -1365,7 +1416,11 @@ mod tests {
                 dynamic: None,
             }],
         );
-        let fb = generate_measure_feedback(&data, AbilityLevel::Advanced, crate::practice::types::PracticeMode::Performance);
+        let fb = generate_measure_feedback(
+            &data,
+            AbilityLevel::Advanced,
+            crate::practice::types::PracticeMode::Performance,
+        );
         assert!(
             fb.iter().any(|e| e.error_type == MusicError::WrongNote),
             "should flag WrongNote when wrong pitch played at correct beat"
@@ -1384,7 +1439,7 @@ mod tests {
         // and over ONSET_TIMING_ERR_THRESHOLD (0.15) so a Timing error is raised.
         let data = make_measure(
             vec![NoteEvent {
-                beat_position: 0.2,
+                beat_position: 0.3,
                 midi_note: 60,
                 avg_cents: 0.0,
             }],
@@ -1396,7 +1451,11 @@ mod tests {
                 dynamic: None,
             }],
         );
-        let fb = generate_measure_feedback(&data, AbilityLevel::Advanced, crate::practice::types::PracticeMode::Performance);
+        let fb = generate_measure_feedback(
+            &data,
+            AbilityLevel::Advanced,
+            crate::practice::types::PracticeMode::Performance,
+        );
         let timing = fb.iter().find(|e| e.error_type == MusicError::Timing);
         assert!(
             timing.is_some(),
@@ -1431,7 +1490,11 @@ mod tests {
                 dynamic: None,
             }],
         );
-        let fb = generate_measure_feedback(&data, AbilityLevel::Advanced, crate::practice::types::PracticeMode::Performance);
+        let fb = generate_measure_feedback(
+            &data,
+            AbilityLevel::Advanced,
+            crate::practice::types::PracticeMode::Performance,
+        );
         let inton = fb.iter().find(|e| e.error_type == MusicError::Intonation);
         assert!(
             inton.is_some(),
@@ -1462,8 +1525,16 @@ mod tests {
                 dynamic: None,
             }],
         );
-        let fb_advanced = generate_measure_feedback(&data, AbilityLevel::Advanced, crate::practice::types::PracticeMode::Performance);
-        let fb_beginner = generate_measure_feedback(&data, AbilityLevel::Beginner, crate::practice::types::PracticeMode::Performance);
+        let fb_advanced = generate_measure_feedback(
+            &data,
+            AbilityLevel::Advanced,
+            crate::practice::types::PracticeMode::Performance,
+        );
+        let fb_beginner = generate_measure_feedback(
+            &data,
+            AbilityLevel::Beginner,
+            crate::practice::types::PracticeMode::Performance,
+        );
         let advanced_has_timing = fb_advanced
             .iter()
             .any(|e| e.error_type == MusicError::Timing);
