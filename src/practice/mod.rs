@@ -11,6 +11,7 @@ use crate::generators::{Instrument, Measure, load_midi_file};
 use crate::{AudioEngineError, OnsetDetection, Tuner, lock_err};
 
 pub mod metrics;
+pub mod types;
 
 use metrics::{
     DynamicsEvent, ExpectedNote, INTONATION_ERR_THRESHOLD, MeasureData, Metrics, NOTE_MATCH_WINDOW,
