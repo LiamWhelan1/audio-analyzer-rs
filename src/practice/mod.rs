@@ -530,7 +530,7 @@ fn run_session(
         if !outputs.aged_measures.is_empty() {
             if let Ok(mut s) = state.lock() {
                 for m in &outputs.aged_measures {
-                    let eom = generate_measure_feedback(m, ability_level);
+                    let eom = generate_measure_feedback(m, ability_level, mode);
                     if let Ok(mut g) = feedback.lock() {
                         g.extend(eom);
                     }
@@ -552,9 +552,35 @@ fn run_session(
 
 // ── Feedback generation ───────────────────────────────────────────────────────
 
-fn generate_measure_feedback(data: &MeasureData, ability_level: AbilityLevel) -> Vec<SendInfo> {
+/// Authoritative reconciliation pass run when a measure ages out of the
+/// ring buffer. The primary feedback path is live `SendInfo` emission per
+/// `ConditionerEvent` in `ModeController`; this function exists to:
+///
+/// 1. Provide an authoritative scoring snapshot the front-end can use as
+///    canonical record.
+/// 2. Roll up dynamics against expected notes (live ticks accumulate
+///    `DynamicsEvent`s; the per-note comparison is end-of-measure).
+/// 3. Act as a defensive backstop in case a live emission was dropped.
+///
+/// Hold-error and tempo-error reconciliation use the `note_durations` and
+/// `doubled_note_seqs` fields stamped onto `MeasureData` by the matcher.
+///
+/// `mode` controls Rubato's relaxed tolerance: timing/intonation thresholds
+/// scale by `1.5×` on top of the `AbilityLevel` factor (spec §5 table).
+fn generate_measure_feedback(
+    data: &MeasureData,
+    ability_level: AbilityLevel,
+    mode: crate::practice::types::PracticeMode,
+) -> Vec<SendInfo> {
+    /// Per spec §6: notes whose actual duration is more than ±25% off the
+    /// expected duration are flagged HeldTooLong / HeldTooShort.
+    const HOLD_TOLERANCE_PCT: f64 = 0.25;
+
     let mut feedback = Vec::new();
-    let tol = ability_level.tolerance_scale();
+    let mut tol = ability_level.tolerance_scale();
+    if mode == crate::practice::types::PracticeMode::Rubato {
+        tol *= 1.5;
+    }
 
     // Sort detected note indices by beat position for sequential lookup.
     let mut sorted_idxs: Vec<usize> = (0..data.notes.len()).collect();
@@ -834,6 +860,59 @@ fn generate_measure_feedback(data: &MeasureData, ability_level: AbilityLevel) ->
                 }
             }
         }
+    }
+
+    // ── Hold-error reconciliation (spec §6) ────────────────────────────────
+    // Compare each played note's actual duration (recorded by ModeController
+    // when the TrackedNoteEnd arrives) against the closest expected note's
+    // reference duration. Threshold: ±25% per HOLD_TOLERANCE_PCT.
+    for (i, dur_opt) in data.note_durations.iter().enumerate() {
+        let Some(actual) = *dur_opt else { continue };
+        let Some(note) = data.notes.get(i) else { continue };
+        let Some(exp) = data.expected_notes.iter().find(|e| {
+            (e.beat_position - note.beat_position).abs() < NOTE_MATCH_WINDOW * tol
+                && e.midi_note == note.midi_note
+        }) else { continue };
+        if actual > exp.duration_beats * (1.0 + HOLD_TOLERANCE_PCT) {
+            feedback.push(SendInfo {
+                measure: data.measure_index,
+                note_index: i,
+                error_type: MusicError::HeldTooLong,
+                intensity: 0.6,
+                expected: format!("dur~{:.2}", exp.duration_beats),
+                received: format!("dur={actual:.2}"),
+            });
+        } else if actual < exp.duration_beats * (1.0 - HOLD_TOLERANCE_PCT) {
+            feedback.push(SendInfo {
+                measure: data.measure_index,
+                note_index: i,
+                error_type: MusicError::HeldTooShort,
+                intensity: 0.6,
+                expected: format!("dur~{:.2}", exp.duration_beats),
+                received: format!("dur={actual:.2}"),
+            });
+        }
+    }
+
+    // ── Tempo (doubled-note) reconciliation (spec §6) ──────────────────────
+    // The matcher's DoubledNote outcome doesn't surface in `data.notes`; the
+    // ModeController stamps the played-note indices into `doubled_note_seqs`.
+    // Each entry indexes into `data.notes` (parallel to `note_durations`).
+    for &doubled_idx in &data.doubled_note_seqs {
+        let idx = doubled_idx as usize;
+        let Some(note) = data.notes.get(idx) else { continue };
+        feedback.push(SendInfo {
+            measure: data.measure_index,
+            note_index: idx,
+            error_type: MusicError::Tempo,
+            intensity: 0.7,
+            expected: format!("single attack at midi={}", note.midi_note),
+            received: format!(
+                "doubled {} at beat {:.2}",
+                midi_to_note_name(note.midi_note),
+                note.beat_position
+            ),
+        });
     }
 
     feedback
@@ -1244,7 +1323,7 @@ mod tests {
                 dynamic: None,
             }],
         );
-        let fb = generate_measure_feedback(&data, AbilityLevel::Advanced);
+        let fb = generate_measure_feedback(&data, AbilityLevel::Advanced, crate::practice::types::PracticeMode::Performance);
         assert!(
             fb.iter().all(|e| e.error_type == MusicError::None),
             "perfect performance should produce no error feedback: {fb:?}"
@@ -1263,7 +1342,7 @@ mod tests {
                 dynamic: None,
             }],
         );
-        let fb = generate_measure_feedback(&data, AbilityLevel::Advanced);
+        let fb = generate_measure_feedback(&data, AbilityLevel::Advanced, crate::practice::types::PracticeMode::Performance);
         assert!(
             fb.iter().any(|e| e.error_type == MusicError::MissingNote),
             "should flag MissingNote when nothing is played"
@@ -1286,7 +1365,7 @@ mod tests {
                 dynamic: None,
             }],
         );
-        let fb = generate_measure_feedback(&data, AbilityLevel::Advanced);
+        let fb = generate_measure_feedback(&data, AbilityLevel::Advanced, crate::practice::types::PracticeMode::Performance);
         assert!(
             fb.iter().any(|e| e.error_type == MusicError::WrongNote),
             "should flag WrongNote when wrong pitch played at correct beat"
@@ -1317,7 +1396,7 @@ mod tests {
                 dynamic: None,
             }],
         );
-        let fb = generate_measure_feedback(&data, AbilityLevel::Advanced);
+        let fb = generate_measure_feedback(&data, AbilityLevel::Advanced, crate::practice::types::PracticeMode::Performance);
         let timing = fb.iter().find(|e| e.error_type == MusicError::Timing);
         assert!(
             timing.is_some(),
@@ -1352,7 +1431,7 @@ mod tests {
                 dynamic: None,
             }],
         );
-        let fb = generate_measure_feedback(&data, AbilityLevel::Advanced);
+        let fb = generate_measure_feedback(&data, AbilityLevel::Advanced, crate::practice::types::PracticeMode::Performance);
         let inton = fb.iter().find(|e| e.error_type == MusicError::Intonation);
         assert!(
             inton.is_some(),
@@ -1383,8 +1462,8 @@ mod tests {
                 dynamic: None,
             }],
         );
-        let fb_advanced = generate_measure_feedback(&data, AbilityLevel::Advanced);
-        let fb_beginner = generate_measure_feedback(&data, AbilityLevel::Beginner);
+        let fb_advanced = generate_measure_feedback(&data, AbilityLevel::Advanced, crate::practice::types::PracticeMode::Performance);
+        let fb_beginner = generate_measure_feedback(&data, AbilityLevel::Beginner, crate::practice::types::PracticeMode::Performance);
         let advanced_has_timing = fb_advanced
             .iter()
             .any(|e| e.error_type == MusicError::Timing);
