@@ -234,5 +234,65 @@ fn expected_for(buf: &MeasureBuffer, key: (usize, usize)) -> crate::practice::me
 
 #[cfg(test)]
 mod tests {
-    // Integration tests added in Task 25 onward.
+    use super::*;
+    use std::sync::Arc;
+    use crate::audio_io::dynamics::DynamicLevel;
+    use crate::generators::{Instrument, Measure, SynthNote};
+
+    fn three_quarter_note_measure() -> Arc<Vec<Measure>> {
+        Arc::new(vec![Measure {
+            notes: vec![
+                SynthNote { freq: 261.626, start_beat_in_measure: 0.0, duration_beats: 1.0, velocity: 0.5, instrument: Instrument::Piano },
+                SynthNote { freq: 293.665, start_beat_in_measure: 1.0, duration_beats: 1.0, velocity: 0.5, instrument: Instrument::Piano },
+                SynthNote { freq: 329.628, start_beat_in_measure: 2.0, duration_beats: 1.0, velocity: 0.5, instrument: Instrument::Piano },
+            ],
+            time_signature: (4,4), bpm: 120.0, global_start_beat: 0.0,
+        }])
+    }
+
+    fn make_mc(mode: PracticeMode) -> ModeController {
+        let transport = MusicalTransport::new(120.0, 48000.0);
+        transport.play();
+        let measures = three_quarter_note_measure();
+        let buffer = MeasureBuffer::new(measures, 0, 0);
+        let conditioner = InputConditioner::new(transport.clone());
+        let clock = ClockManager::new(transport.clone(), ClockConfig::default(), 120.0);
+        ModeController::new(mode, transport, conditioner, buffer, clock, 0)
+    }
+
+    fn frame_with(midis: Vec<(u8, f64)>, beat: f64) -> TunerFrame {
+        TunerFrame { notes: midis, tuner_beat: beat }
+    }
+
+    #[test]
+    fn followalong_perfect_play_advances_frontier() {
+        let mut mc = make_mc(PracticeMode::FollowAlong);
+        // 5 frames stable on C4 → emit Started; matcher sees in-window Pending → Matched.
+        for i in 0..5 {
+            let _ = mc.tick(TickInputs {
+                transport_beat: i as f64 * 0.02,
+                tuner_frame: Some(&frame_with(vec![(60, 0.0)], i as f64 * 0.02)),
+                new_onsets: &[],
+                dynamic_level: DynamicLevel::Silence,
+            });
+        }
+        assert_eq!(mc.frontier, (0, 1));
+    }
+
+    #[test]
+    fn performance_mode_does_not_call_seek_or_stop() {
+        let mut mc = make_mc(PracticeMode::Performance);
+        let initial_beat = mc.transport.get_accumulated_beats();
+        // Bunch of frames with severe timing error.
+        for i in 0..5 {
+            let _ = mc.tick(TickInputs {
+                transport_beat: 5.0 + i as f64 * 0.02,    // way past expected beat 0
+                tuner_frame: Some(&frame_with(vec![(60, 0.0)], 5.0 + i as f64 * 0.02)),
+                new_onsets: &[],
+                dynamic_level: DynamicLevel::Silence,
+            });
+        }
+        // Performance mode never seeks.
+        assert!((mc.transport.get_accumulated_beats() - initial_beat).abs() < 1e-6);
+    }
 }
