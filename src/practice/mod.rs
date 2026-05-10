@@ -108,23 +108,15 @@ struct SessionState {
     /// `current_measure_idx` (kept in sync via `buffer.current_idx()`); later
     /// phases will eliminate the standalone integer.
     buffer: Option<crate::practice::buffer::MeasureBuffer>,
+    /// Phase 2: replaces the inline pitch-stability hysteresis state.
+    conditioner: Option<crate::practice::conditioner::InputConditioner>,
+    /// Last tuner beat position seen (calibrated). Used for frame-rate dedup.
+    last_tuner_beat: Option<f64>,
 
     // ── Per-measure event accumulators ────────────────────────────────────
     current_onsets: Vec<crate::audio_io::timing::OnsetEvent>,
     current_notes: Vec<NoteEvent>,
     current_dynamics: Vec<DynamicsEvent>,
-
-    // ── Note-change tracking ──────────────────────────────────────────────
-    /// The note name the tuner last reported (e.g. "C#4").  `None` = silence.
-    last_note_name: Option<String>,
-    /// Beat position when the current note was first detected.
-    last_note_beat: f64,
-    /// MIDI number of the current note.
-    last_note_midi: u8,
-    /// Running sum of cent deviations for the current note.
-    cents_sum: f64,
-    /// Number of samples contributing to `cents_sum`.
-    cents_count: u32,
 
     // ── Dynamics-change tracking ──────────────────────────────────────────
     last_dynamic: Option<DynamicLevel>,
@@ -147,32 +139,6 @@ struct SessionState {
     /// Set to `true` when a qualifying onset is received in the current measure.
     /// Gating measure advance on this prevents progressing without the user playing.
     onset_received_this_measure: bool,
-
-    // ── Note-boundary refractory ──────────────────────────────────────
-    /// Transport beat before which a new onset cannot trigger a note boundary.
-    /// Reset each time an onset-triggered boundary fires.
-    note_refractory_until: f64,
-
-    // ── Pitch stability hysteresis ────────────────────────────────────
-    /// MIDI note number of the pitch currently being evaluated for confirmation.
-    /// `None` means the pitch matches the locked note and no confirmation is in progress.
-    pending_midi: Option<u8>,
-    /// Number of consecutive polls at `pending_midi` so far.
-    pending_count: u32,
-    /// Tuner beat (audio-aligned) when `pending_midi` was first observed.
-    /// Used as `last_note_beat` when the boundary is eventually confirmed.
-    pending_first_beat: f64,
-
-    // ── Count-off onset calibration ───────────────────────────────────
-    /// Raw fractional beat offsets (detected − nearest integer beat) collected
-    /// during the count-off.  Filtered and averaged at count-off end to derive
-    /// `onset_beat_offset`.
-    countoff_offsets: Vec<f64>,
-    /// Systematic lag in beats between detected onset positions and true beat
-    /// positions, measured during the count-off.  Subtracted from every onset
-    /// beat position during the performance phase.  `0.0` if no count-off data
-    /// was collected (fallback: no correction applied).
-    onset_beat_offset: f64,
 }
 
 impl SessionState {
@@ -188,14 +154,11 @@ impl SessionState {
             practice_end,
             current_measure_idx: practice_start,
             buffer: None,
+            conditioner: None,
+            last_tuner_beat: None,
             current_onsets: Vec::new(),
             current_notes: Vec::new(),
             current_dynamics: Vec::new(),
-            last_note_name: None,
-            last_note_beat: 0.0,
-            last_note_midi: 0,
-            cents_sum: 0.0,
-            cents_count: 0,
             last_dynamic: None,
             completed_measures: Vec::new(),
             first_measure_beat,
@@ -203,27 +166,7 @@ impl SessionState {
             wait_for_onset,
             next_expected_beat: first_measure_beat,
             onset_received_this_measure: false,
-            note_refractory_until: f64::NEG_INFINITY,
-            pending_midi: None,
-            pending_count: 0,
-            pending_first_beat: 0.0,
-            countoff_offsets: Vec::new(),
-            onset_beat_offset: 0.0,
         }
-    }
-
-    /// Push the in-progress note (if any) to `current_notes` and reset tracking.
-    fn finalize_pending_note(&mut self) {
-        if self.last_note_name.is_some() && self.cents_count > 0 {
-            self.current_notes.push(NoteEvent {
-                beat_position: self.last_note_beat,
-                midi_note: self.last_note_midi,
-                avg_cents: self.cents_sum / self.cents_count as f64,
-            });
-        }
-        self.last_note_name = None;
-        self.cents_sum = 0.0;
-        self.cents_count = 0;
     }
 }
 
@@ -357,6 +300,9 @@ impl PracticeSession {
                 self.measures.clone(),
                 start,
                 end,
+            ));
+            s.conditioner = Some(crate::practice::conditioner::InputConditioner::new(
+                self.transport.clone(),
             ));
         }
         self.feedback.lock().map_err(lock_err)?.clear();
@@ -570,10 +516,6 @@ fn run_session(
             (names, cents, tbeat)
         };
 
-        // Primary note for single-pitch-style tracking (first detected pitch).
-        let note_name = note_names.first().cloned();
-        let note_cents_primary = note_cents.first().copied().unwrap_or(0.0);
-
         // ── 3. Sample dynamics (short read lock) ──────────────────────────
         let current_level = dynamics_output.read().level;
 
@@ -583,84 +525,22 @@ fn run_session(
         // ── Count-off phase ───────────────────────────────────────────────
         // The transport was seeked to (first_measure_beat - countoff_beats - ε).
         // We simply wait until the transport reaches first_measure_beat.
-        let mut onsets_handled = false;
+        // Onsets from `stamp_onset` are already calibrated for input latency,
+        // so no per-session calibration is performed here.
         if s.in_countoff {
             if beat >= s.first_measure_beat {
-                // ── Compute calibration offset from count-off detections ──────
-                // During count-off we collected the fractional beat offset of each
-                // detected onset (detected_beat − nearest_integer_beat).  Any
-                // consistent positive offset is the system input latency.
-                // Filter: accept offsets in (0.01, 0.60) beats to reject noise and
-                // outliers. Require ≥ 2 samples; fall back to 0.0 if insufficient.
-                let valid: Vec<f64> = s
-                    .countoff_offsets
-                    .iter()
-                    .copied()
-                    .filter(|&o| o > 0.01 && o < 0.60)
-                    .collect();
-                if valid.len() >= 2 {
-                    s.onset_beat_offset =
-                        valid.iter().sum::<f64>() / valid.len() as f64;
-                    log::info!(
-                        "Onset calibration: {:.4} beats from {} count-off samples",
-                        s.onset_beat_offset,
-                        valid.len()
-                    );
-                }
-                // (else: onset_beat_offset stays 0.0 — no correction applied)
-
                 s.in_countoff = false;
-                // Prevent any onset from the count-off drain batch (beat < first_measure_beat)
-                // from triggering a note boundary in the pitch-stability block below.
-                s.note_refractory_until = s.first_measure_beat;
-                // Discard all count-off onsets accumulated so far.
-                s.current_onsets.clear();
-                // Due to input pipeline latency, the ring buffer may deliver a count-off
-                // onset in the same drain batch as the beat-0 transition.  Admit only
-                // performance-period onsets (after calibration correction) so they don't
-                // skew measure-0 timing metrics.
-                let first_beat = s.first_measure_beat;
-                let cal = s.onset_beat_offset;
-                for o in &new_onsets_raw {
-                    let corrected = o.beat_position - cal;
-                    if corrected >= first_beat {
-                        s.current_onsets.push(crate::audio_io::timing::OnsetEvent {
-                            beat_position: corrected,
-                            ..*o
-                        });
-                    }
-                }
-                onsets_handled = true;
             } else {
-                // Still counting off — collect onset offsets for calibration but
-                // skip all note/dynamic analysis.
-                for o in &new_onsets_raw {
-                    // offset = how many beats late the onset arrived relative to
-                    // the nearest integer beat (count-off clicks are on integers).
-                    let offset = o.beat_position - o.beat_position.round();
-                    s.countoff_offsets.push(offset);
-                }
-                s.current_onsets.extend_from_slice(&new_onsets_raw);
+                // Still counting off — skip all note/dynamic analysis.
                 drop(s);
                 thread::sleep(Duration::from_millis(5));
                 continue;
             }
         }
 
-        // Apply calibration offset to create beat-corrected onset events.
-        // During count-off the offset is 0.0 so this is a no-op until calibrated.
-        let cal = s.onset_beat_offset;
-        let new_onsets: Vec<crate::audio_io::timing::OnsetEvent> = new_onsets_raw
-            .into_iter()
-            .map(|o| crate::audio_io::timing::OnsetEvent {
-                beat_position: o.beat_position - cal,
-                ..o
-            })
-            .collect();
-
-        if !onsets_handled {
-            s.current_onsets.extend_from_slice(&new_onsets);
-        }
+        // Onsets are already pre-calibrated by `stamp_onset`.
+        let new_onsets = new_onsets_raw;
+        s.current_onsets.extend_from_slice(&new_onsets);
 
         // ── Onset-wait mode: detect qualifying onsets and seek ────────────
         // The transport keeps running so timing error is measurable, but
@@ -685,96 +565,57 @@ fn run_session(
 
         let prev_note_count = s.current_notes.len();
 
-        // ── Pitch-stability hysteresis note-boundary detection ─────────────────
-        //
-        // A note boundary fires when:
-        //   a) A qualifying onset is detected (immediate, bypasses hysteresis):
-        //      same or different MIDI → rearticulation or onset-confirmed pitch change.
-        //   b) The tuner reports the same NEW MIDI for PITCH_CONFIRM_POLLS consecutive
-        //      polls (no onset needed — handles all slurred intervals incl. B→C, E→F).
-        //   c) Silence is detected → finalise immediately.
-        //
-        // Brief pitch excursions (vibrato overshoot, harmonic flicker) reset the pending
-        // counter because they return to the locked pitch before the threshold is reached.
-
-        let midi_now: Option<u8> = note_name.as_deref().and_then(note_name_to_midi);
-        let locked_midi: Option<u8> = s.last_note_name.as_ref().map(|_| s.last_note_midi);
-
-        let best_onset = new_onsets
-            .iter()
-            .filter(|o| {
-                o.velocity >= ONSET_VELOCITY_THRESHOLD
-                    && o.beat_position >= s.note_refractory_until
-            })
-            .max_by(|a, b| {
-                a.velocity
-                    .partial_cmp(&b.velocity)
-                    .unwrap_or(std::cmp::Ordering::Equal)
-            });
-
-        match (midi_now, locked_midi) {
-            (None, None) => {
-                s.pending_midi = None;
-                s.pending_count = 0;
+        // ── Conditioner-driven note-boundary detection ─────────────────────────
+        // Build a TunerFrame if the tuner produced a new analysis hop.
+        // The polling tick rate (~10 ms) is faster than the tuner hop rate
+        // (~23 ms), so we dedup by `tuner_beat` change.
+        let calibrated_tuner_beat = transport.calibrated_beat(tuner_beat);
+        let tuner_frame_opt: Option<crate::practice::types::TunerFrame> = {
+            if s.last_tuner_beat == Some(calibrated_tuner_beat) {
+                None
+            } else {
+                s.last_tuner_beat = Some(calibrated_tuner_beat);
+                let pairs: Vec<(u8, f64)> = note_names
+                    .iter()
+                    .zip(note_cents.iter())
+                    .filter_map(|(n, c)| note_name_to_midi(n).map(|m| (m, *c)))
+                    .collect();
+                Some(crate::practice::types::TunerFrame {
+                    notes: pairs,
+                    tuner_beat: calibrated_tuner_beat,
+                })
             }
-            (None, Some(_)) => {
-                // Silence: finalise in-progress note immediately.
-                s.finalize_pending_note();
-                s.pending_midi = None;
-                s.pending_count = 0;
-            }
-            (Some(_), None) | (Some(_), Some(_)) => {
-                let pitch_changed = midi_now != locked_midi;
+        };
 
-                if let Some(onset) = best_onset {
-                    // Onset: immediate boundary, accurate beat from onset detector.
-                    let start_beat = onset.beat_position;
-                    s.finalize_pending_note();
-                    let name = note_name.as_ref().unwrap();
-                    s.last_note_name = Some(name.clone());
-                    s.last_note_beat = start_beat;
-                    s.last_note_midi = midi_now.unwrap();
-                    s.cents_sum = note_cents_primary;
-                    s.cents_count = 1;
-                    s.pending_midi = None;
-                    s.pending_count = 0;
-                    s.note_refractory_until = start_beat + REFRACTORY_BEATS;
-                } else if pitch_changed {
-                    // No onset — use stability counter with audio-aligned beat.
-                    if s.pending_midi == midi_now {
-                        s.pending_count += 1;
-                    } else {
-                        // New candidate pitch: start fresh counter.
-                        s.pending_midi = midi_now;
-                        s.pending_count = 1;
-                        s.pending_first_beat = tuner_beat;
-                    }
+        // Drive the conditioner.
+        let conditioner_events = if let Some(cond) = s.conditioner.as_mut() {
+            cond.ingest(tuner_frame_opt.as_ref(), &new_onsets)
+        } else {
+            Vec::new()
+        };
 
-                    if s.pending_count >= PITCH_CONFIRM_POLLS {
-                        // Pitch has been stable long enough — confirm boundary.
-                        let start_beat = s.pending_first_beat;
-                        s.finalize_pending_note();
-                        let name = note_name.as_ref().unwrap();
-                        s.last_note_name = Some(name.clone());
-                        s.last_note_beat = start_beat;
-                        s.last_note_midi = midi_now.unwrap();
-                        s.cents_sum = note_cents_primary;
-                        s.cents_count = 1;
-                        s.pending_midi = None;
-                        s.pending_count = 0;
-                    } else {
-                        // Still confirming — accumulate on the current locked note.
-                        if s.last_note_name.is_some() {
-                            s.cents_sum += note_cents_primary;
-                            s.cents_count += 1;
-                        }
+        for ev in conditioner_events {
+            use crate::practice::types::ConditionerEvent;
+            match ev {
+                ConditionerEvent::Started(t) => {
+                    s.current_notes.push(NoteEvent {
+                        beat_position: t.start_beat,
+                        midi_note: t.midi_note,
+                        avg_cents: t.initial_cents,
+                    });
+                }
+                ConditionerEvent::Ended(t) => {
+                    // Update the matching NoteEvent's avg_cents to the final value.
+                    // We match by midi_note from the back (most recent) since
+                    // sequence numbers aren't tracked on NoteEvent yet (Phase 4).
+                    if let Some(n) = s
+                        .current_notes
+                        .iter_mut()
+                        .rev()
+                        .find(|n| n.midi_note == t.midi_note)
+                    {
+                        n.avg_cents = t.avg_cents;
                     }
-                } else {
-                    // Pitch matches locked note: reset pending, accumulate.
-                    s.pending_midi = None;
-                    s.pending_count = 0;
-                    s.cents_sum += note_cents_primary;
-                    s.cents_count += 1;
                 }
             }
         }
@@ -865,8 +706,6 @@ fn run_session(
         }
 
         if beat >= measure_end {
-            s.finalize_pending_note();
-
             // Capture the index of the measure we're closing out before mutating.
             let finished_idx = s.current_measure_idx;
             let expected = build_expected_notes(&measures[finished_idx]);
