@@ -87,8 +87,11 @@ impl InputConditioner {
         while self.recent_onsets.front().map_or(false, |o| o.beat_position < cutoff) {
             self.recent_onsets.pop_front();
         }
-        // Drop stale transient_log entries.
-        let seq_cutoff = self.frame_seq.saturating_sub(CLUSTER_FRAME_WINDOW);
+        // Drop stale transient_log entries. We retain CLUSTER_FRAME_WINDOW + STABLE_FRAMES
+        // worth of history so that a StartPending which only confirms after STABLE_FRAMES
+        // can still see transients that occurred within CLUSTER_FRAME_WINDOW of its first
+        // frame.
+        let seq_cutoff = self.frame_seq.saturating_sub(CLUSTER_FRAME_WINDOW + STABLE_FRAMES as u64);
         while self.transient_log.front().map_or(false, |&(s, _, _)| s < seq_cutoff) {
             self.transient_log.pop_front();
         }
@@ -117,7 +120,8 @@ impl InputConditioner {
                     cents_buffer.push(cents);
                     let new_frames = frames + 1;
                     if new_frames >= STABLE_FRAMES {
-                        // Tier cascade is implemented in Task 11. For now, always StableFiveFrame.
+                        let (start_beat, start_source) =
+                            self.run_tier_cascade(m, first_frame_beat, first_frame_seq);
                         let seq = self.next_event_seq;
                         self.next_event_seq += 1;
                         let avg = cents_buffer.iter().sum::<f64>() / cents_buffer.len() as f64;
@@ -125,15 +129,14 @@ impl InputConditioner {
                         events.push(ConditionerEvent::Started(TrackedNoteStart {
                             seq,
                             midi_note: m,
-                            start_beat: first_frame_beat,
-                            start_source: StartSource::StableFiveFrame,
+                            start_beat,
+                            start_source,
                             initial_cents: avg,
                         }));
-                        let _ = first_frame_seq;
                         PitchState::Active(ActiveBody {
                             seq,
-                            start_beat: first_frame_beat,
-                            start_source: StartSource::StableFiveFrame,
+                            start_beat,
+                            start_source,
                             cents_sum,
                             frame_count: STABLE_FRAMES,
                         })
@@ -207,6 +210,38 @@ impl InputConditioner {
 
         events
     }
+
+    fn run_tier_cascade(
+        &mut self,
+        midi: u8,
+        first_frame_beat: f64,
+        first_frame_seq: u64,
+    ) -> (f64, StartSource) {
+        // 1. Onset claim.
+        if let Some(idx) = self.recent_onsets.iter().position(|o| {
+            (o.beat_position - first_frame_beat).abs() < ONSET_CLAIM_WINDOW
+        }) {
+            let claimed = self.recent_onsets.remove(idx).unwrap();
+            return (claimed.beat_position, StartSource::Onset);
+        }
+        let _ = midi; // suppress unused warning
+
+        // 2. Transient cluster.
+        let cutoff_seq = first_frame_seq.saturating_sub(CLUSTER_FRAME_WINDOW);
+        let cluster: Vec<_> = self.transient_log.iter()
+            .filter(|(s, _, _)| *s >= cutoff_seq)
+            .copied()
+            .collect();
+        if cluster.len() >= CLUSTER_MIN_TRANSIENTS {
+            let first_beat = cluster[0].1;
+            // Drain consumed entries (everything within the cluster's seq range).
+            self.transient_log.retain(|(s, _, _)| *s < cutoff_seq);
+            return (first_beat, StartSource::TransientCluster);
+        }
+
+        // 3. Stable five frame.
+        (first_frame_beat, StartSource::StableFiveFrame)
+    }
 }
 
 #[cfg(test)]
@@ -257,6 +292,53 @@ mod tests {
             }
             _ => panic!("expected Started"),
         }
+    }
+
+    #[test]
+    fn onset_within_window_tags_start_source_onset_and_uses_onset_beat() {
+        let mut c = InputConditioner::new(mk_transport());
+        // Onset arrives just before the pitch stabilizes.
+        let onset = OnsetEvent { beat_position: 0.01, raw_sample_offset: 0, velocity: 0.7 };
+        let _ = c.ingest(None, &[onset]);
+
+        let mut started: Option<TrackedNoteStart> = None;
+        for i in 0..5 {
+            let f = frame(vec![(60, 0.0)], 0.02 + i as f64 * 0.02);
+            for e in c.ingest(Some(&f), &[]) {
+                if let ConditionerEvent::Started(s) = e {
+                    started = Some(s);
+                }
+            }
+        }
+        let s = started.expect("expected Started");
+        assert_eq!(s.start_source, StartSource::Onset);
+        assert!((s.start_beat - 0.01).abs() < 1e-9);
+    }
+
+    #[test]
+    fn four_transients_then_stable_pitch_uses_transient_cluster() {
+        let mut c = InputConditioner::new(mk_transport());
+        // Push 4 transients (each lasting 1 frame, so they hit StartPending → Idle).
+        for i in 0..4 {
+            let f1 = frame(vec![(50 + i as u8, 0.0)], i as f64 * 0.02);
+            let _ = c.ingest(Some(&f1), &[]);
+            let f2 = frame(vec![], (i as f64 + 0.5) * 0.02);
+            let _ = c.ingest(Some(&f2), &[]);
+        }
+        // Now the actual note: stable for 5 frames.
+        let mut started: Option<TrackedNoteStart> = None;
+        for i in 0..5 {
+            let f = frame(vec![(60, 0.0)], 0.5 + i as f64 * 0.02);
+            for e in c.ingest(Some(&f), &[]) {
+                if let ConditionerEvent::Started(s) = e {
+                    started = Some(s);
+                }
+            }
+        }
+        let s = started.expect("expected Started");
+        assert_eq!(s.start_source, StartSource::TransientCluster);
+        // start_beat should equal the FIRST transient's beat (0.0).
+        assert!((s.start_beat - 0.0).abs() < 1e-9);
     }
 
     #[test]
