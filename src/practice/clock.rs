@@ -66,6 +66,59 @@ impl ClockManager {
     }
     pub fn cfg(&self) -> &ClockConfig { &self.cfg }
 
+    pub fn on_tick(
+        &mut self,
+        buf: &MeasureBuffer,
+        frontier: (usize, usize),
+        transport_beat: f64,
+        mode: PracticeMode,
+    ) -> Vec<ClockAction> {
+        // Hesitation tempo: always compute when frontier is Pending and overdue.
+        // This runs in every mode (it's a read-only display value, not a clock action).
+        let frontier_pending = buf.slot(frontier)
+            .map_or(false, |s| s.status == SlotStatus::Pending);
+        if frontier_pending {
+            let frontier_beat = {
+                let m = &buf.measures()[frontier.0];
+                m.global_start_beat + m.notes[frontier.1].start_beat_in_measure as f64
+            };
+            if transport_beat > frontier_beat {
+                // Use the last anchor; if none, use frontier - 1 measure as a rough origin.
+                if let (Some(prev_real), Some(prev_exp)) =
+                    (self.last_match_real_beat, self.last_match_expected_beat)
+                {
+                    let real_diff = transport_beat - prev_real;
+                    let exp_diff = frontier_beat - prev_exp;
+                    if real_diff > 1e-6 && exp_diff > 0.0 {
+                        let current_bpm = self.transport.get_bpm();
+                        self.hesitation_tempo = Some((exp_diff / real_diff) as f32 * current_bpm);
+                    }
+                }
+            } else {
+                self.hesitation_tempo = None;
+            }
+        } else {
+            self.hesitation_tempo = None;
+        }
+
+        // Stop trigger — FollowAlong only.
+        if mode != PracticeMode::FollowAlong { return Vec::new(); }
+        if self.stopped_for_unplayed { return Vec::new(); }
+        if !frontier_pending { return Vec::new(); }
+
+        let Some(next) = buf.next_pending_after(frontier) else { return Vec::new() };
+        let next_beat = {
+            let m = &buf.measures()[next.0];
+            m.global_start_beat + m.notes[next.1].start_beat_in_measure as f64
+        };
+
+        if transport_beat >= next_beat - self.cfg.stop_lead_epsilon {
+            self.stopped_for_unplayed = true;
+            return vec![ClockAction::Stop];
+        }
+        Vec::new()
+    }
+
     pub fn on_match(
         &mut self,
         outcome: &MatchOutcome,
@@ -192,6 +245,25 @@ mod tests {
         // EWMA = 0.4 * 80 + 0.6 * 120 = 104.
         let _ = cm.on_match(&matched(1.5, (0,1)), &exp(1.0, 1.0), 1.5, PracticeMode::FollowAlong);
         assert!((cm.t_stu_bpm() - 104.0).abs() < 0.5);
+    }
+
+    #[test]
+    fn stop_fires_when_transport_approaches_next_after_pending_frontier() {
+        use crate::practice::buffer::MeasureBuffer;
+        use crate::generators::{Instrument, Measure, SynthNote};
+        let measures = std::sync::Arc::new(vec![Measure {
+            notes: vec![
+                SynthNote { freq: 261.626, start_beat_in_measure: 0.0, duration_beats: 1.0, velocity: 0.5, instrument: Instrument::Piano },
+                SynthNote { freq: 293.665, start_beat_in_measure: 1.0, duration_beats: 1.0, velocity: 0.5, instrument: Instrument::Piano },
+                SynthNote { freq: 329.628, start_beat_in_measure: 2.0, duration_beats: 1.0, velocity: 0.5, instrument: Instrument::Piano },
+            ],
+            time_signature: (4, 4), bpm: 120.0, global_start_beat: 0.0,
+        }]);
+        let buf = MeasureBuffer::new(measures, 0, 0);
+        let mut cm = mk();
+        let frontier = (0, 1);    // beat 1 still Pending; beat 2 is the next-after.
+        let actions = cm.on_tick(&buf, frontier, 1.999, PracticeMode::FollowAlong);
+        assert!(actions.iter().any(|a| matches!(a, ClockAction::Stop)));
     }
 
     #[test]

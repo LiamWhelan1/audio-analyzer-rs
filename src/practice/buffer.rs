@@ -76,6 +76,7 @@ impl MeasureBuffer {
     pub fn past_idx(&self) -> Option<usize> { self.past_idx }
     pub fn future_idx(&self) -> Option<usize> { self.future_idx }
     pub fn slot(&self, key: (usize, usize)) -> Option<&NoteSlot> { self.slots.get(&key) }
+    pub fn measures(&self) -> &[Measure] { &self.measures }
 
     pub fn record_match(&mut self, key: (usize, usize), tracked: &TrackedNoteStart, pitch_correct: bool) {
         if let Some(slot) = self.slots.get_mut(&key) {
