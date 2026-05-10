@@ -686,7 +686,8 @@ impl AudioEngine {
     /// * `midi_path`        — path to the MIDI reference file.
     /// * `instrument`       — instrument name (e.g. `"Piano"`, `"Violin"`).
     /// * `countoff_beats`   — number of metronome beats to play before analysis begins (0 = no count-off).
-    /// * `wait_for_onset`   — when `true`, measure progression waits for the user to play before advancing.
+    /// * `mode`             — `"FollowAlong"`, `"Performance"`, or `"Rubato"`.
+    ///                         Controls how the transport reacts to student timing.
     /// * `ability_level`    — `"Beginner"`, `"Intermediate"`, `"Advanced"`, or `"Expert"`.
     ///                         Controls how wide error tolerances are.
     pub fn create_practice_session(
@@ -694,7 +695,7 @@ impl AudioEngine {
         midi_path: String,
         instrument: String,
         countoff_beats: u32,
-        wait_for_onset: bool,
+        mode: String,
         ability_level: String,
         bpm: f32,
     ) -> Result<Arc<PracticeSession>, AudioEngineError> {
@@ -724,6 +725,14 @@ impl AudioEngine {
             }
         };
 
+        let practice_mode = practice_mod::types::PracticeMode::from_str(&mode).ok_or_else(|| {
+            AudioEngineError::Internal {
+                msg: format!(
+                    "Unknown practice mode '{mode}'. Expected one of: FollowAlong, Performance, Rubato"
+                ),
+            }
+        })?;
+
         let tuner = self.start_tuner()?;
         let onset = self.start_onset_detection()?;
         let transport = self.transport()?;
@@ -737,7 +746,7 @@ impl AudioEngine {
             &midi_path,
             &instrument,
             countoff_beats,
-            wait_for_onset,
+            practice_mode,
             level,
             bpm,
         ) {

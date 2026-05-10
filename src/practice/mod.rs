@@ -111,43 +111,15 @@ struct SessionState {
     practice_start: usize,
     /// Index into `measures` where the practice range ends (inclusive).
     practice_end: usize,
-    /// Current position within `measures`.
+    /// Current position within `measures` (mirrors ModeController buffer state).
     current_measure_idx: usize,
-    /// Phase 1 wiring: drives the per-tick measure cycle. Currently parallels
-    /// `current_measure_idx` (kept in sync via `buffer.current_idx()`); later
-    /// phases will eliminate the standalone integer.
-    buffer: Option<crate::practice::buffer::MeasureBuffer>,
-    /// Phase 2: replaces the inline pitch-stability hysteresis state.
-    conditioner: Option<crate::practice::conditioner::InputConditioner>,
-    /// Last tuner beat position seen (calibrated). Used for frame-rate dedup.
-    last_tuner_beat: Option<f64>,
-
-    // ── Per-measure event accumulators ────────────────────────────────────
-    current_onsets: Vec<crate::audio_io::timing::OnsetEvent>,
-    current_notes: Vec<NoteEvent>,
-    current_dynamics: Vec<DynamicsEvent>,
-
-    // ── Dynamics-change tracking ──────────────────────────────────────────
-    last_dynamic: Option<DynamicLevel>,
-
-    // ── Completed measures ────────────────────────────────────────────────
+    /// Completed measure data drained from ModeController.
     completed_measures: Vec<MeasureData>,
-
-    // ── Count-off state ───────────────────────────────────────────────────
     /// Beat position where the first practice measure begins.
     /// Count-off ends when transport beat reaches this value.
     first_measure_beat: f64,
     /// True while the transport beat has not yet reached `first_measure_beat`.
     in_countoff: bool,
-
-    // ── Onset-wait mode ───────────────────────────────────────────────────
-    /// When true, the measure does not advance until an onset is detected.
-    wait_for_onset: bool,
-    /// Beat position that the *next* note is expected at in onset-wait mode.
-    next_expected_beat: f64,
-    /// Set to `true` when a qualifying onset is received in the current measure.
-    /// Gating measure advance on this prevents progressing without the user playing.
-    onset_received_this_measure: bool,
 }
 
 impl SessionState {
@@ -156,25 +128,14 @@ impl SessionState {
         practice_end: usize,
         has_countoff: bool,
         first_measure_beat: f64,
-        wait_for_onset: bool,
     ) -> Self {
         Self {
             practice_start,
             practice_end,
             current_measure_idx: practice_start,
-            buffer: None,
-            conditioner: None,
-            last_tuner_beat: None,
-            current_onsets: Vec::new(),
-            current_notes: Vec::new(),
-            current_dynamics: Vec::new(),
-            last_dynamic: None,
             completed_measures: Vec::new(),
             first_measure_beat,
             in_countoff: has_countoff,
-            wait_for_onset,
-            next_expected_beat: first_measure_beat,
-            onset_received_this_measure: false,
         }
     }
 }
@@ -201,8 +162,8 @@ pub struct PracticeSession {
 
     /// Number of count-off beats before analysis starts.
     countoff_beats: u32,
-    /// When true, measure progression waits for onset events.
-    wait_for_onset: bool,
+    /// Practice mode — controls clock action filtering in the run loop.
+    mode: crate::practice::types::PracticeMode,
     /// User ability level — controls error tolerance scaling.
     ability_level: AbilityLevel,
 }
@@ -222,7 +183,7 @@ impl PracticeSession {
         midi_path: &str,
         instrument: &str,
         countoff_beats: u32,
-        wait_for_onset: bool,
+        mode: crate::practice::types::PracticeMode,
         ability_level: AbilityLevel,
         bpm: f32,
     ) -> Result<Self, AudioEngineError> {
@@ -245,12 +206,12 @@ impl PracticeSession {
             tuner,
             onset,
             dynamics_output,
-            state: Arc::new(Mutex::new(SessionState::new(0, 0, false, 0.0, false))),
+            state: Arc::new(Mutex::new(SessionState::new(0, 0, false, 0.0))),
             feedback: Arc::new(Mutex::new(Vec::new())),
             running: Arc::new(AtomicBool::new(false)),
             thread_handle: Mutex::new(None),
             countoff_beats,
-            wait_for_onset,
+            mode,
             ability_level,
         })
     }
@@ -301,19 +262,7 @@ impl PracticeSession {
             end,
             self.countoff_beats > 0,
             first_beat,
-            self.wait_for_onset,
         );
-        {
-            let mut s = self.state.lock().map_err(lock_err)?;
-            s.buffer = Some(crate::practice::buffer::MeasureBuffer::new(
-                self.measures.clone(),
-                start,
-                end,
-            ));
-            s.conditioner = Some(crate::practice::conditioner::InputConditioner::new(
-                self.transport.clone(),
-            ));
-        }
         self.feedback.lock().map_err(lock_err)?.clear();
 
         // Stop any already-running polling thread before starting fresh.
@@ -344,6 +293,7 @@ impl PracticeSession {
             let feedback = self.feedback.clone();
             let running = self.running.clone();
             let ability_level = self.ability_level;
+            let mode = self.mode;
             move || {
                 run_session(
                     transport,
@@ -355,6 +305,7 @@ impl PracticeSession {
                     feedback,
                     running,
                     ability_level,
+                    mode,
                 );
             }
         });
@@ -508,280 +459,94 @@ fn run_session(
     feedback: Arc<Mutex<Vec<SendInfo>>>,
     running: Arc<AtomicBool>,
     ability_level: AbilityLevel,
+    mode: crate::practice::types::PracticeMode,
 ) {
-    let tol = ability_level.tolerance_scale();
+    use crate::practice::buffer::MeasureBuffer;
+    use crate::practice::clock::{ClockConfig, ClockManager};
+    use crate::practice::conditioner::InputConditioner;
+    use crate::practice::mode::{ModeController, TickInputs};
+    use crate::practice::types::TunerFrame;
+
+    let (practice_start, practice_end, in_countoff_initial, first_measure_beat) = {
+        let s = state.lock().unwrap();
+        (s.practice_start, s.practice_end, s.in_countoff, s.first_measure_beat)
+    };
+
+    let buffer = MeasureBuffer::new(measures.clone(), practice_start, practice_end);
+    let conditioner = InputConditioner::new(transport.clone());
+    let clock = ClockManager::new(transport.clone(), ClockConfig::default(), transport.get_bpm());
+    let mut mc = ModeController::new(
+        mode, transport.clone(), conditioner, buffer, clock, practice_start,
+    );
+
+    let mut last_tuner_beat: Option<f64> = None;
+    let mut in_countoff = in_countoff_initial;
+
     while running.load(Ordering::Relaxed) {
         let beat = transport.get_accumulated_beats();
 
-        // ── 1. Drain onset ring buffer ────────────────────────────────────
-        let new_onsets_raw = onset.drain_onset_events();
-
-        // ── 2. Sample tuner (short read lock) ─────────────────────────────
-        let (note_names, note_cents, tuner_beat): (Vec<String>, Vec<f64>, f64) = {
-            let out = tuner_output.read();
-            let names: Vec<String> = out.notes.clone();
-            let cents: Vec<f64> = out.accuracies.iter().map(|&c| c as f64).collect();
-            let tbeat = out.beat_position;
-            (names, cents, tbeat)
-        };
-
-        // ── 3. Sample dynamics (short read lock) ──────────────────────────
-        let current_level = dynamics_output.read().level;
-
-        // ── Mutate session state ──────────────────────────────────────────
-        let Ok(mut s) = state.lock() else { break };
-
-        // ── Count-off phase ───────────────────────────────────────────────
-        // The transport was seeked to (first_measure_beat - countoff_beats - ε).
-        // We simply wait until the transport reaches first_measure_beat.
-        // Onsets from `stamp_onset` are already calibrated for input latency,
-        // so no per-session calibration is performed here.
-        if s.in_countoff {
-            if beat >= s.first_measure_beat {
-                s.in_countoff = false;
+        if in_countoff {
+            if beat >= first_measure_beat {
+                in_countoff = false;
+                if let Ok(mut s) = state.lock() { s.in_countoff = false; }
             } else {
-                // Still counting off — skip all note/dynamic analysis.
-                drop(s);
-                thread::sleep(Duration::from_millis(5));
+                thread::sleep(Duration::from_millis(10));
                 continue;
             }
         }
 
-        // Onsets are already pre-calibrated by `stamp_onset`.
-        let new_onsets = new_onsets_raw;
-        s.current_onsets.extend_from_slice(&new_onsets);
-
-        // ── Onset-wait mode: detect qualifying onsets and seek ────────────
-        // The transport keeps running so timing error is measurable, but
-        // measure advancement is gated on onset_received_this_measure.
-        if s.wait_for_onset && !new_onsets.is_empty() {
-            // Find the onset nearest to next_expected_beat.
-            if let Some(o) = new_onsets.iter().min_by(|a, b| {
-                (a.beat_position - s.next_expected_beat)
-                    .abs()
-                    .partial_cmp(&(b.beat_position - s.next_expected_beat).abs())
-                    .unwrap_or(std::cmp::Ordering::Equal)
-            }) {
-                // Accept any onset within a generous window (2× match window).
-                if (o.beat_position - s.next_expected_beat).abs() < NOTE_MATCH_WINDOW * 2.0 {
-                    // Seek the transport to the actual onset beat so the beat grid
-                    // reflects where the user truly played.
-                    transport.seek_to_beat(o.beat_position);
-                    s.onset_received_this_measure = true;
-                }
-            }
-        }
-
-        let prev_note_count = s.current_notes.len();
-
-        // ── Conditioner-driven note-boundary detection ─────────────────────────
-        // Build a TunerFrame if the tuner produced a new analysis hop.
-        // The polling tick rate (~10 ms) is faster than the tuner hop rate
-        // (~23 ms), so we dedup by `tuner_beat` change.
-        let calibrated_tuner_beat = transport.calibrated_beat(tuner_beat);
-        let tuner_frame_opt: Option<crate::practice::types::TunerFrame> = {
-            if s.last_tuner_beat == Some(calibrated_tuner_beat) {
-                None
-            } else {
-                s.last_tuner_beat = Some(calibrated_tuner_beat);
-                let pairs: Vec<(u8, f64)> = note_names
-                    .iter()
-                    .zip(note_cents.iter())
-                    .filter_map(|(n, c)| note_name_to_midi(n).map(|m| (m, *c)))
-                    .collect();
-                Some(crate::practice::types::TunerFrame {
-                    notes: pairs,
-                    tuner_beat: calibrated_tuner_beat,
-                })
-            }
+        let new_onsets: Vec<crate::audio_io::timing::OnsetEvent> = onset.drain_onset_events();
+        let (note_names, note_cents, raw_tuner_beat) = {
+            let out = tuner_output.read();
+            (out.notes.clone(), out.accuracies.iter().map(|&c| c as f64).collect::<Vec<_>>(), out.beat_position)
         };
-
-        // Drive the conditioner.
-        let conditioner_events = if let Some(cond) = s.conditioner.as_mut() {
-            cond.ingest(tuner_frame_opt.as_ref(), &new_onsets)
-        } else {
-            Vec::new()
-        };
-
-        for ev in conditioner_events {
-            use crate::practice::types::ConditionerEvent;
-            match ev {
-                ConditionerEvent::Started(t) => {
-                    s.current_notes.push(NoteEvent {
-                        beat_position: t.start_beat,
-                        midi_note: t.midi_note,
-                        avg_cents: t.initial_cents,
-                    });
-                }
-                ConditionerEvent::Ended(t) => {
-                    // Update the matching NoteEvent's avg_cents to the final value.
-                    // We match by midi_note from the back (most recent) since
-                    // sequence numbers aren't tracked on NoteEvent yet (Phase 4).
-                    if let Some(n) = s
-                        .current_notes
-                        .iter_mut()
-                        .rev()
-                        .find(|n| n.midi_note == t.midi_note)
-                    {
-                        n.avg_cents = t.avg_cents;
-                    }
-                }
-            }
-        }
-
-        // ── Live per-note feedback ────────────────────────────────────────────
-        // Emits a SendInfo immediately each time a note is finalized, without
-        // waiting for the measure boundary.  The [live] prefix in `expected`
-        // distinguishes these events from the authoritative measure-end events.
-        let live_item: Option<SendInfo> = if s.current_notes.len() > prev_note_count {
-            let note = s.current_notes.last().unwrap();
-            let expected_notes = build_expected_notes(&measures[s.current_measure_idx]);
-            let closest = expected_notes.iter().enumerate().min_by(|(_, a), (_, b)| {
-                (a.beat_position - note.beat_position)
-                    .abs()
-                    .partial_cmp(&(b.beat_position - note.beat_position).abs())
-                    .unwrap_or(std::cmp::Ordering::Equal)
-            });
-            Some(if let Some((ei, exp)) = closest {
-                let dist = (note.beat_position - exp.beat_position).abs();
-                let within = dist < NOTE_MATCH_WINDOW * tol;
-                let matched_midi = within && exp.midi_note == note.midi_note;
-                SendInfo {
-                    measure: s.current_measure_idx as u32,
-                    note_index: ei,
-                    error_type: if matched_midi {
-                        MusicError::None
-                    } else if within {
-                        MusicError::WrongNote
-                    } else {
-                        MusicError::UnexpectedNote
-                    },
-                    intensity: 0.0,
-                    expected: format!(
-                        "[live] {} midi={} beat={:.3} (dist={:.3} window={:.3})",
-                        midi_to_note_name(exp.midi_note),
-                        exp.midi_note,
-                        exp.beat_position,
-                        dist,
-                        NOTE_MATCH_WINDOW * tol,
-                    ),
-                    received: format!(
-                        "{} midi={} beat={:.3}",
-                        midi_to_note_name(note.midi_note),
-                        note.midi_note,
-                        note.beat_position,
-                    ),
-                }
-            } else {
-                SendInfo {
-                    measure: s.current_measure_idx as u32,
-                    note_index: 0,
-                    error_type: MusicError::UnexpectedNote,
-                    intensity: 0.0,
-                    expected: "[live] silence (no expected notes)".into(),
-                    received: format!(
-                        "{} midi={} beat={:.3}",
-                        midi_to_note_name(note.midi_note),
-                        note.midi_note,
-                        note.beat_position,
-                    ),
-                }
-            })
-        } else {
+        let calibrated_tuner_beat = transport.calibrated_beat(raw_tuner_beat);
+        let tuner_frame: Option<TunerFrame> = if last_tuner_beat == Some(calibrated_tuner_beat) {
             None
+        } else {
+            last_tuner_beat = Some(calibrated_tuner_beat);
+            let pairs: Vec<(u8, f64)> = note_names.iter().zip(note_cents.iter())
+                .filter_map(|(n, c)| note_name_to_midi(n).map(|m| (m, *c)))
+                .collect();
+            Some(TunerFrame { notes: pairs, tuner_beat: calibrated_tuner_beat })
         };
+        let dynamic_level = dynamics_output.read().level;
 
-        // Dynamics-change detection (suppress Silence→Silence no-ops).
-        if current_level != DynamicLevel::Silence && s.last_dynamic != Some(current_level) {
-            s.current_dynamics.push(DynamicsEvent {
-                beat_position: beat,
-                level: current_level,
-            });
-            s.last_dynamic = Some(current_level);
-        }
+        let outputs = mc.tick(TickInputs {
+            transport_beat: beat,
+            tuner_frame: tuner_frame.as_ref(),
+            new_onsets: &new_onsets,
+            dynamic_level,
+        });
 
-        // ── 4. Measure boundary check ─────────────────────────────────────
-        let measure_end = {
-            let m = &measures[s.current_measure_idx];
-            m.global_start_beat + m.duration_beats()
-        };
-
-        // In onset-wait mode, block measure advance until the user has played.
-        // The transport keeps running so timing error remains measurable.
-        if beat >= measure_end && s.wait_for_onset && !s.onset_received_this_measure {
-            drop(s);
-            thread::sleep(Duration::from_millis(5));
-            continue;
-        }
-
-        if beat >= measure_end {
-            // Capture the index of the measure we're closing out before mutating.
-            let finished_idx = s.current_measure_idx;
-            let expected = build_expected_notes(&measures[finished_idx]);
-
-            let done = finished_idx >= s.practice_end;
-
-            // Phase 1 wiring: drive the buffer's measure cycle. The existing
-            // current_measure_idx counter is kept in sync below.
-            if let Some(buf) = s.buffer.as_mut() {
-                let _aged = buf.advance(beat);
+        // Drain feedback to the shared queue.
+        if !mc.feedback.is_empty() {
+            if let Ok(mut g) = feedback.lock() {
+                g.extend(std::mem::take(&mut mc.feedback));
             }
+        }
 
-            // Advance to the next measure.
-            if !done {
-                s.current_measure_idx += 1;
-                s.onset_received_this_measure = false;
-
-                // Update next_expected_beat for onset-wait mode.
-                if s.wait_for_onset {
-                    let next_idx = s.current_measure_idx;
-                    if let Some(first_note) = measures[next_idx].notes.first() {
-                        s.next_expected_beat = measures[next_idx].global_start_beat
-                            + first_note.start_beat_in_measure as f64;
-                    } else {
-                        s.next_expected_beat = measures[next_idx].global_start_beat;
+        // Push aged-out measures into completed_measures and run end-of-measure feedback.
+        if !outputs.aged_measures.is_empty() {
+            if let Ok(mut s) = state.lock() {
+                for m in &outputs.aged_measures {
+                    let eom = generate_measure_feedback(m, ability_level);
+                    if let Ok(mut g) = feedback.lock() {
+                        g.extend(eom);
                     }
                 }
-            }
-
-            let data = MeasureData {
-                measure_index: finished_idx as u32,
-                onsets: std::mem::take(&mut s.current_onsets),
-                notes: std::mem::take(&mut s.current_notes),
-                dynamics: std::mem::take(&mut s.current_dynamics),
-                expected_notes: expected,
-                note_durations: vec![],
-                doubled_note_seqs: vec![],
-            };
-
-            let new_feedback = generate_measure_feedback(&data, ability_level);
-            s.completed_measures.push(data);
-            s.last_dynamic = None;
-
-            // Release state lock before locking feedback.
-            drop(s);
-
-            if let Ok(mut guard) = feedback.lock() {
-                if let Some(item) = live_item {
-                    guard.push(item);
-                }
-                guard.extend(new_feedback);
-            }
-
-            if done {
-                running.store(false, Ordering::Relaxed);
-                break;
-            }
-        } else {
-            drop(s);
-            if let Some(item) = live_item {
-                if let Ok(mut guard) = feedback.lock() {
-                    guard.push(item);
-                }
+                s.current_measure_idx = mc.buffer.current_idx();
+                s.completed_measures.extend(outputs.aged_measures);
             }
         }
 
-        thread::sleep(Duration::from_millis(5));
+        // Done condition.
+        if mc.frontier.0 > practice_end {
+            running.store(false, Ordering::Relaxed);
+            break;
+        }
+
+        thread::sleep(Duration::from_millis(10));
     }
 }
 

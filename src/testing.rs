@@ -290,7 +290,7 @@ mod ffi_tests {
                 test_midi,
                 "Violin".to_string(),
                 0,
-                false,
+                "FollowAlong".to_string(),
                 "Advanced".to_string(),
                 120.0,
             )
@@ -498,7 +498,14 @@ pub fn run_cli_simulation() {
                     continue;
                 }
 
-                let wait_for_onset = cmd == "practice start wait";
+                // The legacy 'practice start wait' command maps to FollowAlong; bare
+                // 'practice start' defaults to Performance. The mode prompt below
+                // overrides this for the new modes.
+                let default_mode = if cmd == "practice start wait" {
+                    "FollowAlong"
+                } else {
+                    "Performance"
+                };
 
                 let midi_path = prompt!("MIDI file path: ");
                 if midi_path.is_empty() {
@@ -548,6 +555,13 @@ pub fn run_cli_simulation() {
                     s.parse().unwrap_or(120.0)
                 };
 
+                let mode = {
+                    let s = prompt!(
+                        "Practice mode [FollowAlong/Performance/Rubato, default={default_mode}]: "
+                    );
+                    if s.is_empty() { default_mode.to_string() } else { s }
+                };
+
                 // --- Ensure streams are running ---
                 let _ = engine.start_input();
                 let _ = engine.start_output();
@@ -561,7 +575,7 @@ pub fn run_cli_simulation() {
                     midi_path,
                     instrument,
                     countoff_beats,
-                    wait_for_onset,
+                    mode.clone(),
                     ability_level.clone(),
                     bpm,
                 ) {
@@ -579,14 +593,9 @@ pub fn run_cli_simulation() {
                     continue;
                 }
 
-                let mode_label = if wait_for_onset {
-                    "onset-wait"
-                } else {
-                    "normal"
-                };
                 println!();
                 println!("======================================================");
-                println!("  Practice Session Started  ({ability_level} / {mode_label})");
+                println!("  Practice Session Started  ({ability_level} / {mode})");
                 println!(
                     "  Measures {start_measure}–{end_measure}  |  {countoff_beats}-beat count-off"
                 );
