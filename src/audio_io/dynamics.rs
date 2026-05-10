@@ -251,7 +251,8 @@ impl DynamicsTracker {
             // inflated kurtosis that easily spikes > 4.5.
             // We cap the kurtosis to prevent misclassifying gated notes as broadband noise.
             // We also add a realistic dBFS ceiling: true background room noise shouldn't be extremely loud.
-            kurtosis >= 2.7 && kurtosis <= 4.5 && rms_db < -25.0
+            // log::trace!("kurtosis: {kurtosis}, rms_db: {rms_db}");
+            kurtosis >= 2.75 && kurtosis <= 3.8 && rms_db < -45.0
         } else {
             false
         };

@@ -41,7 +41,7 @@ impl PitchTracker {
         Self {
             tracks: Vec::new(),
             display_threshold: 2, // "once the value hits n_hits to display"
-            max_life: 4,          // "max count value is n_misses to go away"
+            max_life: 3,          // "max count value is n_misses to go away"
             tolerance: 0.03,      // ~3% frequency tolerance
         }
     }
@@ -180,7 +180,7 @@ impl STFT {
         thread::spawn(move || {
             let mut note_tx = note_tx;
 
-            let window = Self::blackman_harris_window(window_size);
+            let window = Self::hann_window(window_size);
             let mut fft_processor = FftProcessor::new(window_size);
 
             let mut pitch_tracker = PitchTracker::new();
@@ -210,18 +210,12 @@ impl STFT {
             // Allocate safely using window_size to prevent bounds mismatch
             let mut complex_output: Vec<Complex<f32>> = vec![Complex::default(); window_size];
 
-            // Per-bin noise floor — asymmetric IIR follower. Tracks the local
-            // background magnitude at each FFT bin so that low-frequency
-            // rumble doesn't raise the threshold for upper harmonics. Falls
-            // fast (α=ATTACK) when a bin drops below its current floor; rises
-            // slowly (α=RELEASE) when above, so tonal peaks don't drag the
-            // floor up. Clamped to the global noise floor each frame so it
-            // never reads below true silence.
             let mut noise_floor_per_bin: Vec<f32> = vec![0.0; half_size];
             let mut floor_initialized = false;
             let mut effective_floor: Vec<f32> = vec![0.0; half_size];
-            const FLOOR_ATTACK: f32 = 0.15; // mag > floor: rise fast
-            const FLOOR_RELEASE: f32 = 0.007; // mag < floor: fall slow
+            let mut floor_count = 0;
+            const FLOOR_ATTACK: f32 = 0.125; // mag > floor: rise fast
+            const FLOOR_RELEASE: f32 = 0.05; // mag < floor: fall slow
 
             while state.load(Ordering::Relaxed) != -1 || !cons.is_empty() {
                 if state.load(Ordering::Relaxed) == 0 || state.load(Ordering::Relaxed) == -1 {
@@ -339,19 +333,24 @@ impl STFT {
                             }
                             floor_initialized = true;
                         } else if is_silent {
-                            for k in 0..half_size {
-                                let mag = magnitudes[k];
-                                let alpha = if mag > noise_floor_per_bin[k] {
-                                    FLOOR_ATTACK
-                                } else {
-                                    FLOOR_RELEASE
-                                };
-                                noise_floor_per_bin[k] +=
-                                    alpha * (mag - noise_floor_per_bin[k] + 0.1);
+                            floor_count += 1;
+                            if floor_count > 15 {
+                                for k in 0..half_size {
+                                    let mag = magnitudes[k];
+                                    let alpha = if mag > noise_floor_per_bin[k] {
+                                        FLOOR_ATTACK
+                                    } else {
+                                        FLOOR_RELEASE
+                                    };
+                                    noise_floor_per_bin[k] +=
+                                        alpha * (mag - noise_floor_per_bin[k] + 0.07);
+                                }
                             }
+                        } else {
+                            floor_count = 0;
                         }
                         for k in 0..half_size {
-                            effective_floor[k] = noise_floor_per_bin[k].min(global_floor);
+                            effective_floor[k] = noise_floor_per_bin[k].min(global_floor * 2.5);
                         }
 
                         #[cfg(feature = "dev-tools")]
@@ -464,7 +463,7 @@ impl STFT {
         let mut frac_bins = vec![0.0f32; half_size];
         for &k in &peak_bins {
             let fund_mag = magnitudes[k];
-            if fund_mag < noise_floor[k] * 2.0 {
+            if fund_mag < noise_floor[k] * 5.0 {
                 scores[k] = 0.0;
                 continue;
             }
@@ -488,6 +487,7 @@ impl STFT {
             let mut last = k;
             let mut longest_run = 0;
             let mut current_run = 0;
+            let mut total_harms = 0;
             for n in 2..=MAX_HARMONICS {
                 let expected_f = frac_bin * n as f32;
                 if expected_f >= half_size as f32 {
@@ -505,13 +505,11 @@ impl STFT {
                         best_hbin = h;
                     }
                 }
-                // if best_mag / 5.0 > score / (n - 1) as f32 {
-                //     best_mag *= 0.2;
-                // }
                 if best_hbin != 0 {
                     score += best_mag;
                     last = best_hbin;
                     current_run += 1;
+                    total_harms += 1;
                 } else {
                     if current_run > longest_run {
                         longest_run = current_run;
@@ -522,13 +520,13 @@ impl STFT {
             if current_run > longest_run {
                 longest_run = current_run;
             }
-            if longest_run < 3 && fund_mag < 10.0 * noise_floor[k] {
+            if longest_run < 3 && fund_mag < 15.0 * noise_floor[k] {
                 scores[k] = 0.0;
             } else {
                 const STRUCT_BASE: f32 = 1.0;
-                let log_score = (1.0 + score).log2();
-                let struct_mult =
-                    (STRUCT_BASE + longest_run as f32) / (STRUCT_BASE + MAX_HARMONICS as f32);
+                let log_score = (0.5 + score).log2();
+                let struct_mult = (STRUCT_BASE + longest_run as f32 + total_harms as f32 / 2.0)
+                    / (STRUCT_BASE + MAX_HARMONICS as f32);
                 scores[k] = log_score * struct_mult;
             }
         }
@@ -551,7 +549,7 @@ impl STFT {
             .collect();
 
         // Suppress harmonic ghosts: if freq_i ≈ N × freq_j (N=2,3,4,5) and
-        // candidate i scores < 120% of candidate j, i is likely a ghost.
+        // candidate i scores < 97% of candidate j, i is likely a ghost.
         let suppressed: Vec<bool> = (0..candidates.len())
             .map(|i| {
                 let (bin_i, score_i) = candidates[i];
@@ -566,7 +564,7 @@ impl STFT {
                     nearest >= 2.0
                         && nearest <= 5.0
                         && (ratio / nearest - 1.0).abs() < 0.03
-                        && score_i < score_j * 1.2
+                        && score_i < score_j * 0.97
                 })
             })
             .collect();
@@ -580,13 +578,7 @@ impl STFT {
         candidates
             .sort_unstable_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
 
-        // Same-peak dedup: two candidates closer than half the window's main
-        // lobe width are the same physical peak split into adjacent local
-        // maxima by windowing artifacts. Lobe-width is bin-domain, so the
-        // threshold is in bins, not cents — a fixed cents threshold scales
-        // wrongly across the spectrum. Blackman-Harris main lobe is ~6 bins;
-        // half-lobe = 3.0 bins. (Hann's ~4-bin lobe is also covered.)
-        const MIN_BIN_SEPARATION: f32 = 3.0;
+        const MIN_BIN_SEPARATION: f32 = 2.0;
         let mut deduped: Vec<(usize, f32)> = Vec::with_capacity(candidates.len());
         for cand in candidates {
             let frac_i = frac_bins[cand.0];
@@ -617,18 +609,27 @@ impl STFT {
     /// Blackman-Harris 4-term window. Sidelobes at -92 dB (vs Hann's -32 dB)
     /// strongly suppress leakage from low-frequency rumble into higher bins;
     /// main lobe widens from ~4 bins (Hann) to ~6 bins.
-    fn blackman_harris_window(n: usize) -> Vec<f32> {
-        const A0: f32 = 0.35875;
-        const A1: f32 = 0.48829;
-        const A2: f32 = 0.14128;
-        const A3: f32 = 0.01168;
-        let denom = (n.saturating_sub(1)).max(1) as f32;
+    // fn blackman_harris_window(n: usize) -> Vec<f32> {
+    //     const A0: f32 = 0.35875;
+    //     const A1: f32 = 0.48829;
+    //     const A2: f32 = 0.14128;
+    //     const A3: f32 = 0.01168;
+    //     let denom = (n.saturating_sub(1)).max(1) as f32;
+    //     (0..n)
+    //         .map(|i| {
+    //             let x = (i as f32) / denom;
+    //             let two_pi = 2.0 * std::f32::consts::PI;
+    //             A0 - A1 * (two_pi * x).cos() + A2 * (2.0 * two_pi * x).cos()
+    //                 - A3 * (3.0 * two_pi * x).cos()
+    //         })
+    //         .collect()
+    // }
+
+    fn hann_window(n: usize) -> Vec<f32> {
         (0..n)
             .map(|i| {
-                let x = (i as f32) / denom;
-                let two_pi = 2.0 * std::f32::consts::PI;
-                A0 - A1 * (two_pi * x).cos() + A2 * (2.0 * two_pi * x).cos()
-                    - A3 * (3.0 * two_pi * x).cos()
+                let x = (i as f32) / (n as f32);
+                0.5 - 0.5 * (2.0 * std::f32::consts::PI * x).cos()
             })
             .collect()
     }
@@ -709,7 +710,13 @@ impl STFT {
                 .collect();
             let labels: Vec<String> = stable
                 .iter()
-                .map(|&(freq, score)| format!("{} {:.1}", Self::freq_to_note_label(freq), score))
+                .map(|&(freq, score)| {
+                    format!(
+                        "{} {:.2}",
+                        crate::analysis::theory::Note::from_freq(freq, None),
+                        score
+                    )
+                })
                 .collect();
             let _ = rec.log(
                 "spectrum/pitches",

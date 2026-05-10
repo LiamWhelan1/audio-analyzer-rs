@@ -137,6 +137,16 @@ pub struct MusicalTransport {
     /// Hardware + driver input latency, in samples.
     input_latency_samples: AtomicI64,
 
+    /// Empirically measured residual round-trip delay in samples, on top of
+    /// the `input_latency_samples` + `output_latency_samples` already
+    /// reported by the OS.  Captures the latency the platform under-reports
+    /// (engine/driver/DAC/ADC).  Subtracted in `stamp_onset`.
+    calibration_offset_samples: AtomicI64,
+
+    /// Set once self-calibration completes (success or timeout); skips
+    /// re-calibration on subsequent `spawn_onset` calls.
+    calibration_done: AtomicBool,
+
     /// Extra visual‐pipeline fudge factor, in f64 bits (seconds).
     /// Covers UniFFI call overhead, RN bridge, JS→native
     /// animation scheduling, and display refresh.
@@ -170,6 +180,8 @@ impl MusicalTransport {
             is_playing: AtomicBool::new(false),
             output_latency_samples: AtomicI64::new(0),
             input_latency_samples: AtomicI64::new(0),
+            calibration_offset_samples: AtomicI64::new(0),
+            calibration_done: AtomicBool::new(false),
             ui_latency_s_bits: AtomicU64::new(DEFAULT_UI_LATENCY_S.to_bits()),
             sample_rate_bits: AtomicU32::new(sample_rate.to_bits()),
             capture_time_s_bits: AtomicU64::new(0.0f64.to_bits()),
@@ -254,21 +266,37 @@ impl MusicalTransport {
         let beats_per_sample = bpm / (60.0 * sr);
 
         let input_lat = self.input_latency_samples.load(Ordering::Relaxed);
+        let output_lat = self.output_latency_samples.load(Ordering::Relaxed);
+        let calibration = self.calibration_offset_samples.load(Ordering::Relaxed);
 
         // The onset's "true" beat position is the current accumulated beat
         // position minus the latency‐worth‐of‐beats, plus the sub‐buffer
-        // offset converted to beats.
+        // offset converted to beats.  The calibration term absorbs whatever
+        // platform latency the OS doesn't report (engine + driver + DAC/ADC).
         let current_beats = self.get_accumulated_beats();
-        let latency_beats = input_lat as f64 * beats_per_sample;
+        let latency_beats = (input_lat + output_lat) as f64 * beats_per_sample;
         let offset_beats = sample_offset as f64 * beats_per_sample;
-
-        let compensated = current_beats - latency_beats + offset_beats;
+        let calibration_beats = calibration as f64 * beats_per_sample;
+        let compensated = current_beats - latency_beats + offset_beats - calibration_beats;
 
         OnsetEvent {
             beat_position: compensated,
             raw_sample_offset: sample_offset,
             velocity,
         }
+    }
+
+    pub fn calibrated_beat(&self, beat_position: f64) -> f64 {
+        let sr = self.get_sample_rate() as f64;
+        let bpm = self.get_bpm() as f64;
+        let beats_per_sample = bpm / (60.0 * sr);
+
+        let input_lat = self.input_latency_samples.load(Ordering::Relaxed);
+        let output_lat = self.output_latency_samples.load(Ordering::Relaxed);
+        let calibration = self.calibration_offset_samples.load(Ordering::Relaxed);
+        let latency_beats = (input_lat + output_lat) as f64 * beats_per_sample;
+        let calibration_beats = calibration as f64 * beats_per_sample;
+        beat_position - latency_beats - calibration_beats
     }
 
     // =====================================================================
@@ -438,6 +466,30 @@ impl MusicalTransport {
     /// Set the hardware input latency in samples.
     pub fn set_input_latency(&self, samples: i64) {
         self.input_latency_samples.store(samples, Ordering::Relaxed);
+    }
+
+    /// Store the empirically measured calibration offset (samples).  Marks
+    /// calibration as complete so subsequent `spawn_onset` calls skip it.
+    pub fn set_calibration_offset(&self, samples: i64) {
+        self.calibration_offset_samples
+            .store(samples, Ordering::Relaxed);
+        self.calibration_done.store(true, Ordering::Relaxed);
+    }
+
+    /// Read the current calibration offset in samples.
+    pub fn get_calibration_offset(&self) -> i64 {
+        self.calibration_offset_samples.load(Ordering::Relaxed)
+    }
+
+    /// `true` once `set_calibration_offset` has been called for this session.
+    pub fn is_calibrated(&self) -> bool {
+        self.calibration_done.load(Ordering::Relaxed)
+    }
+
+    /// Clear the stored calibration so the next onset spawn re-runs it.
+    pub fn reset_calibration(&self) {
+        self.calibration_offset_samples.store(0, Ordering::Relaxed);
+        self.calibration_done.store(false, Ordering::Relaxed);
     }
 
     /// Override the estimated UI bridge latency (seconds).

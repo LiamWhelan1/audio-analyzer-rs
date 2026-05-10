@@ -1,7 +1,7 @@
 use std::{
     sync::{
         Arc,
-        atomic::{AtomicBool, AtomicI8, Ordering},
+        atomic::{AtomicBool, AtomicI8, AtomicI64, Ordering},
     },
     thread,
     time::Duration,
@@ -12,6 +12,7 @@ use rtrb::{Consumer, Producer};
 
 use crate::{
     audio_io::SlotPool,
+    audio_io::dynamics::{DynamicLevel, DynamicsOutput},
     audio_io::timing::{MusicalTransport, OnsetEvent},
     dsp::fft::FftProcessor,
 };
@@ -108,15 +109,34 @@ impl OnsetDetector {
         reclaim: Sender<usize>,
         mut onset_tx: Producer<OnsetEvent>,
         onset_pending: Arc<AtomicBool>,
+        dynamics_output: Arc<parking_lot::RwLock<DynamicsOutput>>,
+        calibration_target: Arc<AtomicI64>,
     ) {
         self.state.store(1, Ordering::Relaxed);
         let state = self.state.clone();
 
-        let window_size = 512;
-        let hop_size = 128;
+        // Smaller window and hop than a pitch-tracking STFT — we don't need
+        // frequency resolution, only when the spectrum changed.  256/64 at
+        // 48 kHz gives ~5.3 ms windows and ~1.3 ms detection granularity,
+        // halving the centre-of-window reporting delay vs the prior 512/128.
+        let window_size = 256;
+        let hop_size = 64;
         let ring_buffer_len = 4096;
+        let half_size = window_size / 2 + 1;
+
+        // ── Calibration state ─────────────────────────────────────────────
+        // If the transport hasn't been calibrated this session, the first
+        // onset that follows a published `calibration_target` frame is used
+        // to compute the residual round-trip latency the OS doesn't report.
+        // After that the detector behaves normally.
+        let calibration_initially_done = transport.is_calibrated();
+        let calibration_start_frame = transport.get_output_frames();
+        // 2 seconds of slack — the click is scheduled ~200 ms ahead and the
+        // round-trip can add up to ~200 ms more on Windows.
+        let calibration_timeout_samples = transport.get_sample_rate() as i64 * 2;
 
         thread::spawn(move || {
+            let mut calibration_done = calibration_initially_done;
             let hann = Self::hann_window(window_size);
             let mut fft_processor = FftProcessor::new(window_size);
 
@@ -126,18 +146,36 @@ impl OnsetDetector {
             let mut available_samples = 0;
 
             let mut time_domain_window: Vec<f32> = vec![0.0; window_size];
-            let mut prev_magnitude: Vec<f32> = vec![0.0; window_size / 2 + 1];
+            let mut prev_magnitude: Vec<f32> = vec![0.0; half_size];
 
-            let mut tracker = FluxTracker::new(1.5, 0.70, 0.80);
+            // Tracker memory tuned for hop=64: memory_new = memory_old^(64/128)
+            // preserves the time constants of the prior 512/128 setup.
+            let mut tracker = FluxTracker::new(1.5, 0.84, 0.89);
 
-            let min_inter_onset_samples = 2048;
+            let min_inter_onset_samples = 1024;
             let mut samples_since_onset = min_inter_onset_samples;
 
-            // ── Goal 2: energy EMA for harmonic-variation gate ────────────
+            // ── Energy EMA for harmonic-variation gate ────────────────────
             // Tracks the recent background energy level.  A genuine onset
             // must show a rapid energy increase relative to this baseline;
             // sustained notes with shifting harmonics do not.
+            // Memories rescaled for the smaller hop (same TC as before).
             let mut energy_ema: f32 = 0.0;
+            const ENERGY_EMA_RISE: f32 = 0.84;
+            const ENERGY_EMA_DECAY: f32 = 0.95;
+
+            // ── Per-bin delayed-prior noise floor ─────────────────────────
+            // Mirrors the STFT pipeline's per-bin floor, except on non-silent
+            // frames the floor is allowed to rise (slowly) but never fall.
+            // It therefore lags the active spectrum, acting as a delayed
+            // prior frame: any bin whose magnitude jumps far above its floor
+            // is evidence of a fresh onset, even mid-phrase.
+            let mut noise_floor_per_bin: Vec<f32> = vec![0.0; half_size];
+            let mut floor_initialized = false;
+            let mut floor_silent_count: u32 = 0;
+            const FLOOR_ATTACK: f32 = 0.2; // silent: mag > floor → rise fast
+            const FLOOR_RELEASE: f32 = 0.1; // silent: mag < floor → fall slower
+            const FLOOR_RISE_ACTIVE: f32 = 0.1; // active: rise only, slower
 
             // ── Goal 1: static parameters for output-event gate ───────────
             // Suppress onsets whose input-frame position falls inside the
@@ -212,7 +250,6 @@ impl OnsetDetector {
                     }
 
                     let fft_res = fft_processor.process_forward(&mut time_domain_window);
-                    let half_size = window_size / 2 + 1;
 
                     let mut current_flux = 0.0;
                     let mut frame_energy = 0.0;
@@ -244,43 +281,151 @@ impl OnsetDetector {
                         prev_magnitude[i] = mag;
                     }
 
-                    // Silence gate: suppress flux on pure-noise frames.
-                    // After AGC the signal is boosted, so this threshold is
-                    // kept low (5.0) to avoid blanking soft-note onsets during
-                    // the AGC warm-up period or on quiet playing.
-                    if frame_energy < 10.0 {
+                    // ── Update per-bin delayed-prior floor ────────────────
+                    let (noise_floor_db, dyn_level) = {
+                        let d = dynamics_output.read();
+                        (d.noise_floor_db, d.level)
+                    };
+                    let global_floor = 10.0f32.powf(noise_floor_db / 20.0) * half_size as f32 / 2.0;
+                    let is_silent = dyn_level == DynamicLevel::Silence;
+
+                    if !floor_initialized {
+                        for k in 0..half_size {
+                            noise_floor_per_bin[k] = current_mags[k].max(global_floor);
+                        }
+                        floor_initialized = true;
+                    } else if is_silent {
+                        floor_silent_count += 1;
+                        if floor_silent_count > 60 {
+                            for k in 0..half_size {
+                                let mag = current_mags[k];
+                                let alpha = if mag > noise_floor_per_bin[k] {
+                                    FLOOR_ATTACK
+                                } else {
+                                    FLOOR_RELEASE
+                                };
+                                noise_floor_per_bin[k] +=
+                                    alpha * (mag - noise_floor_per_bin[k] + 0.07);
+                            }
+                        }
+                    } else {
+                        floor_silent_count = 0;
+                        // Active: rise only, never fall — delayed prior.
+                        for k in 0..half_size {
+                            let mag = current_mags[k];
+                            if mag > noise_floor_per_bin[k] {
+                                noise_floor_per_bin[k] +=
+                                    FLOOR_RISE_ACTIVE * (mag - noise_floor_per_bin[k]);
+                            }
+                        }
+                    }
+
+                    // Per-bin burst metric vs the delayed prior.  When silent
+                    // the floor has converged on the spectrum so all ratios
+                    // collapse to ~1.0; during sustained playing the floor
+                    // catches up only slowly, so a sudden bin spike pops out.
+                    let mut max_bin_excess = 0.0f32;
+                    let mut bin_burst_count: u32 = 0;
+                    let floor_eps = global_floor.max(0.01);
+                    for k in 0..half_size {
+                        let floor_k = noise_floor_per_bin[k].max(floor_eps);
+                        let r = current_mags[k] / floor_k;
+                        if r > 2.5 {
+                            bin_burst_count += 1;
+                        }
+                        if r > max_bin_excess {
+                            max_bin_excess = r;
+                        }
+                    }
+
+                    // Silence gate: replaces the old static frame_energy<10
+                    // check.  No bins exceeding their delayed prior means the
+                    // current spectrum looks like ambient noise.
+                    if bin_burst_count < 2 {
                         current_flux = 0.0;
                     }
 
-                    // ── Goal 2: update energy EMA ─────────────────────────
-                    // Use asymmetric memory: rise fast so genuine attacks are
+                    // ── Update energy EMA ─────────────────────────────────
+                    // Asymmetric memory: rise fast so genuine attacks are
                     // compared against a baseline that hasn't caught up yet,
                     // decay slower so sustained notes keep the EMA elevated.
-                    let ema_memory = if frame_energy > energy_ema { 0.7 } else { 0.9 };
+                    let ema_memory = if frame_energy > energy_ema {
+                        ENERGY_EMA_RISE
+                    } else {
+                        ENERGY_EMA_DECAY
+                    };
                     energy_ema = energy_ema * ema_memory + frame_energy * (1.0 - ema_memory);
 
-                    if samples_since_onset >= min_inter_onset_samples {
-                        if tracker.update(current_flux) {
-                            // ── Goal 1: suppress acoustic echo of device output ──
-                            // ── Goal 2: require a rapid energy increase ──────────
-                            // energy_ema tracks the recent baseline; an onset must
-                            // show at least a 2.5× jump above it.  Harmonic shifts
-                            // in sustained notes (throat singing, etc.) keep the
-                            // ratio near 1.0 and are therefore suppressed.
-                            let energy_rising = frame_energy > energy_ema * 1.25;
+                    // Combined onset trigger:
+                    //  - flux-based detector for spectrum-wide rises
+                    //  - bin-burst for fast attacks even mid-phrase
+                    let flux_onset = tracker.update(current_flux);
+                    let bin_burst_onset = max_bin_excess > 3.0 && bin_burst_count >= 4;
+                    let onset_detected = flux_onset || bin_burst_onset;
 
-                            if !suppressed_by_output && energy_rising {
-                                // The onset centre is window_size/2 samples behind the
-                                // current ring-buffer write position.  Negate so
-                                // stamp_onset shifts the beat position backwards in time.
-                                let window_centre_offset = -(window_size as i64 / 2);
-                                let velocity = (current_flux / 50.0).clamp(0.0, 1.0);
-                                let event = transport.stamp_onset(window_centre_offset, velocity);
+                    // Calibration timeout — fall back to offset 0 if no onset
+                    // arrived in time.
+                    if !calibration_done {
+                        let elapsed = transport.get_output_frames() - calibration_start_frame;
+                        if elapsed > calibration_timeout_samples {
+                            log::warn!(
+                                "onset calibration timed out after {} samples — using offset 0",
+                                elapsed
+                            );
+                            transport.set_calibration_offset(0);
+                            calibration_done = true;
+                        }
+                    }
 
+                    if samples_since_onset >= min_inter_onset_samples && onset_detected {
+                        // Require a rapid energy increase (1.5× the baseline)
+                        // — harmonic shifts in sustained notes keep the ratio
+                        // near 1.0 and are therefore suppressed.
+                        let energy_rising = frame_energy > energy_ema * 1.5;
+
+                        if !suppressed_by_output && energy_rising {
+                            // The onset centre is window_size/2 samples behind the
+                            // current ring-buffer write position.  Negate so
+                            // stamp_onset shifts the beat position backwards in time.
+                            let window_centre_offset =
+                                -(available_samples as i64 - window_size as i64 / 2);
+                            let velocity =
+                                (current_flux.max(max_bin_excess * 5.0) / 50.0).clamp(0.0, 1.0);
+                            let event = transport.stamp_onset(window_centre_offset, velocity);
+
+                            if !calibration_done {
+                                let target = calibration_target.load(Ordering::Relaxed);
+                                if target == 0 {
+                                    // Click hasn't fired yet — pre-cal noise, ignore.
+                                    log::trace!("pre-calibration onset ignored (target not set)");
+                                } else {
+                                    let bpm = transport.get_bpm() as f64;
+                                    let sr_f64 = transport.get_sample_rate() as f64;
+                                    let beats_per_sample = bpm / (60.0 * sr_f64);
+                                    let target_beats = target as f64 * beats_per_sample;
+                                    let residual_beats = event.beat_position - target_beats;
+                                    let calibration_samples =
+                                        (residual_beats / beats_per_sample).round() as i64;
+                                    let residual_ms = calibration_samples as f64 * 1000.0 / sr_f64;
+                                    log::info!(
+                                        "onset calibration: residual={:.1}ms ({} samples) at target frame {}",
+                                        residual_ms,
+                                        calibration_samples,
+                                        target,
+                                    );
+                                    transport.set_calibration_offset(calibration_samples);
+                                    calibration_done = true;
+                                    onset_pending.store(false, Ordering::Relaxed);
+                                    samples_since_onset = 0;
+                                }
+                            } else {
                                 log::trace!(
-                                    "onset @ beat {:.4} (raw offset {})",
+                                    "onset @ beat {:.4} (raw offset {}, flux={:.1}, burst={:.2}/{})",
                                     event.beat_position,
                                     event.raw_sample_offset,
+                                    current_flux,
+                                    max_bin_excess,
+                                    bin_burst_count,
                                 );
 
                                 let _ = onset_tx.push(event);
@@ -289,7 +434,6 @@ impl OnsetDetector {
                             }
                         }
                     } else {
-                        tracker.update(current_flux);
                         samples_since_onset += hop_size;
                     }
 

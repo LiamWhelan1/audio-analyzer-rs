@@ -1,3 +1,4 @@
+pub mod calibration;
 pub mod metronome;
 pub mod player;
 pub mod synth;

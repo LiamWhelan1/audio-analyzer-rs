@@ -19,6 +19,7 @@ use std::time::Duration;
 
 use crate::analysis::onset::OnsetDetector;
 use crate::analysis::tuner;
+use crate::generators::calibration::CalibrationClick;
 use crate::generators::metronome::{BeatStrength, Metronome, MetronomeCommand};
 use crate::generators::player::{AudioPlayer, PlayerController};
 use crate::generators::synth::{SynthCommand, Synthesizer};
@@ -587,6 +588,7 @@ impl AudioPipeline {
         {
             println!("⚠️  Detected async input error. Restarting input...");
             self.stop_input();
+            self.transport.reset_calibration();
         }
 
         if self.input_stream.is_some() {
@@ -597,6 +599,7 @@ impl AudioPipeline {
             println!("Input infrastructure missing. Reinitializing...");
             self.meta.update_input()?;
             self.init_input_infrastructure();
+            self.transport.reset_calibration();
         }
 
         match self.build_input_stream_internal() {
@@ -626,6 +629,7 @@ impl AudioPipeline {
             println!("⚠️  Detected async output error. Restarting output...");
             self.stop_output();
             self.meta.update_output()?;
+            self.transport.reset_calibration();
         }
 
         if self.output_stream.is_some() {
@@ -1047,6 +1051,17 @@ impl AudioPipeline {
         let mut onset = OnsetDetector::new(handle, self.reducer_remove_tx.clone());
 
         let (onset_tx, onset_rx) = RingBuffer::<OnsetEvent>::new(32);
+
+        // ── Round-trip latency self-calibration ───────────────────────────
+        // OS-reported input/output latencies under-count on Windows
+        // (engine + driver + DAC/ADC stages aren't included).  Schedule a
+        // brief click ~200 ms in the future and let the detector measure
+        // the residual on its own — only if calibration hasn't already
+        // run this session.
+        let calibration_target = Arc::new(std::sync::atomic::AtomicI64::new(0));
+        let needs_calibration =
+            !self.transport.is_calibrated() || self.transport.get_calibration_offset() == 0;
+
         onset.detect_onsets(
             self.transport.clone(),
             self.slots.clone(),
@@ -1054,7 +1069,22 @@ impl AudioPipeline {
             self.reclaim_tx.clone(),
             onset_tx,
             self.onset_pending.clone(),
+            self.dynamics_output.clone(),
+            calibration_target.clone(),
         );
+
+        if needs_calibration {
+            let delay_samples = self.meta.out_sr as i64 / 5; // ~200 ms ahead
+            let click = CalibrationClick::new(
+                self.transport.clone(),
+                self.meta.out_sr as f32,
+                delay_samples,
+                calibration_target,
+                0.4,
+            );
+            self.output_controller().add_source(Box::new(click));
+        }
+
         Ok((onset, onset_rx))
     }
 
