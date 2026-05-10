@@ -54,6 +54,13 @@ pub struct MeasureData {
     pub notes: Vec<NoteEvent>,
     pub dynamics: Vec<DynamicsEvent>,
     pub expected_notes: Vec<ExpectedNote>,
+    /// Parallel to `notes`: actual measured duration (end_beat - start_beat),
+    /// or None if the corresponding TrackedNoteEnd never arrived (still held,
+    /// session ended mid-note, etc.).
+    pub note_durations: Vec<Option<f64>>,
+    /// Sequence numbers of `notes` entries that were flagged as DoubledNote
+    /// (start-restart) by the matcher.
+    pub doubled_note_seqs: Vec<u64>,
 }
 
 // ── Metrics ───────────────────────────────────────────────────────────────────
@@ -660,6 +667,8 @@ mod tests {
             notes: vec![note_event(0.0, 60, 0.0), note_event(1.0, 64, 0.0)],
             dynamics: vec![],
             expected_notes: vec![expected(0.0, 60, 1.0), expected(1.0, 64, 1.0)],
+            note_durations: vec![],
+            doubled_note_seqs: vec![],
         }];
         let pct = Metrics::calc_accuracy_percent(&measures);
         assert!((pct - 100.0).abs() < 1e-9, "expected 100%, got {pct}");
@@ -673,6 +682,8 @@ mod tests {
             notes: vec![],
             dynamics: vec![],
             expected_notes: vec![expected(0.0, 60, 1.0), expected(1.0, 64, 1.0)],
+            note_durations: vec![],
+            doubled_note_seqs: vec![],
         }];
         let pct = Metrics::calc_accuracy_percent(&measures);
         assert!((pct - 0.0).abs() < 1e-9, "expected 0%, got {pct}");
@@ -687,6 +698,8 @@ mod tests {
             notes: vec![],
             dynamics: vec![],
             expected_notes: vec![],
+            note_durations: vec![],
+            doubled_note_seqs: vec![],
         }];
         let pct = Metrics::calc_accuracy_percent(&measures);
         assert!((pct - 100.0).abs() < 1e-9, "expected 100%, got {pct}");
@@ -700,6 +713,8 @@ mod tests {
             notes: vec![note_event(0.0, 60, 0.0)], // only first note matched
             dynamics: vec![],
             expected_notes: vec![expected(0.0, 60, 1.0), expected(1.0, 64, 1.0)],
+            note_durations: vec![],
+            doubled_note_seqs: vec![],
         }];
         let pct = Metrics::calc_accuracy_percent(&measures);
         assert!((pct - 50.0).abs() < 1e-9, "expected 50%, got {pct}");
@@ -715,6 +730,8 @@ mod tests {
             notes: vec![note_event(0.0, 60, 0.0)],
             dynamics: vec![],
             expected_notes: vec![expected(0.0, 60, 1.0)],
+            note_durations: vec![],
+            doubled_note_seqs: vec![],
         }];
         assert_eq!(Metrics::calc_num_notes_missed(&measures), 0);
     }
@@ -727,6 +744,8 @@ mod tests {
             notes: vec![],
             dynamics: vec![],
             expected_notes: vec![expected(0.0, 60, 1.0), expected(1.0, 64, 1.0)],
+            note_durations: vec![],
+            doubled_note_seqs: vec![],
         }];
         assert_eq!(Metrics::calc_num_notes_missed(&measures), 2);
     }
@@ -741,6 +760,8 @@ mod tests {
             notes: vec![note_event(0.0, 60, 0.0), note_event(1.0, 64, 0.0)],
             dynamics: vec![],
             expected_notes: vec![],
+            note_durations: vec![],
+            doubled_note_seqs: vec![],
         }];
         let dev = Metrics::calc_avg_cent_dev(&measures);
         assert!((dev - 0.0).abs() < 1e-9, "expected 0 cents dev, got {dev}");
@@ -755,6 +776,8 @@ mod tests {
             notes: vec![note_event(0.0, 60, 10.0), note_event(1.0, 64, -30.0)],
             dynamics: vec![],
             expected_notes: vec![],
+            note_durations: vec![],
+            doubled_note_seqs: vec![],
         }];
         let dev = Metrics::calc_avg_cent_dev(&measures);
         assert!(
@@ -771,6 +794,8 @@ mod tests {
             notes: vec![],
             dynamics: vec![],
             expected_notes: vec![],
+            note_durations: vec![],
+            doubled_note_seqs: vec![],
         }];
         assert!((Metrics::calc_avg_cent_dev(&measures) - 0.0).abs() < 1e-9);
     }
@@ -785,6 +810,8 @@ mod tests {
             notes: vec![],
             dynamics: vec![],
             expected_notes: vec![expected(0.0, 60, 1.0), expected(1.0, 64, 1.0)],
+            note_durations: vec![],
+            doubled_note_seqs: vec![],
         }];
         let tc = Metrics::calc_timing_consistency(&measures);
         assert!(tc < 1e-9, "expected timing consistency ~0, got {tc}");
@@ -805,6 +832,8 @@ mod tests {
             notes: vec![],
             dynamics: vec![],
             expected_notes: vec![expected(1.0, 60, 1.0), expected(2.0, 64, 1.0)],
+            note_durations: vec![],
+            doubled_note_seqs: vec![],
         }];
         let skew = Metrics::calc_microtiming_skew(&measures);
         // Skew = mean of (onset - expected) = mean of (-0.1, -0.1) = -0.1
@@ -822,6 +851,8 @@ mod tests {
             notes: vec![],
             dynamics: vec![],
             expected_notes: vec![expected(1.0, 60, 1.0)],
+            note_durations: vec![],
+            doubled_note_seqs: vec![],
         }];
         let skew = Metrics::calc_microtiming_skew(&measures);
         assert!(
@@ -840,6 +871,8 @@ mod tests {
             notes: vec![],
             dynamics: vec![dyn_event(0.0, DynamicLevel::Mf)],
             expected_notes: vec![expected_with_dyn(0.5, 60, 1.0, DynamicLevel::Mf)],
+            note_durations: vec![],
+            doubled_note_seqs: vec![],
         }];
         let acc = Metrics::calc_dynamics_accuracy(&measures);
         assert!(
@@ -857,6 +890,8 @@ mod tests {
             dynamics: vec![dyn_event(0.0, DynamicLevel::Ppp)],
             // Expected Fff (7 steps away from Ppp=0)
             expected_notes: vec![expected_with_dyn(0.5, 60, 1.0, DynamicLevel::Fff)],
+            note_durations: vec![],
+            doubled_note_seqs: vec![],
         }];
         let acc = Metrics::calc_dynamics_accuracy(&measures);
         assert!(
@@ -931,6 +966,8 @@ mod tests {
                 expected(2.0, 64, 1.0),
                 expected(3.0, 65, 1.0),
             ],
+            note_durations: vec![],
+            doubled_note_seqs: vec![],
         }];
         let metrics = Metrics::compute(0, 0, 120.0, &measures);
         assert!((metrics.accuracy_percent - 100.0).abs() < 1e-9);
@@ -946,6 +983,8 @@ mod tests {
             notes: vec![],
             dynamics: vec![],
             expected_notes: vec![expected(0.0, 60, 1.0), expected(1.0, 64, 1.0)],
+            note_durations: vec![],
+            doubled_note_seqs: vec![],
         }];
         let metrics = Metrics::compute(0, 0, 120.0, &measures);
         assert!((metrics.accuracy_percent - 0.0).abs() < 1e-9);

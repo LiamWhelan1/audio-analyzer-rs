@@ -881,6 +881,8 @@ fn run_session(
                 notes: std::mem::take(&mut s.current_notes),
                 dynamics: std::mem::take(&mut s.current_dynamics),
                 expected_notes: expected,
+                note_durations: vec![],
+                doubled_note_seqs: vec![],
             };
 
             let new_feedback = generate_measure_feedback(&data, ability_level);
@@ -1587,6 +1589,8 @@ mod tests {
             notes,
             dynamics: vec![],
             expected_notes: expected,
+            note_durations: vec![],
+            doubled_note_seqs: vec![],
         }
     }
 
