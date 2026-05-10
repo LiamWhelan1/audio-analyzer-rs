@@ -52,7 +52,20 @@ pub fn resolve(
         };
     }
 
-    // (Tasks 16–17 add doubled, look-ahead, extra cases.)
+    // Rule 3: Matched(true) slot, exact pitch, within freshness → DoubledNote.
+    let doubled_target = cands.iter().find(|c| {
+        matches!(c.kind, CandidateKind::InWindow)
+            && matches!(c.status, SlotStatus::Matched { pitch_correct: true })
+            && tracked.midi_note == c.expected.midi_note
+            && buf.slot(c.key).and_then(|s| s.matched_start_beat).map_or(false, |msb| {
+                tracked.start_beat - msb <= DOUBLED_NOTE_FRESHNESS
+            })
+    });
+    if let Some(c) = doubled_target {
+        return MatchOutcome::DoubledNote { key: c.key };
+    }
+
+    // (Task 17 adds look-ahead and extra cases.)
     MatchOutcome::ExtraNote { during: None }
 }
 
@@ -103,6 +116,25 @@ mod tests {
             }
             other => panic!("expected Matched, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn doubled_note_within_freshness_emits_doubled() {
+        let measures = Arc::new(vec![measure_with_notes(vec![(0.0, 1.0, 261.626)], 0.0)]);
+        let mut buf = MeasureBuffer::new(measures, 0, 0);
+        buf.record_match((0, 0), &ts(60, 0.0), true);
+        let out = resolve(&ts(60, 0.2), &buf, (0, 0));
+        assert_eq!(out, MatchOutcome::DoubledNote { key: (0, 0) });
+    }
+
+    #[test]
+    fn doubled_note_beyond_freshness_emits_extra() {
+        let measures = Arc::new(vec![measure_with_notes(vec![(0.0, 4.0, 261.626)], 0.0)]);
+        let mut buf = MeasureBuffer::new(measures, 0, 0);
+        buf.record_match((0, 0), &ts(60, 0.0), true);
+        // Beat 0.6 is > DOUBLED_NOTE_FRESHNESS (0.5) past matched_start_beat.
+        let out = resolve(&ts(60, 0.6), &buf, (0, 0));
+        matches!(out, MatchOutcome::ExtraNote { .. }); // not Doubled
     }
 
     #[test]
