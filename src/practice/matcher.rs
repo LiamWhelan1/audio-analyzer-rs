@@ -35,7 +35,24 @@ pub fn resolve(
         };
     }
 
-    // (Tasks 15–17 add upgrade, doubled, look-ahead, extra cases.)
+    // Rule 2: any Matched(false) slot whose duration window contains the beat
+    // AND pitch is exact → upgrade.
+    let upgrade_target = cands.iter().find(|c| {
+        matches!(c.kind, CandidateKind::InWindow)
+            && matches!(c.status, SlotStatus::Matched { pitch_correct: false })
+            && tracked.midi_note == c.expected.midi_note
+    });
+    if let Some(c) = upgrade_target {
+        return MatchOutcome::Matched {
+            key: c.key,
+            timing_err: tracked.start_beat - c.expected.beat_position,
+            pitch_correct: true,
+            upgrade: true,
+            skipped_keys: Vec::new(),
+        };
+    }
+
+    // (Tasks 16–17 add doubled, look-ahead, extra cases.)
     MatchOutcome::ExtraNote { during: None }
 }
 
@@ -85,6 +102,24 @@ mod tests {
                 assert!(pitch_correct);
             }
             other => panic!("expected Matched, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn upgrade_promotes_matched_false_to_true() {
+        let measures = Arc::new(vec![measure_with_notes(vec![(0.0, 1.0, 261.626)], 0.0)]);
+        let mut buf = MeasureBuffer::new(measures, 0, 0);
+        // Slot is currently Matched(false).
+        buf.record_match((0, 0), &ts(62, 0.05), false);
+
+        let out = resolve(&ts(60, 0.10), &buf, (0, 0));
+        match out {
+            MatchOutcome::Matched { key, pitch_correct, upgrade, .. } => {
+                assert_eq!(key, (0, 0));
+                assert!(pitch_correct);
+                assert!(upgrade);
+            }
+            other => panic!("expected Matched (upgrade), got {other:?}"),
         }
     }
 
