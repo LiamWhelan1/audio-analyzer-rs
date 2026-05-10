@@ -66,6 +66,17 @@ impl ClockManager {
     }
     pub fn cfg(&self) -> &ClockConfig { &self.cfg }
 
+    pub fn on_doubled(&mut self, slot: &NoteSlot, mode: PracticeMode) -> Vec<ClockAction> {
+        if mode == PracticeMode::Performance { return Vec::new(); }
+        let Some(matched_beat) = slot.matched_start_beat else { return Vec::new() };
+        vec![
+            ClockAction::SeekToBeat(matched_beat + self.cfg.seek_landing_epsilon),
+            ClockAction::Play,
+        ]
+    }
+
+    pub fn on_extra(&mut self) -> Vec<ClockAction> { Vec::new() }
+
     pub fn on_tick(
         &mut self,
         buf: &MeasureBuffer,
@@ -245,6 +256,40 @@ mod tests {
         // EWMA = 0.4 * 80 + 0.6 * 120 = 104.
         let _ = cm.on_match(&matched(1.5, (0,1)), &exp(1.0, 1.0), 1.5, PracticeMode::FollowAlong);
         assert!((cm.t_stu_bpm() - 104.0).abs() < 0.5);
+    }
+
+    #[test]
+    fn doubled_in_followalong_emits_seek_back_plus_play() {
+        let mut cm = mk();
+        let slot = NoteSlot {
+            status: SlotStatus::Matched { pitch_correct: true },
+            matched_start_beat: Some(2.0),
+            matched_seq: Some(0),
+        };
+        let actions = cm.on_doubled(&slot, PracticeMode::FollowAlong);
+        let seek = actions.iter().find_map(|a| match a {
+            ClockAction::SeekToBeat(b) => Some(*b), _ => None,
+        });
+        assert_eq!(seek, Some(2.001));
+        assert!(actions.iter().any(|a| matches!(a, ClockAction::Play)));
+    }
+
+    #[test]
+    fn doubled_in_performance_emits_nothing() {
+        let mut cm = mk();
+        let slot = NoteSlot {
+            status: SlotStatus::Matched { pitch_correct: true },
+            matched_start_beat: Some(2.0),
+            matched_seq: Some(0),
+        };
+        let actions = cm.on_doubled(&slot, PracticeMode::Performance);
+        assert!(actions.is_empty());
+    }
+
+    #[test]
+    fn extra_emits_no_actions_in_any_mode() {
+        let mut cm = mk();
+        assert!(cm.on_extra().is_empty());
     }
 
     #[test]
