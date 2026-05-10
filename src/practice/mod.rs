@@ -94,6 +94,12 @@ pub enum MusicError {
     Intonation,
     /// Dynamic level is outside tolerance.
     Dynamics,
+    /// Sustained tempo deviation (rushing/dragging across notes).
+    Tempo,
+    /// Note held longer than expected duration.
+    HeldTooLong,
+    /// Note released earlier than expected duration.
+    HeldTooShort,
     /// No error — used as a sentinel when a `SendInfo` still carries useful context.
     None,
 }
