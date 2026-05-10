@@ -93,8 +93,119 @@ impl InputConditioner {
             self.transient_log.pop_front();
         }
 
-        // (State transitions implemented in Task 10.)
-        Vec::new()
+        let mut events = Vec::new();
+        let present: std::collections::HashSet<u8> = frame.notes.iter().map(|(m, _)| *m).collect();
+        let cents_by_midi: HashMap<u8, f64> = frame.notes.iter().copied().collect();
+
+        // 1. Pitches present in the frame.
+        for &m in &present {
+            let cents = *cents_by_midi.get(&m).unwrap_or(&0.0);
+            let entry = self.pitches.remove(&m);
+            let new_state = match entry {
+                None => PitchState::StartPending {
+                    frames: 1,
+                    first_frame_beat: frame.tuner_beat,
+                    first_frame_seq: self.frame_seq,
+                    cents_buffer: vec![cents],
+                },
+                Some(PitchState::StartPending {
+                    frames,
+                    first_frame_beat,
+                    first_frame_seq,
+                    mut cents_buffer,
+                }) => {
+                    cents_buffer.push(cents);
+                    let new_frames = frames + 1;
+                    if new_frames >= STABLE_FRAMES {
+                        // Tier cascade is implemented in Task 11. For now, always StableFiveFrame.
+                        let seq = self.next_event_seq;
+                        self.next_event_seq += 1;
+                        let avg = cents_buffer.iter().sum::<f64>() / cents_buffer.len() as f64;
+                        let cents_sum = cents_buffer.iter().sum::<f64>();
+                        events.push(ConditionerEvent::Started(TrackedNoteStart {
+                            seq,
+                            midi_note: m,
+                            start_beat: first_frame_beat,
+                            start_source: StartSource::StableFiveFrame,
+                            initial_cents: avg,
+                        }));
+                        let _ = first_frame_seq;
+                        PitchState::Active(ActiveBody {
+                            seq,
+                            start_beat: first_frame_beat,
+                            start_source: StartSource::StableFiveFrame,
+                            cents_sum,
+                            frame_count: STABLE_FRAMES,
+                        })
+                    } else {
+                        PitchState::StartPending {
+                            frames: new_frames,
+                            first_frame_beat,
+                            first_frame_seq,
+                            cents_buffer,
+                        }
+                    }
+                }
+                Some(PitchState::Active(mut body)) => {
+                    body.cents_sum += cents;
+                    body.frame_count += 1;
+                    PitchState::Active(body)
+                }
+                Some(PitchState::EndPending { carry, .. }) => {
+                    // Resume — absence was a brief gap.
+                    PitchState::Active(carry)
+                }
+            };
+            self.pitches.insert(m, new_state);
+        }
+
+        // 2. Pitches in the map but missing from the frame.
+        let missing: Vec<u8> = self.pitches.keys()
+            .copied()
+            .filter(|m| !present.contains(m))
+            .collect();
+        for m in missing {
+            let entry = self.pitches.remove(&m).unwrap();
+            let new_state_opt = match entry {
+                PitchState::StartPending { first_frame_beat, first_frame_seq, .. } => {
+                    // Transient: log it for cluster detection.
+                    self.transient_log.push_back((first_frame_seq, first_frame_beat, m));
+                    None
+                }
+                PitchState::Active(carry) => Some(PitchState::EndPending {
+                    absent_frames: 1,
+                    first_absence_beat: frame.tuner_beat,
+                    carry,
+                }),
+                PitchState::EndPending { absent_frames, first_absence_beat, carry } => {
+                    let new_count = absent_frames + 1;
+                    if new_count >= END_FRAMES {
+                        let avg_cents = if carry.frame_count > 0 {
+                            carry.cents_sum / carry.frame_count as f64
+                        } else { 0.0 };
+                        events.push(ConditionerEvent::Ended(TrackedNoteEnd {
+                            seq: carry.seq,
+                            midi_note: m,
+                            end_beat: first_absence_beat,
+                            avg_cents,
+                            frame_count: carry.frame_count,
+                        }));
+                        None
+                    } else {
+                        Some(PitchState::EndPending {
+                            absent_frames: new_count,
+                            first_absence_beat,
+                            carry,
+                        })
+                    }
+                }
+            };
+            if let Some(s) = new_state_opt {
+                self.pitches.insert(m, s);
+            }
+        }
+
+        events
     }
 }
 
@@ -120,5 +231,53 @@ mod tests {
         // Same beat → no further work.
         let events = c.ingest(Some(&f), &[]);
         assert!(events.is_empty());
+    }
+
+    fn frame(midis_cents: Vec<(u8, f64)>, beat: f64) -> TunerFrame {
+        TunerFrame { notes: midis_cents, tuner_beat: beat }
+    }
+
+    #[test]
+    fn stable_5_frames_emits_started_with_first_frame_beat() {
+        let mut c = InputConditioner::new(mk_transport());
+        // 4 frames not enough.
+        for i in 0..4 {
+            let f = frame(vec![(60, 0.0)], i as f64 * 0.02);
+            assert!(c.ingest(Some(&f), &[]).is_empty());
+        }
+        // 5th frame confirms.
+        let f = frame(vec![(60, 0.0)], 4.0 * 0.02);
+        let evs = c.ingest(Some(&f), &[]);
+        assert_eq!(evs.len(), 1);
+        match &evs[0] {
+            ConditionerEvent::Started(s) => {
+                assert_eq!(s.midi_note, 60);
+                assert!((s.start_beat - 0.0).abs() < 1e-9);     // first_frame_beat
+                assert_eq!(s.start_source, StartSource::StableFiveFrame);
+            }
+            _ => panic!("expected Started"),
+        }
+    }
+
+    #[test]
+    fn pitch_disappearing_for_5_frames_emits_ended() {
+        let mut c = InputConditioner::new(mk_transport());
+        for i in 0..5 {
+            let _ = c.ingest(Some(&frame(vec![(60, 0.0)], i as f64 * 0.02)), &[]);
+        }
+        // Now silent for 5 frames.
+        let mut end_event: Option<TrackedNoteEnd> = None;
+        for i in 5..10 {
+            let evs = c.ingest(Some(&frame(vec![], i as f64 * 0.02)), &[]);
+            for e in evs {
+                if let ConditionerEvent::Ended(e) = e {
+                    end_event = Some(e);
+                }
+            }
+        }
+        let e = end_event.expect("expected Ended event");
+        assert_eq!(e.midi_note, 60);
+        // first_absence_beat = 5 * 0.02 = 0.10.
+        assert!((e.end_beat - 0.10).abs() < 1e-9);
     }
 }
