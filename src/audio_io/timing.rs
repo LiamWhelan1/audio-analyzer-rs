@@ -692,6 +692,29 @@ mod tests {
     }
 
     #[test]
+    fn test_calibrated_beat_subtracts_total_latency() {
+        let t = MusicalTransport::new(120.0, 48000.0);
+        t.set_input_latency(480); // 10 ms
+        t.set_output_latency(240); // 5 ms
+        t.set_calibration_offset(96); // 2 ms residual
+
+        // 120 BPM = 2 beats/sec. Total latency = 816 samples / 48000 = 0.017 s.
+        // Beats of latency = 0.017 * 2 = 0.034.
+        let calibrated = t.calibrated_beat(4.0);
+        let expected = 4.0 - (816.0 / 48000.0) * (120.0 / 60.0);
+        assert!(
+            (calibrated - expected).abs() < 1e-9,
+            "expected {expected}, got {calibrated}"
+        );
+    }
+
+    #[test]
+    fn test_calibrated_beat_zero_latency_passthrough() {
+        let t = MusicalTransport::new(120.0, 48000.0);
+        assert!((t.calibrated_beat(2.5) - 2.5).abs() < 1e-9);
+    }
+
+    #[test]
     fn test_snapshot_display_position_leads_audio() {
         let t = MusicalTransport::new(120.0, 48000.0);
         t.play();
