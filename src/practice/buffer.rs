@@ -74,6 +74,49 @@ impl MeasureBuffer {
     pub fn future_idx(&self) -> Option<usize> { self.future_idx }
     pub fn slot(&self, key: (usize, usize)) -> Option<&NoteSlot> { self.slots.get(&key) }
 
+    pub fn record_match(&mut self, key: (usize, usize), tracked: &TrackedNoteStart, pitch_correct: bool) {
+        if let Some(slot) = self.slots.get_mut(&key) {
+            slot.status = SlotStatus::Matched { pitch_correct };
+            slot.matched_start_beat = Some(tracked.start_beat);
+            slot.matched_seq = Some(tracked.seq);
+        }
+    }
+
+    pub fn upgrade_match(&mut self, key: (usize, usize), tracked: &TrackedNoteStart) {
+        if let Some(slot) = self.slots.get_mut(&key) {
+            slot.status = SlotStatus::Matched { pitch_correct: true };
+            slot.matched_start_beat = Some(tracked.start_beat);
+            slot.matched_seq = Some(tracked.seq);
+        }
+    }
+
+    pub fn mark_missed(&mut self, key: (usize, usize)) {
+        if let Some(slot) = self.slots.get_mut(&key) {
+            slot.status = SlotStatus::Missed;
+        }
+    }
+
+    /// Lowest-key slot strictly after `frontier` whose status is `Pending`.
+    /// Walks current → future measure boundary if needed.
+    pub fn next_pending_after(&self, frontier: (usize, usize)) -> Option<(usize, usize)> {
+        // Within current measure first, then future measure if any.
+        let candidates_iter = std::iter::once(self.current_idx)
+            .chain(self.future_idx.into_iter());
+        for m_idx in candidates_iter {
+            let n_count = self.measures[m_idx].notes.len();
+            let start = if m_idx == frontier.0 { frontier.1 + 1 } else { 0 };
+            for n_idx in start..n_count {
+                let key = (m_idx, n_idx);
+                if let Some(slot) = self.slots.get(&key) {
+                    if slot.status == SlotStatus::Pending {
+                        return Some(key);
+                    }
+                }
+            }
+        }
+        None
+    }
+
     fn populate_slots(&mut self, m_idx: usize) {
         if m_idx >= self.measures.len() { return; }
         for (n_idx, _note) in self.measures[m_idx].notes.iter().enumerate() {
@@ -248,5 +291,68 @@ mod tests {
         assert_eq!(aged.len(), 1);
         // Two unplayed slots in measure 0 → expected_notes len = 2 in MeasureData.
         assert_eq!(aged[0].expected_notes.len(), 2);
+    }
+
+    fn fake_tracked(midi: u8, beat: f64) -> TrackedNoteStart {
+        TrackedNoteStart {
+            seq: 0,
+            midi_note: midi,
+            start_beat: beat,
+            start_source: crate::practice::types::StartSource::Onset,
+            initial_cents: 0.0,
+        }
+    }
+
+    #[test]
+    fn record_match_sets_slot_matched_correct() {
+        let measures = Arc::new(vec![dummy_measure(0.0, 2)]);
+        let mut buf = MeasureBuffer::new(measures, 0, 0);
+        let t = fake_tracked(60, 0.0);
+        buf.record_match((0, 0), &t, true);
+        let s = buf.slot((0, 0)).unwrap();
+        assert_eq!(s.status, SlotStatus::Matched { pitch_correct: true });
+        assert_eq!(s.matched_start_beat, Some(0.0));
+        assert_eq!(s.matched_seq, Some(0));
+    }
+
+    #[test]
+    fn upgrade_match_promotes_pitch_correct_false_to_true() {
+        let measures = Arc::new(vec![dummy_measure(0.0, 1)]);
+        let mut buf = MeasureBuffer::new(measures, 0, 0);
+        let mut t1 = fake_tracked(61, 0.05);
+        t1.seq = 1;
+        let mut t2 = fake_tracked(60, 0.1);
+        t2.seq = 2;
+        buf.record_match((0, 0), &t1, false);
+        buf.upgrade_match((0, 0), &t2);
+        let s = buf.slot((0, 0)).unwrap();
+        assert_eq!(s.status, SlotStatus::Matched { pitch_correct: true });
+        assert_eq!(s.matched_seq, Some(2));
+    }
+
+    #[test]
+    fn mark_missed_sets_slot_missed() {
+        let measures = Arc::new(vec![dummy_measure(0.0, 2)]);
+        let mut buf = MeasureBuffer::new(measures, 0, 0);
+        buf.mark_missed((0, 0));
+        assert_eq!(buf.slot((0, 0)).unwrap().status, SlotStatus::Missed);
+    }
+
+    #[test]
+    fn next_pending_after_finds_next_unmatched_slot() {
+        let measures = Arc::new(vec![dummy_measure(0.0, 4)]);
+        let mut buf = MeasureBuffer::new(measures, 0, 0);
+        let t = fake_tracked(60, 0.0);
+        buf.record_match((0, 0), &t, true);
+        assert_eq!(buf.next_pending_after((0, 0)), Some((0, 1)));
+        buf.mark_missed((0, 1));
+        assert_eq!(buf.next_pending_after((0, 0)), Some((0, 2)));
+    }
+
+    #[test]
+    fn next_pending_after_crosses_measure_boundary() {
+        let measures = Arc::new(vec![dummy_measure(0.0, 1), dummy_measure(4.0, 2)]);
+        let buf = MeasureBuffer::new(measures, 0, 1);
+        assert_eq!(buf.next_pending_after((0, 0)), Some((1, 0)));
     }
 }
