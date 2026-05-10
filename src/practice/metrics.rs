@@ -22,6 +22,7 @@ pub(crate) const NOTE_MATCH_WINDOW: f64 = 0.25;
 ///
 /// `avg_cents` is the running average cent deviation accumulated for this note;
 /// it is reset when the next note begins.
+#[derive(Clone)]
 pub struct NoteEvent {
     pub beat_position: f64,
     pub midi_note: u8,
@@ -29,6 +30,7 @@ pub struct NoteEvent {
 }
 
 /// A dynamic-level change emitted by the dynamics tracker.
+#[derive(Clone)]
 pub struct DynamicsEvent {
     pub beat_position: f64,
     pub level: DynamicLevel,
@@ -49,6 +51,7 @@ pub struct ExpectedNote {
 
 /// All accumulated data for one measure from the three live tracker streams
 /// and the MIDI reference.
+#[derive(Clone)]
 pub struct MeasureData {
     pub measure_index: u32,
     pub onsets: Vec<OnsetEvent>,
@@ -105,6 +108,14 @@ pub struct Metrics {
     pub measure_tempo_map: Vec<f64>,
     /// (min_dynamic, max_dynamic) labels of the dynamic range used across the session.
     pub dynamics_range_used: (String, String),
+    /// Total count of DoubledNote (start-restart) events across all measures.
+    pub tempo_err_count: u64,
+    /// (held-too-long, held-too-short) note counts across all measures.
+    pub hold_err_count: (u64, u64),
+    /// Indices of measures with at least one DoubledNote event.
+    pub tempo_err_measures: Vec<u32>,
+    /// Indices of measures with at least one held-too-long or held-too-short note.
+    pub hold_err_measures: Vec<u32>,
 }
 
 impl Metrics {
@@ -157,6 +168,11 @@ impl Metrics {
             0.0
         };
 
+        let tempo_err_count = Self::calc_tempo_err_count(measures);
+        let hold_err_count = Self::calc_hold_err_count(measures);
+        let tempo_err_measures = Self::calc_tempo_err_measures(measures);
+        let hold_err_measures = Self::calc_hold_err_measures(measures);
+
         Self {
             start_measure,
             end_measure,
@@ -179,7 +195,58 @@ impl Metrics {
             tempo_stability,
             measure_tempo_map,
             dynamics_range_used,
+            tempo_err_count,
+            hold_err_count,
+            tempo_err_measures,
+            hold_err_measures,
         }
+    }
+
+    fn calc_tempo_err_count(measures: &[MeasureData]) -> u64 {
+        measures.iter().map(|m| m.doubled_note_seqs.len() as u64).sum()
+    }
+
+    fn calc_hold_err_count(measures: &[MeasureData]) -> (u64, u64) {
+        const HOLD_TOLERANCE_PCT: f64 = 0.25;
+        let mut long = 0u64;
+        let mut short = 0u64;
+        for m in measures {
+            for (i, dur_opt) in m.note_durations.iter().enumerate() {
+                let Some(actual) = dur_opt else { continue };
+                let Some(note) = m.notes.get(i) else { continue };
+                let exp_dur_opt = m.expected_notes.iter()
+                    .find(|e| (e.beat_position - note.beat_position).abs() < NOTE_MATCH_WINDOW
+                              && e.midi_note == note.midi_note)
+                    .map(|e| e.duration_beats);
+                let Some(exp_dur) = exp_dur_opt else { continue };
+                if *actual > exp_dur * (1.0 + HOLD_TOLERANCE_PCT) { long += 1; }
+                else if *actual < exp_dur * (1.0 - HOLD_TOLERANCE_PCT) { short += 1; }
+            }
+        }
+        (long, short)
+    }
+
+    fn calc_tempo_err_measures(measures: &[MeasureData]) -> Vec<u32> {
+        measures.iter()
+            .filter(|m| !m.doubled_note_seqs.is_empty())
+            .map(|m| m.measure_index)
+            .collect()
+    }
+
+    fn calc_hold_err_measures(measures: &[MeasureData]) -> Vec<u32> {
+        const HOLD_TOLERANCE_PCT: f64 = 0.25;
+        measures.iter().filter(|m| {
+            m.note_durations.iter().enumerate().any(|(i, dur)| {
+                let Some(d) = dur else { return false };
+                let Some(note) = m.notes.get(i) else { return false };
+                let exp_dur = m.expected_notes.iter()
+                    .find(|e| (e.beat_position - note.beat_position).abs() < NOTE_MATCH_WINDOW
+                              && e.midi_note == note.midi_note)
+                    .map(|e| e.duration_beats);
+                let Some(ed) = exp_dur else { return false };
+                *d > ed * (1.0 + HOLD_TOLERANCE_PCT) || *d < ed * (1.0 - HOLD_TOLERANCE_PCT)
+            })
+        }).map(|m| m.measure_index).collect()
     }
 
     // ── Note accuracy ─────────────────────────────────────────────────────────
@@ -990,5 +1057,41 @@ mod tests {
         let metrics = Metrics::compute(0, 0, 120.0, &measures);
         assert!((metrics.accuracy_percent - 0.0).abs() < 1e-9);
         assert_eq!(metrics.num_notes_missed, 2);
+    }
+
+    #[test]
+    fn tempo_err_count_sums_doubled_seqs() {
+        let m = MeasureData {
+            measure_index: 0,
+            onsets: vec![],
+            notes: vec![],
+            dynamics: vec![],
+            expected_notes: vec![],
+            note_durations: vec![],
+            doubled_note_seqs: vec![1, 2, 3],
+        };
+        let count = Metrics::calc_tempo_err_count(&[m.clone()]);
+        assert_eq!(count, 3);
+    }
+
+    #[test]
+    fn hold_err_count_flags_too_long_and_too_short() {
+        let m = MeasureData {
+            measure_index: 0,
+            onsets: vec![],
+            notes: vec![
+                note_event(0.0, 60, 0.0),
+                note_event(2.0, 64, 0.0),
+            ],
+            dynamics: vec![],
+            expected_notes: vec![
+                expected(0.0, 60, 1.0),
+                expected(2.0, 64, 1.0),
+            ],
+            note_durations: vec![Some(1.5), Some(0.5)],   // long, short
+            doubled_note_seqs: vec![],
+        };
+        let (long, short) = Metrics::calc_hold_err_count(&[m]);
+        assert_eq!((long, short), (1, 1));
     }
 }
