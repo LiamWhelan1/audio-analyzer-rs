@@ -40,6 +40,8 @@ pub struct ModeController {
     pub match_log: HashMap<u64, MatchedSnapshot>,
 
     pub last_dynamic_level: Option<DynamicLevel>,
+
+    pub feedback: Vec<crate::practice::SendInfo>,
 }
 
 pub struct TickInputs<'a> {
@@ -74,6 +76,7 @@ impl ModeController {
             in_progress_doubled_seqs: HashMap::new(),
             match_log: HashMap::new(),
             last_dynamic_level: None,
+            feedback: Vec::new(),
         }
     }
 
@@ -158,15 +161,13 @@ impl ModeController {
         let note_idx = self.in_progress_played_notes[&mi].len() - 1;
 
         let actions = match outcome {
-            MatchOutcome::Matched { key, pitch_correct, upgrade, skipped_keys, .. } => {
-                for k in skipped_keys { self.buffer.mark_missed(*k); }
-                if *upgrade {
-                    self.buffer.upgrade_match(*key, t);
-                } else {
-                    self.buffer.record_match(*key, t, *pitch_correct);
+            MatchOutcome::Matched { key, pitch_correct, upgrade, skipped_keys, timing_err } => {
+                for k in skipped_keys {
+                    self.buffer.mark_missed(*k);
+                    self.feedback.push(missing_note_send_info(*k, &self.buffer));
                 }
+                if *upgrade { self.buffer.upgrade_match(*key, t); } else { self.buffer.record_match(*key, t, *pitch_correct); }
                 self.frontier = step_forward(&self.buffer, *key);
-                // Record for later End hold-check.
                 let exp = expected_for(&self.buffer, *key);
                 self.match_log.insert(t.seq, MatchedSnapshot {
                     measure_idx: key.0,
@@ -174,14 +175,31 @@ impl ModeController {
                     expected_duration: exp.duration_beats,
                     expected_midi: exp.midi_note,
                 });
+                // Live feedback for the match.
+                let prim = if !*pitch_correct {
+                    send_info(*key, crate::practice::MusicError::WrongNote, &exp, t)
+                } else {
+                    send_info(*key, crate::practice::MusicError::None, &exp, t)
+                };
+                self.feedback.push(prim);
+                let timing_threshold = exp.duration_beats * self.clock.cfg().seek_threshold_pct
+                    * mode_tol_scale(self.mode);
+                if timing_err.abs() > timing_threshold {
+                    self.feedback.push(timing_send_info(*key, &exp, t, *timing_err));
+                }
                 self.clock.on_match(outcome, &exp, transport_beat, self.mode)
             }
             MatchOutcome::DoubledNote { key } => {
                 self.in_progress_doubled_seqs.entry(mi).or_default().push(t.seq);
+                let exp = expected_for(&self.buffer, *key);
+                self.feedback.push(send_info(*key, crate::practice::MusicError::Tempo, &exp, t));
                 let slot = self.buffer.slot(*key).cloned();
                 slot.map(|s| self.clock.on_doubled(&s, self.mode)).unwrap_or_default()
             }
-            MatchOutcome::ExtraNote { .. } => self.clock.on_extra(),
+            MatchOutcome::ExtraNote { during } => {
+                self.feedback.push(extra_note_send_info(*during, t, &self.buffer));
+                self.clock.on_extra()
+            }
         };
         for a in actions { self.apply_action(&a); }
     }
@@ -198,7 +216,38 @@ impl ModeController {
                         *d = Some(actual_duration);
                     }
                 }
-                let _ = actual_duration;
+                const HOLD_TOLERANCE_PCT: f64 = 0.25;
+                if actual_duration > snap.expected_duration * (1.0 + HOLD_TOLERANCE_PCT) {
+                    self.feedback.push(crate::practice::SendInfo {
+                        measure: mi as u32,
+                        note_index: snap.note_idx_in_measure_data,
+                        error_type: crate::practice::MusicError::HeldTooLong,
+                        intensity: 0.6,
+                        expected: format!("dur~{:.2}", snap.expected_duration),
+                        received: format!("dur={:.2}", actual_duration),
+                    });
+                } else if actual_duration < snap.expected_duration * (1.0 - HOLD_TOLERANCE_PCT) {
+                    self.feedback.push(crate::practice::SendInfo {
+                        measure: mi as u32,
+                        note_index: snap.note_idx_in_measure_data,
+                        error_type: crate::practice::MusicError::HeldTooShort,
+                        intensity: 0.6,
+                        expected: format!("dur~{:.2}", snap.expected_duration),
+                        received: format!("dur={:.2}", actual_duration),
+                    });
+                }
+                const INTONATION_THRESHOLD: f64 = 25.0;
+                let intonation_threshold = INTONATION_THRESHOLD * mode_tol_scale(self.mode);
+                if t.avg_cents.abs() > intonation_threshold {
+                    self.feedback.push(crate::practice::SendInfo {
+                        measure: mi as u32,
+                        note_index: snap.note_idx_in_measure_data,
+                        error_type: crate::practice::MusicError::Intonation,
+                        intensity: (t.avg_cents.abs() / 50.0).min(1.0),
+                        expected: format!("midi={}", snap.expected_midi),
+                        received: format!("midi={} {:+.0}c", t.midi_note, t.avg_cents),
+                    });
+                }
             }
         }
     }
@@ -219,6 +268,80 @@ fn step_forward(buf: &MeasureBuffer, key: (usize, usize)) -> (usize, usize) {
     let next = (key.0, key.1 + 1);
     if buf.slot(next).is_some() { next }
     else { (key.0 + 1, 0) }
+}
+
+fn send_info(
+    key: (usize, usize),
+    err: crate::practice::MusicError,
+    exp: &crate::practice::metrics::ExpectedNote,
+    t: &TrackedNoteStart,
+) -> crate::practice::SendInfo {
+    crate::practice::SendInfo {
+        measure: key.0 as u32,
+        note_index: key.1,
+        error_type: err,
+        intensity: 0.0,
+        expected: format!("midi={} beat={:.2}", exp.midi_note, exp.beat_position),
+        received: format!("midi={} beat={:.3}", t.midi_note, t.start_beat),
+    }
+}
+
+fn timing_send_info(
+    key: (usize, usize),
+    exp: &crate::practice::metrics::ExpectedNote,
+    t: &TrackedNoteStart,
+    err: f64,
+) -> crate::practice::SendInfo {
+    crate::practice::SendInfo {
+        measure: key.0 as u32,
+        note_index: key.1,
+        error_type: crate::practice::MusicError::Timing,
+        intensity: (err.abs() / 0.5).min(1.0),
+        expected: format!("beat {:.2}", exp.beat_position),
+        received: format!("beat {:.2}", t.start_beat),
+    }
+}
+
+fn missing_note_send_info(key: (usize, usize), buf: &MeasureBuffer) -> crate::practice::SendInfo {
+    let exp = expected_for(buf, key);
+    crate::practice::SendInfo {
+        measure: key.0 as u32,
+        note_index: key.1,
+        error_type: crate::practice::MusicError::MissingNote,
+        intensity: 1.0,
+        expected: format!("midi={} beat={:.2}", exp.midi_note, exp.beat_position),
+        received: "silence".into(),
+    }
+}
+
+fn mode_tol_scale(mode: PracticeMode) -> f64 {
+    // Rubato widens the timing/intonation tolerance per spec §5 table.
+    match mode {
+        PracticeMode::Rubato => 1.5,
+        _ => 1.0,
+    }
+}
+
+fn extra_note_send_info(
+    during: Option<(usize, usize)>,
+    t: &TrackedNoteStart,
+    buf: &MeasureBuffer,
+) -> crate::practice::SendInfo {
+    let (measure, note_index, expected_str) = match during {
+        Some(key) => {
+            let exp = expected_for(buf, key);
+            (key.0 as u32, key.1, format!("midi={} (extra during held)", exp.midi_note))
+        }
+        None => (0, 0, "silence".into()),
+    };
+    crate::practice::SendInfo {
+        measure,
+        note_index,
+        error_type: crate::practice::MusicError::UnexpectedNote,
+        intensity: 0.5,
+        expected: expected_str,
+        received: format!("midi={} beat={:.3}", t.midi_note, t.start_beat),
+    }
 }
 
 fn expected_for(buf: &MeasureBuffer, key: (usize, usize)) -> crate::practice::metrics::ExpectedNote {

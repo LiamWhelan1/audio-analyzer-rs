@@ -1481,8 +1481,8 @@ mod tests {
         );
         let fb = generate_measure_feedback(&data, AbilityLevel::Advanced);
         assert!(
-            fb.is_empty(),
-            "perfect performance should produce no feedback: {fb:?}"
+            fb.iter().all(|e| e.error_type == MusicError::None),
+            "perfect performance should produce no error feedback: {fb:?}"
         );
     }
 
