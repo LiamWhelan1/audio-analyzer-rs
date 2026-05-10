@@ -13,6 +13,7 @@ use crate::{AudioEngineError, OnsetDetection, Tuner, lock_err};
 pub mod metrics;
 pub mod types;
 pub mod buffer;
+pub mod conditioner;
 
 use metrics::{
     DynamicsEvent, ExpectedNote, INTONATION_ERR_THRESHOLD, MeasureData, Metrics, NOTE_MATCH_WINDOW,
