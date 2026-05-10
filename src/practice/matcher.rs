@@ -26,12 +26,13 @@ pub fn resolve(
                 da.partial_cmp(&db).unwrap_or(std::cmp::Ordering::Equal)
             })
             .unwrap();
+        let skipped_keys = walk_skipped(buf, frontier, best.key);
         return MatchOutcome::Matched {
             key: best.key,
             timing_err: tracked.start_beat - best.expected.beat_position,
             pitch_correct: tracked.midi_note == best.expected.midi_note,
             upgrade: false,
-            skipped_keys: Vec::new(),
+            skipped_keys,
         };
     }
 
@@ -65,8 +66,84 @@ pub fn resolve(
         return MatchOutcome::DoubledNote { key: c.key };
     }
 
-    // (Task 17 adds look-ahead and extra cases.)
-    MatchOutcome::ExtraNote { during: None }
+    // Rule 4: score Lookahead and Lookbehind candidates.
+    fn pitch_score(played: u8, expected: u8) -> i32 {
+        let d = (played as i32 - expected as i32).abs();
+        match d { 0 => 100, 1 => 30, 2 => 10, _ => 0 }
+    }
+    fn timing_score(beat: f64, exp: &crate::practice::metrics::ExpectedNote) -> i32 {
+        if beat >= exp.beat_position && beat < exp.beat_position + exp.duration_beats {
+            50
+        } else {
+            let err = (beat - exp.beat_position).abs();
+            ((50.0 - 100.0 * err) as i32).max(0)
+        }
+    }
+
+    let mut best: Option<(&Candidate, i32)> = None;
+    for c in &cands {
+        if !matches!(c.status, SlotStatus::Pending) { continue; }
+        let kind_penalty = match c.kind {
+            CandidateKind::InWindow => 0,
+            CandidateKind::Lookahead(1) => -10,
+            CandidateKind::Lookahead(2) => -25,
+            CandidateKind::Lookbehind(1) => -15,
+            _ => -50,
+        };
+        let score = pitch_score(tracked.midi_note, c.expected.midi_note)
+                  + timing_score(tracked.start_beat, &c.expected)
+                  + kind_penalty;
+        if score >= MIN_MATCH_SCORE
+            && tracked.midi_note == c.expected.midi_note
+            && best.map_or(true, |(_, bs)| score > bs)
+        {
+            best = Some((c, score));
+        }
+    }
+
+    if let Some((c, _)) = best {
+        let skipped = walk_skipped(buf, frontier, c.key);
+        return MatchOutcome::Matched {
+            key: c.key,
+            timing_err: tracked.start_beat - c.expected.beat_position,
+            pitch_correct: true,
+            upgrade: false,
+            skipped_keys: skipped,
+        };
+    }
+
+    // Rule 5: extra note. `during` = any in-window slot (Pending or Matched).
+    let during = cands.iter()
+        .find(|c| matches!(c.kind, CandidateKind::InWindow))
+        .map(|c| c.key);
+    MatchOutcome::ExtraNote { during }
+}
+
+fn walk_skipped(buf: &MeasureBuffer, frontier: (usize, usize), target: (usize, usize)) -> Vec<(usize, usize)> {
+    let mut skipped = Vec::new();
+    let mut walker = frontier;
+    let mut steps = 0;
+    while walker != target && steps < 64 {
+        if let Some(s) = buf.slot(walker) {
+            if matches!(s.status, SlotStatus::Pending) {
+                skipped.push(walker);
+            }
+        } else {
+            break;
+        }
+        walker = step_forward(buf, walker);
+        steps += 1;
+    }
+    skipped
+}
+
+fn step_forward(buf: &MeasureBuffer, key: (usize, usize)) -> (usize, usize) {
+    // We don't need exact cross-measure logic for skipped — just pick the
+    // closest slot one note ahead by sequential numbering within the measure,
+    // then walk into the next measure if needed.
+    let next = (key.0, key.1 + 1);
+    if buf.slot(next).is_some() { next }
+    else { (key.0 + 1, 0) }
 }
 
 #[cfg(test)]
@@ -116,6 +193,43 @@ mod tests {
             }
             other => panic!("expected Matched, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn lookahead_matches_skipped_frontier() {
+        // Notes at 0, 1, 2 (each 1 beat). Student plays at beat 1.05 with pitch
+        // matching note 2 (E4 = midi 64). Frontier is (0, 1). Note 1 (D4) gets
+        // skipped, note 2 matched.
+        let measures = Arc::new(vec![measure_with_notes(vec![
+            (0.0, 1.0, 261.626),    // C4
+            (1.0, 1.0, 293.665),    // D4
+            (2.0, 1.0, 329.628),    // E4
+        ], 0.0)]);
+        let mut buf = MeasureBuffer::new(measures, 0, 0);
+        buf.record_match((0, 0), &ts(60, 0.0), true);
+
+        // Tracked: pitch=64 (E4) at beat 1.05 (still in D4's window normally, but
+        // pitch overrides that — actually no: Rule 1 is pitch-agnostic. So beat
+        // 1.05 with E4 still matches D4 with pitch_correct=false. Use beat=2.05
+        // instead so we cleanly hit lookahead).
+        let out = resolve(&ts(64, 2.05), &buf, (0, 1));
+        match out {
+            MatchOutcome::Matched { key, skipped_keys, pitch_correct, .. } => {
+                assert_eq!(key, (0, 2));
+                assert_eq!(skipped_keys, vec![(0, 1)]);
+                assert!(pitch_correct);
+            }
+            other => panic!("expected Matched lookahead, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn unmatched_note_in_rest_emits_extra_note_with_during_none() {
+        let measures = Arc::new(vec![measure_with_notes(vec![(0.0, 0.5, 261.626)], 0.0)]);
+        let buf = MeasureBuffer::new(measures, 0, 0);
+        // Beat 2.0 — well past the only note's duration window.
+        let out = resolve(&ts(60, 2.0), &buf, (0, 0));
+        assert_eq!(out, MatchOutcome::ExtraNote { during: None });
     }
 
     #[test]
