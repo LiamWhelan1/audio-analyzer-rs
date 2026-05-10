@@ -15,6 +15,7 @@ pub mod types;
 pub mod buffer;
 pub mod conditioner;
 pub mod matcher;
+pub mod clock;
 
 use metrics::{
     DynamicsEvent, ExpectedNote, INTONATION_ERR_THRESHOLD, MeasureData, Metrics, NOTE_MATCH_WINDOW,
