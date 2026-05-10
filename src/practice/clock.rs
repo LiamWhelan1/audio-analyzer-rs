@@ -106,8 +106,33 @@ impl ClockManager {
         // Match received → clear any in-flight hesitation override.
         self.hesitation_tempo = None;
 
-        // (Seek decisions — Task 21.)
-        let _ = timing_err;
+        // Seek decision.
+        match mode {
+            PracticeMode::Performance => {}
+            PracticeMode::FollowAlong => {
+                let threshold = expected.duration_beats * self.cfg.seek_threshold_pct;
+                let must_seek = timing_err.abs() > threshold || self.stopped_for_unplayed;
+                if must_seek {
+                    let target = if transport_beat < expected.beat_position {
+                        expected.beat_position - self.cfg.seek_landing_epsilon
+                    } else {
+                        expected.beat_position + self.cfg.seek_landing_epsilon
+                    };
+                    actions.push(ClockAction::SeekToBeat(target));
+                }
+                actions.push(ClockAction::Play);
+                self.stopped_for_unplayed = false;
+            }
+            PracticeMode::Rubato => {
+                let target = if transport_beat < expected.beat_position {
+                    expected.beat_position - self.cfg.seek_landing_epsilon
+                } else {
+                    expected.beat_position + self.cfg.seek_landing_epsilon
+                };
+                actions.push(ClockAction::SeekToBeat(target));
+                actions.push(ClockAction::Play);
+            }
+        }
 
         // set_bpm gate.
         if mode != PracticeMode::Performance
@@ -167,6 +192,54 @@ mod tests {
         // EWMA = 0.4 * 80 + 0.6 * 120 = 104.
         let _ = cm.on_match(&matched(1.5, (0,1)), &exp(1.0, 1.0), 1.5, PracticeMode::FollowAlong);
         assert!((cm.t_stu_bpm() - 104.0).abs() < 0.5);
+    }
+
+    #[test]
+    fn within_15pct_threshold_no_seek() {
+        let mut cm = mk();
+        let _ = cm.on_match(&matched(0.0, (0,0)), &exp(0.0, 1.0), 0.0, PracticeMode::FollowAlong);
+        let actions = cm.on_match(
+            &MatchOutcome::Matched { key: (0,1), timing_err: 0.10, pitch_correct: true, upgrade: false, skipped_keys: vec![] },
+            &exp(1.0, 1.0),
+            1.10,
+            PracticeMode::FollowAlong,
+        );
+        assert!(actions.iter().all(|a| !matches!(a, ClockAction::SeekToBeat(_))));
+    }
+
+    #[test]
+    fn early_outside_threshold_seeks_to_beat_minus_epsilon() {
+        let mut cm = mk();
+        let _ = cm.on_match(&matched(0.0, (0,0)), &exp(0.0, 1.0), 0.0, PracticeMode::FollowAlong);
+        // Student played at transport.beat 0.7, "matched" at expected.beat 1.0 → 0.3 early.
+        let actions = cm.on_match(
+            &MatchOutcome::Matched { key: (0,1), timing_err: -0.3, pitch_correct: true, upgrade: false, skipped_keys: vec![] },
+            &exp(1.0, 1.0),
+            0.7,
+            PracticeMode::FollowAlong,
+        );
+        let seek = actions.iter().find_map(|a| match a {
+            ClockAction::SeekToBeat(b) => Some(*b),
+            _ => None,
+        }).expect("expected SeekToBeat");
+        assert!((seek - (1.0 - 0.001)).abs() < 1e-9);
+    }
+
+    #[test]
+    fn late_outside_threshold_seeks_to_beat_plus_epsilon() {
+        let mut cm = mk();
+        let _ = cm.on_match(&matched(0.0, (0,0)), &exp(0.0, 1.0), 0.0, PracticeMode::FollowAlong);
+        let actions = cm.on_match(
+            &MatchOutcome::Matched { key: (0,1), timing_err: 0.3, pitch_correct: true, upgrade: false, skipped_keys: vec![] },
+            &exp(1.0, 1.0),
+            1.3,
+            PracticeMode::FollowAlong,
+        );
+        let seek = actions.iter().find_map(|a| match a {
+            ClockAction::SeekToBeat(b) => Some(*b),
+            _ => None,
+        }).expect("expected SeekToBeat");
+        assert!((seek - (1.0 + 0.001)).abs() < 1e-9);
     }
 
     #[test]
