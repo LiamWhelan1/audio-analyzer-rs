@@ -103,6 +103,10 @@ struct SessionState {
     practice_end: usize,
     /// Current position within `measures`.
     current_measure_idx: usize,
+    /// Phase 1 wiring: drives the per-tick measure cycle. Currently parallels
+    /// `current_measure_idx` (kept in sync via `buffer.current_idx()`); later
+    /// phases will eliminate the standalone integer.
+    buffer: Option<crate::practice::buffer::MeasureBuffer>,
 
     // ── Per-measure event accumulators ────────────────────────────────────
     current_onsets: Vec<crate::audio_io::timing::OnsetEvent>,
@@ -182,6 +186,7 @@ impl SessionState {
             practice_start,
             practice_end,
             current_measure_idx: practice_start,
+            buffer: None,
             current_onsets: Vec::new(),
             current_notes: Vec::new(),
             current_dynamics: Vec::new(),
@@ -345,6 +350,14 @@ impl PracticeSession {
             first_beat,
             self.wait_for_onset,
         );
+        {
+            let mut s = self.state.lock().map_err(lock_err)?;
+            s.buffer = Some(crate::practice::buffer::MeasureBuffer::new(
+                self.measures.clone(),
+                start,
+                end,
+            ));
+        }
         self.feedback.lock().map_err(lock_err)?.clear();
 
         // Stop any already-running polling thread before starting fresh.
@@ -858,6 +871,12 @@ fn run_session(
             let expected = build_expected_notes(&measures[finished_idx]);
 
             let done = finished_idx >= s.practice_end;
+
+            // Phase 1 wiring: drive the buffer's measure cycle. The existing
+            // current_measure_idx counter is kept in sync below.
+            if let Some(buf) = s.buffer.as_mut() {
+                let _aged = buf.advance(beat);
+            }
 
             // Advance to the next measure.
             if !done {
