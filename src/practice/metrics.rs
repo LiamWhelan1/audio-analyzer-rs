@@ -35,6 +35,7 @@ pub struct DynamicsEvent {
 }
 
 /// A single note from the MIDI reference file.
+#[derive(Clone, Debug)]
 pub struct ExpectedNote {
     /// Beat position of the note onset.
     pub beat_position: f64,
