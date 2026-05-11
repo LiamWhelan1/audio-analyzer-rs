@@ -45,7 +45,7 @@ pub struct InputConditioner {
     _transport: Arc<MusicalTransport>,
     pitches: HashMap<u8, PitchState>,
     recent_onsets: VecDeque<OnsetEvent>,
-    transient_log: VecDeque<(u64, f64, u8)>,    // (seq, beat, midi)
+    transient_log: VecDeque<(u64, f64, u8)>, // (seq, beat, midi)
     frame_seq: u64,
     next_event_seq: u64,
     last_tuner_beat: Option<f64>,
@@ -75,7 +75,9 @@ impl InputConditioner {
         }
 
         // Run the per-pitch machine only on new tuner frames.
-        let Some(frame) = tuner_frame else { return Vec::new() };
+        let Some(frame) = tuner_frame else {
+            return Vec::new();
+        };
         if Some(frame.tuner_beat) == self.last_tuner_beat {
             return Vec::new();
         }
@@ -84,34 +86,50 @@ impl InputConditioner {
 
         // Drop stale onsets relative to the current frame.
         let cutoff = frame.tuner_beat - RECENT_ONSET_RETENTION_BEATS;
-        while self.recent_onsets.front().map_or(false, |o| o.beat_position < cutoff) {
+        while self
+            .recent_onsets
+            .front()
+            .map_or(false, |o| o.beat_position < cutoff)
+        {
             self.recent_onsets.pop_front();
         }
         // Drop stale transient_log entries. We retain CLUSTER_FRAME_WINDOW + STABLE_FRAMES
         // worth of history so that a StartPending which only confirms after STABLE_FRAMES
         // can still see transients that occurred within CLUSTER_FRAME_WINDOW of its first
         // frame.
-        let seq_cutoff = self.frame_seq.saturating_sub(CLUSTER_FRAME_WINDOW + STABLE_FRAMES as u64);
-        while self.transient_log.front().map_or(false, |&(s, _, _)| s < seq_cutoff) {
+        let seq_cutoff = self
+            .frame_seq
+            .saturating_sub(CLUSTER_FRAME_WINDOW + STABLE_FRAMES as u64);
+        while self
+            .transient_log
+            .front()
+            .map_or(false, |&(s, _, _)| s < seq_cutoff)
+        {
             self.transient_log.pop_front();
         }
 
         // Vibrato glide folding: for each EndPending pitch P_old, if any other
         // pitch P_new is in StartPending (or about to enter it) this frame,
         // fold P_new's cents into P_old (translated to P_old's frame).
-        let end_pending_midis: Vec<u8> = self.pitches.iter()
+        let end_pending_midis: Vec<u8> = self
+            .pitches
+            .iter()
             .filter_map(|(m, s)| matches!(s, PitchState::EndPending { .. }).then_some(*m))
             .collect();
         for old_m in &end_pending_midis {
             for &(new_m, new_cents) in &frame.notes {
-                if new_m == *old_m { continue; }
+                if new_m == *old_m {
+                    continue;
+                }
                 // Only fold if new_m is currently StartPending (or not yet present
                 // in the map — meaning this frame will create a fresh StartPending).
                 let new_is_start_pending = matches!(
                     self.pitches.get(&new_m),
                     Some(PitchState::StartPending { .. })
                 ) || !self.pitches.contains_key(&new_m);
-                if !new_is_start_pending { continue; }
+                if !new_is_start_pending {
+                    continue;
+                }
                 let folded = (new_m as f64 - *old_m as f64) * 100.0 + new_cents;
                 if let Some(PitchState::EndPending { carry, .. }) = self.pitches.get_mut(old_m) {
                     carry.cents_sum += folded;
@@ -147,14 +165,22 @@ impl InputConditioner {
                         // Pivot-end: any pitch currently in EndPending finalizes
                         // at this confirmation's first_frame_beat (the glide pivot).
                         let pivot_beat = first_frame_beat;
-                        let to_end: Vec<u8> = self.pitches.iter()
-                            .filter_map(|(om, s)| matches!(s, PitchState::EndPending { .. }).then_some(*om))
+                        let to_end: Vec<u8> = self
+                            .pitches
+                            .iter()
+                            .filter_map(|(om, s)| {
+                                matches!(s, PitchState::EndPending { .. }).then_some(*om)
+                            })
                             .collect();
                         for old_m in to_end {
-                            if let Some(PitchState::EndPending { carry, .. }) = self.pitches.remove(&old_m) {
+                            if let Some(PitchState::EndPending { carry, .. }) =
+                                self.pitches.remove(&old_m)
+                            {
                                 let avg = if carry.frame_count > 0 {
                                     carry.cents_sum / carry.frame_count as f64
-                                } else { 0.0 };
+                                } else {
+                                    0.0
+                                };
                                 events.push(ConditionerEvent::Ended(TrackedNoteEnd {
                                     seq: carry.seq,
                                     midi_note: old_m,
@@ -208,16 +234,23 @@ impl InputConditioner {
         }
 
         // 2. Pitches in the map but missing from the frame.
-        let missing: Vec<u8> = self.pitches.keys()
+        let missing: Vec<u8> = self
+            .pitches
+            .keys()
             .copied()
             .filter(|m| !present.contains(m))
             .collect();
         for m in missing {
             let entry = self.pitches.remove(&m).unwrap();
             let new_state_opt = match entry {
-                PitchState::StartPending { first_frame_beat, first_frame_seq, .. } => {
+                PitchState::StartPending {
+                    first_frame_beat,
+                    first_frame_seq,
+                    ..
+                } => {
                     // Transient: log it for cluster detection.
-                    self.transient_log.push_back((first_frame_seq, first_frame_beat, m));
+                    self.transient_log
+                        .push_back((first_frame_seq, first_frame_beat, m));
                     None
                 }
                 PitchState::Active(carry) => Some(PitchState::EndPending {
@@ -225,12 +258,18 @@ impl InputConditioner {
                     first_absence_beat: frame.tuner_beat,
                     carry,
                 }),
-                PitchState::EndPending { absent_frames, first_absence_beat, carry } => {
+                PitchState::EndPending {
+                    absent_frames,
+                    first_absence_beat,
+                    carry,
+                } => {
                     let new_count = absent_frames + 1;
                     if new_count >= END_FRAMES {
                         let avg_cents = if carry.frame_count > 0 {
                             carry.cents_sum / carry.frame_count as f64
-                        } else { 0.0 };
+                        } else {
+                            0.0
+                        };
                         events.push(ConditionerEvent::Ended(TrackedNoteEnd {
                             seq: carry.seq,
                             midi_note: m,
@@ -263,9 +302,11 @@ impl InputConditioner {
         first_frame_seq: u64,
     ) -> (f64, StartSource) {
         // 1. Onset claim.
-        if let Some(idx) = self.recent_onsets.iter().position(|o| {
-            (o.beat_position - first_frame_beat).abs() < ONSET_CLAIM_WINDOW
-        }) {
+        if let Some(idx) = self
+            .recent_onsets
+            .iter()
+            .position(|o| (o.beat_position - first_frame_beat).abs() < ONSET_CLAIM_WINDOW)
+        {
             let claimed = self.recent_onsets.remove(idx).unwrap();
             return (claimed.beat_position, StartSource::Onset);
         }
@@ -273,7 +314,9 @@ impl InputConditioner {
 
         // 2. Transient cluster.
         let cutoff_seq = first_frame_seq.saturating_sub(CLUSTER_FRAME_WINDOW);
-        let cluster: Vec<_> = self.transient_log.iter()
+        let cluster: Vec<_> = self
+            .transient_log
+            .iter()
             .filter(|(s, _, _)| *s >= cutoff_seq)
             .copied()
             .collect();
@@ -306,7 +349,10 @@ mod tests {
     #[test]
     fn ingest_dedups_repeat_tuner_frames() {
         let mut c = InputConditioner::new(mk_transport());
-        let f = TunerFrame { notes: vec![], tuner_beat: 1.0 };
+        let f = TunerFrame {
+            notes: vec![],
+            tuner_beat: 1.0,
+        };
         let _ = c.ingest(Some(&f), &[]);
         // Same beat → no further work.
         let events = c.ingest(Some(&f), &[]);
@@ -314,7 +360,10 @@ mod tests {
     }
 
     fn frame(midis_cents: Vec<(u8, f64)>, beat: f64) -> TunerFrame {
-        TunerFrame { notes: midis_cents, tuner_beat: beat }
+        TunerFrame {
+            notes: midis_cents,
+            tuner_beat: beat,
+        }
     }
 
     #[test]
@@ -332,7 +381,7 @@ mod tests {
         match &evs[0] {
             ConditionerEvent::Started(s) => {
                 assert_eq!(s.midi_note, 60);
-                assert!((s.start_beat - 0.0).abs() < 1e-9);     // first_frame_beat
+                assert!((s.start_beat - 0.0).abs() < 1e-9); // first_frame_beat
                 assert_eq!(s.start_source, StartSource::StableFiveFrame);
             }
             _ => panic!("expected Started"),
@@ -343,7 +392,12 @@ mod tests {
     fn onset_within_window_tags_start_source_onset_and_uses_onset_beat() {
         let mut c = InputConditioner::new(mk_transport());
         // Onset arrives just before the pitch stabilizes.
-        let onset = OnsetEvent { beat_position: 0.01, raw_sample_offset: 0, velocity: 0.7 };
+        let onset = OnsetEvent {
+            beat_position: 0.01,
+            raw_sample_offset: 0,
+            output_samples: 0,
+            velocity: 0.7,
+        };
         let _ = c.ingest(None, &[onset]);
 
         let mut started: Option<TrackedNoteStart> = None;
@@ -401,17 +455,18 @@ mod tests {
             let _ = c.ingest(Some(&f), &[]);
         }
         // 5th frame of C#4 → confirms; C4 must be Ended at this pivot.
-        let evs = c.ingest(
-            Some(&frame(vec![(61, -10.0)], 9.0 * 0.02)),
-            &[],
-        );
+        let evs = c.ingest(Some(&frame(vec![(61, -10.0)], 9.0 * 0.02)), &[]);
         let mut got_end_c4 = false;
         let mut got_start_csharp = false;
         for e in evs {
             match e {
                 ConditionerEvent::Ended(t) if t.midi_note == 60 => {
                     // avg_cents should be > 30 because we folded the climbing C#4 cents into it.
-                    assert!(t.avg_cents > 30.0, "expected folded glide to raise avg, got {}", t.avg_cents);
+                    assert!(
+                        t.avg_cents > 30.0,
+                        "expected folded glide to raise avg, got {}",
+                        t.avg_cents
+                    );
                     got_end_c4 = true;
                 }
                 ConditionerEvent::Started(t) if t.midi_note == 61 => {

@@ -342,7 +342,7 @@ impl AudioPipeline {
                 sample_rate,
                 slot_len_reducer,
                 -14.0, // target dBFS (measured against p95 of active-frame RMS)
-                36.0,  // max boost dB
+                100.0, // max boost dB
                 30.0,  // gain smoothing TC (seconds) — long TC keeps gain
                 // session-stable rather than phrase-by-phrase
                 dynamics_output_reducer,
@@ -1080,7 +1080,7 @@ impl AudioPipeline {
                 self.meta.out_sr as f32,
                 delay_samples,
                 calibration_target,
-                0.4,
+                0.8,
             );
             self.output_controller().add_source(Box::new(click));
         }

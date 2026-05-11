@@ -12,7 +12,7 @@ use rtrb::{Consumer, Producer};
 
 use crate::{
     audio_io::SlotPool,
-    audio_io::dynamics::{DynamicLevel, DynamicsOutput},
+    audio_io::dynamics::DynamicsOutput,
     audio_io::timing::{MusicalTransport, OnsetEvent},
     dsp::fft::FftProcessor,
 };
@@ -56,7 +56,7 @@ impl FluxTracker {
     /// Create a new tracker with multiplier and memory settings.
     fn new(multiplier: f32, rise_memory: f32, decay_memory: f32) -> Self {
         Self {
-            threshold: 0.0,
+            threshold: 1.0,
             multiplier,
             rise_memory,
             decay_memory,
@@ -75,8 +75,8 @@ impl FluxTracker {
 
         self.threshold = self.threshold * memory + current_flux * (1.0 - memory);
 
-        if self.threshold < 0.5 {
-            self.threshold = 0.5;
+        if self.threshold < 1.0 {
+            self.threshold = 1.0;
         }
 
         is_onset && current_flux > (self.threshold * self.multiplier)
@@ -152,9 +152,6 @@ impl OnsetDetector {
             // preserves the time constants of the prior 512/128 setup.
             let mut tracker = FluxTracker::new(1.5, 0.84, 0.89);
 
-            let min_inter_onset_samples = 1024;
-            let mut samples_since_onset = min_inter_onset_samples;
-
             // ── Energy EMA for harmonic-variation gate ────────────────────
             // Tracks the recent background energy level.  A genuine onset
             // must show a rapid energy increase relative to this baseline;
@@ -164,28 +161,32 @@ impl OnsetDetector {
             const ENERGY_EMA_RISE: f32 = 0.84;
             const ENERGY_EMA_DECAY: f32 = 0.95;
 
-            // ── Per-bin delayed-prior noise floor ─────────────────────────
-            // Mirrors the STFT pipeline's per-bin floor, except on non-silent
-            // frames the floor is allowed to rise (slowly) but never fall.
-            // It therefore lags the active spectrum, acting as a delayed
-            // prior frame: any bin whose magnitude jumps far above its floor
-            // is evidence of a fresh onset, even mid-phrase.
+            // ── Per-bin "rise-once, suppress" noise floor ─────────────────
+            // Any bin whose magnitude exceeds its floor by BIN_BURST_RATIO
+            // is counted as an onset contribution AND has its floor jumped
+            // to mag × FLOOR_OVERCOMPENSATE — lifting the floor above the
+            // burst so the sustained tail of the same onset can't re-fire.
+            // Other bins keep their floors and track via an asymmetric IIR,
+            // so a fresh onset on different partials (e.g. a real note
+            // right after a metronome click) can still trigger immediately.
+            // Same-bin retrigger is therefore *level-gated*: a louder hit
+            // breaks through, an equally-loud one waits for FLOOR_DECAY to
+            // bring the floor back down.
             let mut noise_floor_per_bin: Vec<f32> = vec![0.0; half_size];
             let mut floor_initialized = false;
-            let mut floor_silent_count: u32 = 0;
-            const FLOOR_ATTACK: f32 = 0.2; // silent: mag > floor → rise slow
-            const FLOOR_RELEASE: f32 = 0.3; // silent: mag < floor → fall fast
-            const FLOOR_RISE_ACTIVE: f32 = 0.2; // active: rise only, faster
+            const BIN_BURST_RATIO: f32 = 2.5;
+            const FLOOR_OVERCOMPENSATE: f32 = 1.3;
+            const FLOOR_RISE: f32 = 0.1;
+            const FLOOR_DECAY: f32 = 0.04;
 
-            // ── Goal 1: static parameters for output-event gate ───────────
-            // Suppress onsets whose input-frame position falls inside the
-            // acoustic-echo window of the most recently rendered device tick.
-            let sr = transport.get_sample_rate() as i64;
-            // 100 ms of acoustic travel margin (generous for typical room sizes).
-            let acoustic_margin_samples = sr / 10;
-            // Metronome clicks should be blocked within this range ~150ms.
-            let click_duration_samples = sr / 100;
-            let bin_width = sr as f32 / window_size as f32;
+            // ── Tick-based suppression window ─────────────────────────────
+            // Any detected onset whose calibrated beat lands within
+            // ±TICK_GUARD_S of a metronome tick (recorded in transport)
+            // is rejected.
+            const TICK_GUARD_S: f64 = 0.015;
+
+            #[cfg(feature = "dev-tools")]
+            let bin_width = transport.get_sample_rate() / window_size as f32;
 
             #[cfg(feature = "dev-tools")]
             let mut rerun_frame: usize = 0;
@@ -193,6 +194,10 @@ impl OnsetDetector {
             let rec = rerun::RecordingStreamBuilder::new("audio_analyzer")
                 .spawn()
                 .expect("failed to spawn Rerun viewer");
+
+            // Block emission on the immediately following frame after an onset.
+            // Initialized to 4 so the first frame is always "allowed".
+            let mut frames_since_onset: usize = 4;
 
             while state.load(Ordering::Relaxed) != -1 || !cons.is_empty() {
                 if state.load(Ordering::Relaxed) == 0 || state.load(Ordering::Relaxed) == -1 {
@@ -236,28 +241,16 @@ impl OnsetDetector {
                     continue;
                 }
 
-                // ── Goal 1: output-event suppression window ───────────────
-                // Compute once per batch; transport values only change at
-                // buffer boundaries so this is accurate enough.
-                let out_lat = transport.get_output_latency_samples();
-                let in_lat = transport.get_input_latency_samples();
-                let last_tick = transport.get_last_tick_output_frame();
-                let current_input = transport.get_input_frames();
-                // Earliest frame at which the click echo can arrive at the mic:
-                // last_tick + output hardware buffer + input hardware buffer.
-                // The echo can arrive any time in [echo_start, echo_start +
-                // acoustic_margin_samples], then decays over click_duration_samples.
-                let echo_start = last_tick + out_lat + in_lat;
-                let echo_end = echo_start + acoustic_margin_samples + click_duration_samples;
-                let suppressed_by_output = current_input >= echo_start && current_input < echo_end;
-
                 while available_samples >= window_size {
                     #[cfg(feature = "dev-tools")]
                     {
                         rerun_frame += 1;
                     }
+                    let mut onset_fired = false;
                     #[cfg(feature = "dev-tools")]
-                    let mut dev_contributing_bins = Vec::new();
+                    let mut dev_flux_bins: Vec<(f32, f32)> = Vec::new();
+                    #[cfg(feature = "dev-tools")]
+                    let mut dev_burst_bins: Vec<(f32, f32)> = Vec::new();
                     for i in 0..window_size {
                         let idx = (ring_read_pos + i) % ring_buffer_len;
                         time_domain_window[i] = ring_buffer[idx] * hann[i];
@@ -291,66 +284,48 @@ impl OnsetDetector {
                         if diff > 0.0 {
                             current_flux += diff * weight;
                             #[cfg(feature = "dev-tools")]
-                            dev_contributing_bins.push((i as f32 * bin_width, smoothed_mag));
+                            dev_flux_bins.push((i as f32 * bin_width, smoothed_mag));
                         }
 
                         prev_magnitude[i] = mag;
                     }
 
-                    // ── Update per-bin delayed-prior floor ────────────────
-                    let (noise_floor_db, dyn_level) = {
-                        let d = dynamics_output.read();
-                        (d.noise_floor_db, d.level)
-                    };
+                    // ── Combined per-bin burst + floor update ─────────────
+                    // Compute burst against the pre-update floor, then for
+                    // each bin: bursting bins jump above their current
+                    // magnitude (killing the sustained tail of this onset);
+                    // non-bursting bins use a slow asymmetric IIR. Other
+                    // bins retain their floors so a fresh onset on
+                    // different partials still bursts this same frame.
+                    let noise_floor_db = dynamics_output.read().noise_floor_db;
                     let global_floor = 10.0f32.powf(noise_floor_db / 20.0) * half_size as f32 / 2.0;
-                    let is_silent = dyn_level == DynamicLevel::Silence;
+                    let floor_eps = global_floor.max(0.01);
 
                     if !floor_initialized {
                         for k in 0..half_size {
                             noise_floor_per_bin[k] = current_mags[k].max(global_floor);
                         }
                         floor_initialized = true;
-                    } else if is_silent {
-                        floor_silent_count += 1;
-                        if floor_silent_count > 60 {
-                            for k in 0..half_size {
-                                let mag = current_mags[k];
-                                let alpha = if mag > noise_floor_per_bin[k] {
-                                    FLOOR_ATTACK
-                                } else {
-                                    FLOOR_RELEASE
-                                };
-                                noise_floor_per_bin[k] +=
-                                    alpha * (mag - noise_floor_per_bin[k] + 0.07);
-                            }
-                        }
-                    } else {
-                        floor_silent_count = 0;
-                        // Active: rise only, never fall — delayed prior.
-                        for k in 0..half_size {
-                            let mag = current_mags[k];
-                            if mag > noise_floor_per_bin[k] {
-                                noise_floor_per_bin[k] +=
-                                    FLOOR_RISE_ACTIVE * (mag - noise_floor_per_bin[k]);
-                            }
-                        }
                     }
 
-                    // Per-bin burst metric vs the delayed prior.  When silent
-                    // the floor has converged on the spectrum so all ratios
-                    // collapse to ~1.0; during sustained playing the floor
-                    // catches up only slowly, so a sudden bin spike pops out.
                     let mut max_bin_excess = 0.0f32;
                     let mut bin_burst_count: u32 = 0;
-                    let floor_eps = global_floor.max(0.01);
                     for k in 0..half_size {
+                        let mag = current_mags[k];
                         let floor_k = noise_floor_per_bin[k].max(floor_eps);
-                        let r = current_mags[k] / floor_k;
-                        if r > 1.5 {
+                        let r = mag / floor_k;
+
+                        if r > BIN_BURST_RATIO {
                             bin_burst_count += 1;
                             #[cfg(feature = "dev-tools")]
-                            dev_contributing_bins.push((k as f32 * bin_width, current_mags[k]));
+                            dev_burst_bins.push((k as f32 * bin_width, mag));
+                            noise_floor_per_bin[k] = mag * FLOOR_OVERCOMPENSATE;
+                        } else if mag > noise_floor_per_bin[k] {
+                            noise_floor_per_bin[k] += FLOOR_RISE * (mag - noise_floor_per_bin[k]);
+                        } else {
+                            noise_floor_per_bin[k] += FLOOR_DECAY * (mag - noise_floor_per_bin[k]);
                         }
+
                         if r > max_bin_excess {
                             max_bin_excess = r;
                         }
@@ -379,7 +354,7 @@ impl OnsetDetector {
                     //  - bin-burst for fast attacks even mid-phrase
                     let flux_onset = tracker.update(current_flux);
                     let bin_burst_onset = max_bin_excess > 3.0 && bin_burst_count >= 4;
-                    let onset_detected = flux_onset || bin_burst_onset;
+                    let onset_detected = flux_onset && bin_burst_onset;
 
                     // Calibration timeout — fall back to offset 0 if no onset
                     // arrived in time.
@@ -395,35 +370,51 @@ impl OnsetDetector {
                         }
                     }
 
-                    if samples_since_onset >= min_inter_onset_samples && onset_detected {
-                        // Require a rapid energy increase (1.5× the baseline)
-                        // — harmonic shifts in sustained notes keep the ratio
-                        // near 1.0 and are therefore suppressed.
-                        let energy_rising = frame_energy > energy_ema * 1.5;
+                    let energy_rising = frame_energy > energy_ema * 1.5;
 
-                        if !suppressed_by_output && energy_rising {
-                            // The onset centre is window_size/2 samples behind the
-                            // current ring-buffer write position.  Negate so
-                            // stamp_onset shifts the beat position backwards in time.
-                            let window_centre_offset =
-                                -(available_samples as i64 - window_size as i64 / 2);
-                            let velocity =
-                                (current_flux.max(max_bin_excess * 5.0) / 50.0).clamp(0.0, 1.0);
-                            let event = transport.stamp_onset(window_centre_offset, velocity);
+                    // Dev-tools-only decision telemetry. The control flow
+                    // itself doesn't read these post-event; they exist to
+                    // feed the rerun status label below.
+                    #[cfg(feature = "dev-tools")]
+                    let mut tick_dist_beats = f64::INFINITY;
+                    #[cfg(feature = "dev-tools")]
+                    let mut suppressed_by_tick_dev = false;
 
+                    if onset_detected {
+                        // Stamp first — the calibrated beat is what we
+                        // compare against the metronome's tick history.
+                        let window_centre_offset =
+                            -(available_samples as i64 - window_size as i64 / 2);
+                        let velocity =
+                            (current_flux.max(max_bin_excess * 5.0) / 50.0).clamp(0.0, 1.0);
+                        let event = transport.stamp_onset(window_centre_offset, velocity);
+
+                        let bpm = transport.get_bpm() as f64;
+                        let tick_guard_beats = TICK_GUARD_S * bpm / 60.0;
+                        let tick_dist = transport.nearest_tick_distance_beats(event.beat_position);
+                        let suppressed_by_tick = tick_dist < tick_guard_beats;
+
+                        #[cfg(feature = "dev-tools")]
+                        {
+                            tick_dist_beats = tick_dist;
+                            suppressed_by_tick_dev = suppressed_by_tick;
+                        }
+
+                        if !suppressed_by_tick && energy_rising && frames_since_onset >= 3 {
                             if !calibration_done {
                                 let target = calibration_target.load(Ordering::Relaxed);
                                 if target == 0 {
                                     // Click hasn't fired yet — pre-cal noise, ignore.
                                     log::trace!("pre-calibration onset ignored (target not set)");
                                 } else {
-                                    let bpm = transport.get_bpm() as f64;
                                     let sr_f64 = transport.get_sample_rate() as f64;
-                                    let beats_per_sample = bpm / (60.0 * sr_f64);
-                                    let target_beats = target as f64 * beats_per_sample;
-                                    let residual_beats = event.beat_position - target_beats;
-                                    let calibration_samples =
-                                        (residual_beats / beats_per_sample).round() as i64;
+                                    let calibration_samples = event.output_samples - target;
+                                    log::info!(
+                                        "beat_pos: {}, target_samples: {}, event_samples: {}",
+                                        event.beat_position,
+                                        target,
+                                        event.output_samples
+                                    );
                                     let residual_ms = calibration_samples as f64 * 1000.0 / sr_f64;
                                     log::info!(
                                         "onset calibration: residual={:.1}ms ({} samples) at target frame {}",
@@ -434,7 +425,7 @@ impl OnsetDetector {
                                     transport.set_calibration_offset(calibration_samples);
                                     calibration_done = true;
                                     onset_pending.store(false, Ordering::Relaxed);
-                                    samples_since_onset = 0;
+                                    onset_fired = true;
                                 }
                             } else {
                                 log::trace!(
@@ -448,23 +439,93 @@ impl OnsetDetector {
 
                                 let _ = onset_tx.push(event);
                                 onset_pending.store(true, Ordering::Relaxed);
-                                samples_since_onset = 0;
+                                onset_fired = true;
                             }
                         }
-                    } else {
-                        samples_since_onset += hop_size;
                     }
 
                     #[cfg(feature = "dev-tools")]
-                    Self::dbg_log_rerun(
-                        &rec,
-                        rerun_frame,
-                        &current_mags,
-                        bin_width,
-                        &noise_floor_per_bin,
-                        &dev_contributing_bins,
-                        onset_detected,
-                    );
+                    {
+                        let bpm_f = transport.get_bpm() as f64;
+                        let tick_dist_ms = if tick_dist_beats.is_finite() {
+                            tick_dist_beats * 60_000.0 / bpm_f
+                        } else {
+                            f64::INFINITY
+                        };
+                        let energy_ratio = if energy_ema > 1e-6 {
+                            frame_energy / energy_ema
+                        } else {
+                            f32::INFINITY
+                        };
+                        let (status_label, status_color) = if onset_fired {
+                            let method = match (flux_onset, bin_burst_onset) {
+                                (true, true) => "flux+burst",
+                                (true, false) => "flux",
+                                (false, true) => "burst",
+                                _ => "?",
+                            };
+                            (
+                                format!(
+                                    "DETECTED ({}) flux={:.1} burst={}",
+                                    method, current_flux, bin_burst_count
+                                ),
+                                (0u8, 220u8, 0u8),
+                            )
+                        } else if onset_detected && suppressed_by_tick_dev {
+                            (
+                                format!("blocked: tick (Δ={:.1} ms)", tick_dist_ms),
+                                (220, 80, 80),
+                            )
+                        } else if onset_detected && !energy_rising {
+                            (
+                                format!("blocked: energy ({:.2}×)", energy_ratio),
+                                (220, 80, 80),
+                            )
+                        } else if onset_detected
+                            && !suppressed_by_tick_dev
+                            && energy_rising
+                            && frames_since_onset < 3
+                        {
+                            (
+                                format!("blocked: frame gate (gap={})", frames_since_onset),
+                                (220, 120, 80),
+                            )
+                        } else if current_flux > 0.0 || bin_burst_count > 0 {
+                            // Had candidate evidence but no gate fired
+                            // — most commonly the flux tracker's adaptive
+                            // threshold rejected it.
+                            (
+                                format!(
+                                    "candidate: flux={:.1} (tracker rejected), burst={}/{}",
+                                    current_flux,
+                                    bin_burst_count,
+                                    if bin_burst_count >= 4 { "≥4" } else { "<4" }
+                                ),
+                                (220, 180, 60),
+                            )
+                        } else {
+                            ("idle".to_string(), (110, 110, 110))
+                        };
+
+                        Self::dbg_log_rerun(
+                            &rec,
+                            rerun_frame,
+                            &current_mags,
+                            bin_width,
+                            &noise_floor_per_bin,
+                            &dev_flux_bins,
+                            &dev_burst_bins,
+                            &status_label,
+                            status_color,
+                            onset_fired,
+                        );
+                    }
+
+                    if onset_fired || onset_detected && frames_since_onset < 3 {
+                        frames_since_onset = 0;
+                    } else {
+                        frames_since_onset = frames_since_onset.saturating_add(1);
+                    }
 
                     ring_read_pos = (ring_read_pos + hop_size) % ring_buffer_len;
                     available_samples -= hop_size;
@@ -487,14 +548,26 @@ impl OnsetDetector {
 #[cfg(feature = "dev-tools")]
 impl OnsetDetector {
     /// Log onset detection data to the Rerun live viewer.
+    ///
+    /// Layered annotations explain the pipeline:
+    /// - `spectrum/flux_bins`   yellow dots — bins contributing positive
+    ///   spectral flux (would have raised `current_flux`).
+    /// - `spectrum/burst_bins`  red dots    — bins that exceeded their
+    ///   per-bin floor by `BIN_BURST_RATIO` and got jumped.
+    /// - `spectrum/status`      colored dot + label summarizing the
+    ///   decision: which detector(s) fired and whether/why the event was
+    ///   gated (tick proximity, energy non-rising, tracker rejection).
     fn dbg_log_rerun(
         rec: &rerun::RecordingStream,
         frame: usize,
         mags: &[f32],
         bin_width: f32,
         noise_floor: &[f32],
-        contributing_bins: &[(f32, f32)],
-        onset_detected: bool,
+        flux_bins: &[(f32, f32)],
+        burst_bins: &[(f32, f32)],
+        status_label: &str,
+        status_color: (u8, u8, u8),
+        event_emitted: bool,
     ) {
         let min_freq = 20.0f32;
         let max_freq = 20_000.0f32;
@@ -523,34 +596,45 @@ impl OnsetDetector {
                 .with_colors([rerun::Color::from_rgb(161, 75, 75)]),
         );
 
-        // 3. Contributing Onset Bins (Red dots on the magnitudes)
-        if !contributing_bins.is_empty() {
-            let positions: Vec<[f32; 2]> = contributing_bins
-                .iter()
-                .map(|&(f, m)| [f / 1000.0, m])
-                .collect();
+        // 3a. Flux-contributing bins (yellow, smaller — many per frame)
+        if !flux_bins.is_empty() {
+            let positions: Vec<[f32; 2]> =
+                flux_bins.iter().map(|&(f, m)| [f / 1000.0, m]).collect();
             let _ = rec.log(
-                "spectrum/onset_bins",
+                "spectrum/flux_bins",
                 &rerun::Points2D::new(positions)
-                    .with_colors([rerun::Color::from_rgb(255, 80, 80)])
-                    .with_radii([rerun::Radius::new_scene_units(0.02)]),
+                    .with_colors([rerun::Color::from_rgb(220, 200, 60)])
+                    .with_radii([rerun::Radius::new_scene_units(0.012)]),
             );
         } else {
-            let _ = rec.log("spectrum/onset_bins", &rerun::Points2D::clear_fields());
+            let _ = rec.log("spectrum/flux_bins", &rerun::Points2D::clear_fields());
         }
 
-        // 4. Onset Flag (Corner indicator)
-        let flag_pos = [min_freq / 1000.0, 0.0];
-        if onset_detected {
+        // 3b. Burst-causing bins (red, larger — the bins that actually
+        // crossed the per-bin BIN_BURST_RATIO and got their floor jumped)
+        if !burst_bins.is_empty() {
+            let positions: Vec<[f32; 2]> =
+                burst_bins.iter().map(|&(f, m)| [f / 1000.0, m]).collect();
             let _ = rec.log(
-                "spectrum/onset_flag",
-                &rerun::Points2D::new([flag_pos])
-                    .with_labels(["ONSET DETECTED"])
-                    .with_colors([rerun::Color::from_rgb(0, 255, 0)])
-                    .with_radii([rerun::Radius::new_scene_units(0.1)]),
+                "spectrum/burst_bins",
+                &rerun::Points2D::new(positions)
+                    .with_colors([rerun::Color::from_rgb(255, 80, 80)])
+                    .with_radii([rerun::Radius::new_scene_units(0.025)]),
             );
         } else {
-            let _ = rec.log("spectrum/onset_flag", &rerun::Points2D::clear_fields());
+            let _ = rec.log("spectrum/burst_bins", &rerun::Points2D::clear_fields());
         }
+
+        // 4. Status indicator + label.
+        let status_pos = [min_freq / 1000.0, 0.0];
+        let (r, g, b) = status_color;
+        let radius = if event_emitted { 0.12 } else { 0.07 };
+        let _ = rec.log(
+            "spectrum/status",
+            &rerun::Points2D::new([status_pos])
+                .with_labels([status_label])
+                .with_colors([rerun::Color::from_rgb(r, g, b)])
+                .with_radii([rerun::Radius::new_scene_units(radius)]),
+        );
     }
 }

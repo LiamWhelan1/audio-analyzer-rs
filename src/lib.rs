@@ -715,11 +715,11 @@ impl AudioEngine {
             "beginner" => practice_mod::AbilityLevel::Beginner,
             "intermediate" => practice_mod::AbilityLevel::Intermediate,
             "advanced" => practice_mod::AbilityLevel::Advanced,
-            "expert" => practice_mod::AbilityLevel::Expert,
+            "pro" => practice_mod::AbilityLevel::Pro,
             other => {
                 return Err(AudioEngineError::Internal {
                     msg: format!(
-                        "Unknown ability level '{other}'. Expected one of: Beginner, Intermediate, Advanced, Expert"
+                        "Unknown ability level '{other}'. Expected one of: Beginner, Intermediate, Advanced, Pro"
                     ),
                 });
             }

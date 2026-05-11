@@ -46,7 +46,7 @@ pub enum AbilityLevel {
     Beginner,
     Intermediate,
     Advanced,
-    Expert,
+    Pro,
 }
 
 impl AbilityLevel {
@@ -58,7 +58,7 @@ impl AbilityLevel {
             AbilityLevel::Beginner => 2.0,
             AbilityLevel::Intermediate => 1.5,
             AbilityLevel::Advanced => 1.0,
-            AbilityLevel::Expert => 0.7,
+            AbilityLevel::Pro => 0.7,
         }
     }
 }
@@ -1238,6 +1238,7 @@ mod tests {
         OnsetEvent {
             beat_position: beat,
             raw_sample_offset: 0,
+            output_samples: 0,
             velocity: 0.8,
         }
     }
@@ -1329,7 +1330,7 @@ mod tests {
         assert!(
             AbilityLevel::Intermediate.tolerance_scale() > AbilityLevel::Advanced.tolerance_scale()
         );
-        assert!(AbilityLevel::Advanced.tolerance_scale() > AbilityLevel::Expert.tolerance_scale());
+        assert!(AbilityLevel::Advanced.tolerance_scale() > AbilityLevel::Pro.tolerance_scale());
     }
 
     // ── generate_measure_feedback ─────────────────────────────────────────────

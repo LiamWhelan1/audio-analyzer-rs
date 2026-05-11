@@ -35,23 +35,6 @@ pub enum TunerCommand {
     End,
 }
 
-// ─── Output payload: what the React frontend reads ──────────────────
-//
-// This is the data that leaves the audio thread. We wrap it in an
-// `Arc<parking_lot::RwLock<_>>` so the frontend can read it at its own
-// pace (requestAnimationFrame / setInterval) without blocking audio.
-//
-// Why RwLock instead of Mutex?
-//   • The audio thread is the *only* writer and writes infrequently
-//     (once per analysis hop — ~23 ms at 2048/44100).
-//   • Multiple JS polling intervals or React render cycles may read
-//     concurrently.  RwLock lets them all proceed without contention.
-//
-// Why parking_lot?
-//   • No poisoning (audio thread panics don't wedge the UI).
-//   • try_write / try_read are wait-free when uncontested, which keeps
-//     the audio thread deterministic.
-
 #[derive(Clone, Debug, Serialize, Default)]
 pub struct TunerOutput {
     /// The primary display string — e.g. "C#4", "Am7", "P5"

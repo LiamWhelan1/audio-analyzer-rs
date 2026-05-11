@@ -203,7 +203,10 @@ impl Metrics {
     }
 
     fn calc_tempo_err_count(measures: &[MeasureData]) -> u64 {
-        measures.iter().map(|m| m.doubled_note_seqs.len() as u64).sum()
+        measures
+            .iter()
+            .map(|m| m.doubled_note_seqs.len() as u64)
+            .sum()
     }
 
     fn calc_hold_err_count(measures: &[MeasureData]) -> (u64, u64) {
@@ -214,20 +217,28 @@ impl Metrics {
             for (i, dur_opt) in m.note_durations.iter().enumerate() {
                 let Some(actual) = dur_opt else { continue };
                 let Some(note) = m.notes.get(i) else { continue };
-                let exp_dur_opt = m.expected_notes.iter()
-                    .find(|e| (e.beat_position - note.beat_position).abs() < NOTE_MATCH_WINDOW
-                              && e.midi_note == note.midi_note)
+                let exp_dur_opt = m
+                    .expected_notes
+                    .iter()
+                    .find(|e| {
+                        (e.beat_position - note.beat_position).abs() < NOTE_MATCH_WINDOW
+                            && e.midi_note == note.midi_note
+                    })
                     .map(|e| e.duration_beats);
                 let Some(exp_dur) = exp_dur_opt else { continue };
-                if *actual > exp_dur * (1.0 + HOLD_TOLERANCE_PCT) { long += 1; }
-                else if *actual < exp_dur * (1.0 - HOLD_TOLERANCE_PCT) { short += 1; }
+                if *actual > exp_dur * (1.0 + HOLD_TOLERANCE_PCT) {
+                    long += 1;
+                } else if *actual < exp_dur * (1.0 - HOLD_TOLERANCE_PCT) {
+                    short += 1;
+                }
             }
         }
         (long, short)
     }
 
     fn calc_tempo_err_measures(measures: &[MeasureData]) -> Vec<u32> {
-        measures.iter()
+        measures
+            .iter()
             .filter(|m| !m.doubled_note_seqs.is_empty())
             .map(|m| m.measure_index)
             .collect()
@@ -235,18 +246,28 @@ impl Metrics {
 
     fn calc_hold_err_measures(measures: &[MeasureData]) -> Vec<u32> {
         const HOLD_TOLERANCE_PCT: f64 = 0.25;
-        measures.iter().filter(|m| {
-            m.note_durations.iter().enumerate().any(|(i, dur)| {
-                let Some(d) = dur else { return false };
-                let Some(note) = m.notes.get(i) else { return false };
-                let exp_dur = m.expected_notes.iter()
-                    .find(|e| (e.beat_position - note.beat_position).abs() < NOTE_MATCH_WINDOW
-                              && e.midi_note == note.midi_note)
-                    .map(|e| e.duration_beats);
-                let Some(ed) = exp_dur else { return false };
-                *d > ed * (1.0 + HOLD_TOLERANCE_PCT) || *d < ed * (1.0 - HOLD_TOLERANCE_PCT)
+        measures
+            .iter()
+            .filter(|m| {
+                m.note_durations.iter().enumerate().any(|(i, dur)| {
+                    let Some(d) = dur else { return false };
+                    let Some(note) = m.notes.get(i) else {
+                        return false;
+                    };
+                    let exp_dur = m
+                        .expected_notes
+                        .iter()
+                        .find(|e| {
+                            (e.beat_position - note.beat_position).abs() < NOTE_MATCH_WINDOW
+                                && e.midi_note == note.midi_note
+                        })
+                        .map(|e| e.duration_beats);
+                    let Some(ed) = exp_dur else { return false };
+                    *d > ed * (1.0 + HOLD_TOLERANCE_PCT) || *d < ed * (1.0 - HOLD_TOLERANCE_PCT)
+                })
             })
-        }).map(|m| m.measure_index).collect()
+            .map(|m| m.measure_index)
+            .collect()
     }
 
     // ── Note accuracy ─────────────────────────────────────────────────────────
@@ -688,6 +709,7 @@ mod tests {
         OnsetEvent {
             beat_position: beat,
             raw_sample_offset: 0,
+            output_samples: 0,
             velocity: 0.8,
         }
     }
@@ -1079,16 +1101,10 @@ mod tests {
         let m = MeasureData {
             measure_index: 0,
             onsets: vec![],
-            notes: vec![
-                note_event(0.0, 60, 0.0),
-                note_event(2.0, 64, 0.0),
-            ],
+            notes: vec![note_event(0.0, 60, 0.0), note_event(2.0, 64, 0.0)],
             dynamics: vec![],
-            expected_notes: vec![
-                expected(0.0, 60, 1.0),
-                expected(2.0, 64, 1.0),
-            ],
-            note_durations: vec![Some(1.5), Some(0.5)],   // long, short
+            expected_notes: vec![expected(0.0, 60, 1.0), expected(2.0, 64, 1.0)],
+            note_durations: vec![Some(1.5), Some(0.5)], // long, short
             doubled_note_seqs: vec![],
         };
         let (long, short) = Metrics::calc_hold_err_count(&[m]);

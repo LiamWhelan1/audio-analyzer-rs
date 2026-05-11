@@ -12,11 +12,7 @@ use rtrb::Producer;
 use rustfft::num_complex::Complex;
 
 use crate::{
-    audio_io::{
-        SlotPool,
-        dynamics::{DynamicLevel, DynamicsOutput},
-        timing::MusicalTransport,
-    },
+    audio_io::{SlotPool, dynamics::DynamicsOutput, timing::MusicalTransport},
     dsp::fft::FftProcessor,
 };
 
@@ -211,11 +207,21 @@ impl STFT {
             let mut complex_output: Vec<Complex<f32>> = vec![Complex::default(); window_size];
 
             let mut noise_floor_per_bin: Vec<f32> = vec![0.0; half_size];
+            let mut prev_mag_for_vol: Vec<f32> = vec![0.0; half_size];
+            let mut bin_volatility: Vec<f32> = vec![0.0; half_size];
             let mut floor_initialized = false;
             let mut effective_floor: Vec<f32> = vec![0.0; half_size];
-            let mut floor_count = 0;
-            const FLOOR_ATTACK: f32 = 0.125; // mag > floor: rise fast
-            const FLOOR_RELEASE: f32 = 0.05; // mag < floor: fall slow
+            // Variance-aware per-bin floor. Inter-frame jitter per bin
+            // distinguishes "noisy" (fast variations → adapt fast) from
+            // "held note" (low jitter, sustained above floor → freeze, so
+            // the note doesn't pull its own floor up and suppress itself).
+            // Bins between the two extremes track gently.
+            const FLOOR_BASE_ALPHA: f32 = 0.04;
+            const FLOOR_FAST_ALPHA: f32 = 0.35;
+            const FLOOR_RELEASE: f32 = 0.02;
+            const VOL_MEMORY: f32 = 0.75;
+            const NOTE_RATIO: f32 = 1.5;
+            const NOTE_VOL_MAX: f32 = 0.15;
 
             while state.load(Ordering::Relaxed) != -1 || !cons.is_empty() {
                 if state.load(Ordering::Relaxed) == 0 || state.load(Ordering::Relaxed) == -1 {
@@ -313,41 +319,48 @@ impl STFT {
 
                         let bin_width = sr as f32 / window_size as f32;
 
-                        let (noise_floor_db, dyn_level) = {
-                            let d = dynamics_output.read();
-                            (d.noise_floor_db, d.level)
-                        };
+                        let noise_floor_db = dynamics_output.read().noise_floor_db;
                         let global_floor =
                             10.0f32.powf(noise_floor_db / 20.0) * half_size as f32 / 2.0;
 
-                        // Only update the per-bin floor on silent frames. A
-                        // sustained tonal note would otherwise pull its own bin's
-                        // floor up via the slow-rise IIR and eventually suppress
-                        // itself — the same failure mode the dynamics tracker
-                        // avoids by only updating noise_floor_db on
-                        // !is_playing frames.
-                        let is_silent = dyn_level == DynamicLevel::Silence;
                         if !floor_initialized {
                             for k in 0..half_size {
-                                noise_floor_per_bin[k] = magnitudes[k].max(global_floor);
+                                noise_floor_per_bin[k] = magnitudes[k].max(global_floor * 5.0);
+                                prev_mag_for_vol[k] = magnitudes[k];
                             }
                             floor_initialized = true;
-                        } else if is_silent {
-                            floor_count += 1;
-                            if floor_count > 15 {
-                                for k in 0..half_size {
-                                    let mag = magnitudes[k];
-                                    let alpha = if mag > noise_floor_per_bin[k] {
-                                        FLOOR_ATTACK
+                        } else {
+                            // Per-bin discrimination replaces the old
+                            // "silent-frames-only" gate: bins that look like
+                            // held note content freeze individually, while
+                            // every other bin keeps adapting so the floor
+                            // continues to track ambient noise mid-phrase.
+                            for k in 0..half_size {
+                                let mag = magnitudes[k];
+                                let floor = noise_floor_per_bin[k];
+                                let delta = (mag - prev_mag_for_vol[k]).abs();
+                                bin_volatility[k] =
+                                    bin_volatility[k] * VOL_MEMORY + delta * (1.0 - VOL_MEMORY);
+                                prev_mag_for_vol[k] = mag;
+
+                                let above_ratio = mag / floor.max(0.01);
+                                let vol_norm = (bin_volatility[k] / mag.max(0.05)).clamp(0.0, 1.0);
+                                // Sustained note: well above floor *and*
+                                // not jittering. Freeze so the note isn't
+                                // pulled down into its own floor.
+                                let is_sustained_note =
+                                    above_ratio > NOTE_RATIO && vol_norm < NOTE_VOL_MAX;
+
+                                if !is_sustained_note {
+                                    let alpha = if mag > floor {
+                                        FLOOR_BASE_ALPHA
+                                            + (FLOOR_FAST_ALPHA - FLOOR_BASE_ALPHA) * vol_norm
                                     } else {
                                         FLOOR_RELEASE
                                     };
-                                    noise_floor_per_bin[k] +=
-                                        alpha * (mag - noise_floor_per_bin[k] + 0.07);
+                                    noise_floor_per_bin[k] += alpha * (mag - floor);
                                 }
                             }
-                        } else {
-                            floor_count = 0;
                         }
                         for k in 0..half_size {
                             effective_floor[k] = noise_floor_per_bin[k].min(global_floor * 2.5);
@@ -564,7 +577,7 @@ impl STFT {
                     nearest >= 2.0
                         && nearest <= 5.0
                         && (ratio / nearest - 1.0).abs() < 0.03
-                        && score_i < score_j * 0.97
+                        && score_i < score_j * 1.05
                 })
             })
             .collect();

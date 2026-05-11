@@ -80,6 +80,8 @@ pub struct OnsetEvent {
     pub beat_position: f64,
     /// Raw sample offset within the input buffer where the onset was found.
     pub raw_sample_offset: i64,
+    /// Raw output samples
+    pub output_samples: i64,
     /// Amplitude / velocity (0.0–1.0) if available.
     pub velocity: f32,
 }
@@ -120,6 +122,17 @@ pub struct MusicalTransport {
     /// detector uses this to suppress detections that are acoustically
     /// caused by device output rather than the user playing.
     last_tick_output_frame: AtomicI64,
+
+    // ── recent metronome tick beat positions ───────────────────────────
+    /// Ring of recent metronome tick beat positions (f64 bits). The
+    /// onset detector checks the calibrated beat of each detected onset
+    /// against this ring and suppresses any onset within ±10 ms of a
+    /// stored tick. Slots are pre-filled with NEG_INFINITY so empty
+    /// entries can never match. Updated only by `notify_tick_at_frame`
+    /// (the metronome). Synth-generator notify_tick() calls do not push
+    /// here — they don't need self-suppression in beat space.
+    tick_history_beats: [AtomicU64; 8],
+    tick_history_count: AtomicU64,
 
     // ── tempo / position ───────────────────────────────────────────────
     bpm_bits: AtomicU32,
@@ -175,6 +188,10 @@ impl MusicalTransport {
             output_frames: AtomicI64::new(0),
             input_frames: AtomicI64::new(0),
             last_tick_output_frame: AtomicI64::new(i64::MIN / 2),
+            tick_history_beats: std::array::from_fn(|_| {
+                AtomicU64::new(f64::NEG_INFINITY.to_bits())
+            }),
+            tick_history_count: AtomicU64::new(0),
             bpm_bits: AtomicU32::new(initial_bpm.to_bits()),
             accumulated_beats_bits: AtomicU64::new(0.0f64.to_bits()),
             is_playing: AtomicBool::new(false),
@@ -245,6 +262,37 @@ impl MusicalTransport {
     pub fn notify_tick_at_frame(&self, click_output_frame: i64) {
         self.last_tick_output_frame
             .store(click_output_frame, Ordering::Relaxed);
+
+        // Also record the click's beat position so the onset detector can
+        // gate any onset within ±10 ms of it. Using beats (not frames)
+        // keeps the comparison straightforward against the already
+        // calibrated `OnsetEvent::beat_position`.
+        let sr = self.get_sample_rate() as f64;
+        let bpm = self.get_bpm() as f64;
+        let beats_per_sample = bpm / (60.0 * sr);
+        let beat = click_output_frame as f64 * beats_per_sample;
+
+        let n = self.tick_history_beats.len() as u64;
+        let idx = (self.tick_history_count.fetch_add(1, Ordering::Relaxed) % n) as usize;
+        self.tick_history_beats[idx].store(beat.to_bits(), Ordering::Relaxed);
+    }
+
+    /// Minimum absolute distance, in beats, between `beat` and any tick
+    /// stored by `notify_tick_at_frame`. Returns `f64::INFINITY` if the
+    /// history is empty. Cheap (constant-size scan of atomics) — safe to
+    /// call from the onset-detection thread per detected event.
+    pub fn nearest_tick_distance_beats(&self, beat: f64) -> f64 {
+        let mut min_dist = f64::INFINITY;
+        for slot in self.tick_history_beats.iter() {
+            let t = f64::from_bits(slot.load(Ordering::Relaxed));
+            if t.is_finite() {
+                let d = (beat - t).abs();
+                if d < min_dist {
+                    min_dist = d;
+                }
+            }
+        }
+        min_dist
     }
 
     // =====================================================================
@@ -282,6 +330,8 @@ impl MusicalTransport {
         OnsetEvent {
             beat_position: compensated,
             raw_sample_offset: sample_offset,
+            output_samples: self.get_output_frames() - input_lat - output_lat + sample_offset
+                - calibration,
             velocity,
         }
     }
@@ -551,6 +601,12 @@ impl MusicalTransport {
             .store(0.0f64.to_bits(), Ordering::SeqCst);
         self.output_frames.store(0, Ordering::SeqCst);
         self.input_frames.store(0, Ordering::SeqCst);
+        // Stale beat-history entries would otherwise match the new
+        // (rewound) beat grid by coincidence.
+        for slot in self.tick_history_beats.iter() {
+            slot.store(f64::NEG_INFINITY.to_bits(), Ordering::SeqCst);
+        }
+        self.tick_history_count.store(0, Ordering::SeqCst);
     }
 
     // =====================================================================
