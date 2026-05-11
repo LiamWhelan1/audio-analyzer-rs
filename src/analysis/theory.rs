@@ -226,6 +226,11 @@ impl Note {
             cents,
         }
     }
+    pub fn from_midi(midi: u8) -> Self {
+        let midi_note = MidiNote::new(midi, 0.0);
+        let freq = midi_note.to_freq(None);
+        Self::from_freq(freq, None)
+    }
     pub fn get_name(&self) -> String {
         let accidental = if let Some(acc) = &self.accidental {
             match acc {

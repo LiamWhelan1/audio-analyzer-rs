@@ -410,8 +410,9 @@ impl OnsetDetector {
                                     let sr_f64 = transport.get_sample_rate() as f64;
                                     let calibration_samples = event.output_samples - target;
                                     log::info!(
-                                        "beat_pos: {}, target_samples: {}, event_samples: {}",
+                                        "beat_pos: {}, transport beat: {}, target_samples: {}, event_samples: {}",
                                         event.beat_position,
+                                        transport.get_accumulated_beats(),
                                         target,
                                         event.output_samples
                                     );
