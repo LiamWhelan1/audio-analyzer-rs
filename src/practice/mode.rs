@@ -302,8 +302,8 @@ impl ModeController {
                         note_index: snap.note_idx_in_measure_data,
                         error_type: crate::practice::MusicError::HeldTooLong,
                         intensity: 0.6,
-                        expected: format!("dur~{:.2}", snap.expected_duration),
-                        received: format!("dur={:.2}", actual_duration),
+                        expected: format!("held~{:.2}", snap.expected_duration),
+                        received: format!("held for {:.2}", actual_duration),
                     });
                 } else if actual_duration < snap.expected_duration * (1.0 - HOLD_TOLERANCE_PCT) {
                     self.feedback.push(crate::practice::SendInfo {
@@ -311,8 +311,8 @@ impl ModeController {
                         note_index: snap.note_idx_in_measure_data,
                         error_type: crate::practice::MusicError::HeldTooShort,
                         intensity: 0.6,
-                        expected: format!("dur~{:.2}", snap.expected_duration),
-                        received: format!("dur={:.2}", actual_duration),
+                        expected: format!("held~{:.2}", snap.expected_duration),
+                        received: format!("held for {:.2}", actual_duration),
                     });
                 }
                 const INTONATION_THRESHOLD: f64 = 25.0;
@@ -323,8 +323,15 @@ impl ModeController {
                         note_index: snap.note_idx_in_measure_data,
                         error_type: crate::practice::MusicError::Intonation,
                         intensity: (t.avg_cents.abs() / 50.0).min(1.0),
-                        expected: format!("midi={}", snap.expected_midi),
-                        received: format!("midi={} {:+.0}c", t.midi_note, t.avg_cents),
+                        expected: format!(
+                            "{}",
+                            crate::analysis::theory::Note::from_midi(snap.expected_midi).get_name()
+                        ),
+                        received: format!(
+                            "{} {:+.0}c",
+                            crate::analysis::theory::Note::from_midi(t.midi_note).get_name(),
+                            t.avg_cents
+                        ),
                     });
                 }
             }
@@ -364,12 +371,12 @@ fn send_info(
         error_type: err,
         intensity: 0.0,
         expected: format!(
-            "note={} beat={:.2}",
+            "{} beat {:.2}",
             crate::analysis::theory::Note::from_midi(exp.midi_note).get_name(),
             exp.beat_position
         ),
         received: format!(
-            "note={} beat={:.3}",
+            "{} at beat {:.2}",
             crate::analysis::theory::Note::from_midi(t.midi_note).get_name(),
             t.start_beat
         ),
@@ -387,12 +394,12 @@ fn upgrade_send_info(
         error_type: crate::practice::MusicError::None,
         intensity: 0.0,
         expected: format!(
-            "note={} beat={:.2} (corrected from earlier wrong note)",
+            "{} at beat {:.2} (corrected)",
             crate::analysis::theory::Note::from_midi(exp.midi_note).get_name(),
             exp.beat_position
         ),
         received: format!(
-            "note={} beat={:.3}",
+            "{} at beat {:.2}",
             crate::analysis::theory::Note::from_midi(t.midi_note).get_name(),
             t.start_beat
         ),
@@ -410,8 +417,16 @@ fn timing_send_info(
         note_index: key.1,
         error_type: crate::practice::MusicError::Timing,
         intensity: (err.abs() / 0.5).min(1.0),
-        expected: format!("beat {:.2}", exp.beat_position),
-        received: format!("beat {:.2}", t.start_beat),
+        expected: format!(
+            "{} at beat {:.3}",
+            crate::analysis::theory::Note::from_midi(exp.midi_note).get_name(),
+            exp.beat_position
+        ),
+        received: format!(
+            "{} at beat {:.3}",
+            crate::analysis::theory::Note::from_midi(t.midi_note).get_name(),
+            t.start_beat
+        ),
     }
 }
 
@@ -423,7 +438,7 @@ fn missing_note_send_info(key: (usize, usize), buf: &MeasureBuffer) -> crate::pr
         error_type: crate::practice::MusicError::MissingNote,
         intensity: 1.0,
         expected: format!(
-            "note={} beat={:.2}",
+            "{} at beat {:.2}",
             crate::analysis::theory::Note::from_midi(exp.midi_note).get_name(),
             exp.beat_position
         ),
@@ -451,7 +466,7 @@ fn extra_note_send_info(
                 key.0 as u32,
                 key.1,
                 format!(
-                    "note={} (extra during held)",
+                    "{} (extra during held)",
                     crate::analysis::theory::Note::from_midi(exp.midi_note).get_name()
                 ),
             )
@@ -465,7 +480,7 @@ fn extra_note_send_info(
         intensity: 0.5,
         expected: expected_str,
         received: format!(
-            "note={} beat={:.3}",
+            "{} at beat {:.2}",
             crate::analysis::theory::Note::from_midi(t.midi_note).get_name(),
             t.start_beat
         ),
