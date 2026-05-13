@@ -19,20 +19,6 @@ pub mod types;
 
 use metrics::{MeasureData, Metrics};
 
-/// Minimum onset velocity (0.0–1.0) required to trigger an onset-driven note boundary.
-/// Low-velocity onsets (bow friction, vibrato overtone shifts) are ignored for rearticulation.
-const ONSET_VELOCITY_THRESHOLD: f32 = 0.3;
-
-/// After an onset-triggered note boundary, this many beats must pass before another onset
-/// can start a new note.  Prevents one physical bow-stroke from fragmenting into many
-/// short `NoteEvent`s when the onset detector fires several times in quick succession.
-const REFRACTORY_BEATS: f64 = 0.25;
-
-/// Number of consecutive 5 ms polling cycles the tuner must report the same new MIDI pitch
-/// before a pitch-change note boundary is confirmed. Filters vibrato overshoots (1–3 cycles)
-/// while catching genuine slurred note changes (which stabilise quickly).
-const PITCH_CONFIRM_POLLS: u32 = 3;
-
 // ── Public types ──────────────────────────────────────────────────────────────
 
 /// The ability level of the user, used to scale error tolerances.
@@ -450,7 +436,7 @@ fn run_session(
     state: Arc<Mutex<SessionState>>,
     feedback: Arc<Mutex<Vec<SendInfo>>>,
     running: Arc<AtomicBool>,
-    _ability_level: AbilityLevel,
+    ability_level: AbilityLevel,
     mode: crate::practice::types::PracticeMode,
 ) {
     use crate::practice::buffer::MeasureBuffer;
@@ -478,6 +464,7 @@ fn run_session(
     );
     let mut mc = ModeController::new(
         mode,
+        ability_level,
         transport.clone(),
         conditioner,
         buffer,
@@ -603,7 +590,6 @@ fn note_name_to_midi(name: &str) -> Option<u8> {
     (0..=127).contains(&midi).then_some(midi as u8)
 }
 
-
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -654,7 +640,6 @@ mod tests {
         assert_eq!(note_name_to_midi("Ax"), None);
     }
 
-
     // ── AbilityLevel tolerance_scale ─────────────────────────────────────────
 
     #[test]
@@ -668,5 +653,4 @@ mod tests {
         );
         assert!(AbilityLevel::Advanced.tolerance_scale() > AbilityLevel::Pro.tolerance_scale());
     }
-
 }

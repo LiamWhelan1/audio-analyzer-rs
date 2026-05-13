@@ -56,7 +56,7 @@ impl FluxTracker {
     /// Create a new tracker with multiplier and memory settings.
     fn new(multiplier: f32, rise_memory: f32, decay_memory: f32) -> Self {
         Self {
-            threshold: 1.0,
+            threshold: 0.0,
             multiplier,
             rise_memory,
             decay_memory,
@@ -75,8 +75,8 @@ impl FluxTracker {
 
         self.threshold = self.threshold * memory + current_flux * (1.0 - memory);
 
-        if self.threshold < 1.0 {
-            self.threshold = 1.0;
+        if self.threshold < 0.9 {
+            self.threshold = 0.9;
         }
 
         is_onset && current_flux > (self.threshold * self.multiplier)
@@ -353,7 +353,7 @@ impl OnsetDetector {
                     //  - flux-based detector for spectrum-wide rises
                     //  - bin-burst for fast attacks even mid-phrase
                     let flux_onset = tracker.update(current_flux);
-                    let bin_burst_onset = max_bin_excess > 3.0 && bin_burst_count >= 4;
+                    let bin_burst_onset = max_bin_excess > 3.0 && bin_burst_count >= 3;
                     let onset_detected = flux_onset && bin_burst_onset;
 
                     // Calibration timeout — fall back to offset 0 if no onset
@@ -409,6 +409,7 @@ impl OnsetDetector {
                                 } else {
                                     let sr_f64 = transport.get_sample_rate() as f64;
                                     let calibration_samples = event.output_samples - target;
+                                    let residual_ms = calibration_samples as f64 * 1000.0 / sr_f64;
                                     log::info!(
                                         "beat_pos: {}, transport beat: {}, target_samples: {}, event_samples: {}",
                                         event.beat_position,
@@ -416,17 +417,26 @@ impl OnsetDetector {
                                         target,
                                         event.output_samples
                                     );
-                                    let residual_ms = calibration_samples as f64 * 1000.0 / sr_f64;
                                     log::info!(
                                         "onset calibration: residual={:.1}ms ({} samples) at target frame {}",
                                         residual_ms,
                                         calibration_samples,
                                         target,
                                     );
-                                    transport.set_calibration_offset(calibration_samples);
-                                    calibration_done = true;
-                                    onset_pending.store(false, Ordering::Relaxed);
-                                    onset_fired = true;
+                                    // Reject implausible residuals (negative or > 500 ms).
+                                    // These indicate a spurious onset unrelated to the click.
+                                    let max_cal = (sr_f64 * 0.5) as i64;
+                                    if calibration_samples < 0 || calibration_samples > max_cal {
+                                        log::warn!(
+                                            "onset calibration: rejected implausible residual ({:.1}ms) — retrying",
+                                            residual_ms,
+                                        );
+                                    } else {
+                                        transport.set_calibration_offset(calibration_samples);
+                                        calibration_done = true;
+                                        onset_pending.store(false, Ordering::Relaxed);
+                                        onset_fired = true;
+                                    }
                                 }
                             } else {
                                 log::trace!(
@@ -500,7 +510,7 @@ impl OnsetDetector {
                                     "candidate: flux={:.1} (tracker rejected), burst={}/{}",
                                     current_flux,
                                     bin_burst_count,
-                                    if bin_burst_count >= 4 { "≥4" } else { "<4" }
+                                    if bin_burst_count >= 3 { "≥3" } else { "<3" }
                                 ),
                                 (220, 180, 60),
                             )

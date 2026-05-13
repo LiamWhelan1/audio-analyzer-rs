@@ -15,6 +15,22 @@ pub const ONSET_CLAIM_WINDOW: f64 = 0.05;
 pub const CLUSTER_MIN_TRANSIENTS: usize = 4;
 pub const CLUSTER_FRAME_WINDOW: u64 = 10;
 pub const RECENT_ONSET_RETENTION_BEATS: f64 = 0.5;
+pub const PITCH_CENTS_LIMIT: f64 = 60.0;
+
+/// Re-quantize (midi, cents) so cents stays within ±PITCH_CENTS_LIMIT.
+/// Glide folding can inflate avg_cents well beyond ±50; this keeps the
+/// reported pitch from claiming a note was a detuned version of an adjacent pitch.
+fn normalize_pitch(mut midi: u8, mut cents: f64) -> (u8, f64) {
+    while cents > PITCH_CENTS_LIMIT && midi < 127 {
+        midi += 1;
+        cents -= 100.0;
+    }
+    while cents < -PITCH_CENTS_LIMIT && midi > 0 {
+        midi -= 1;
+        cents += 100.0;
+    }
+    (midi, cents)
+}
 
 #[derive(Clone, Debug)]
 struct ActiveBody {
@@ -108,7 +124,7 @@ impl InputConditioner {
             self.transient_log.pop_front();
         }
 
-        // Vibrato glide folding: for each EndPending pitch P_old, if any other
+        //  rato glide folding: for each EndPending pitch P_old, if any other
         // pitch P_new is in StartPending (or about to enter it) this frame,
         // fold P_new's cents into P_old (translated to P_old's frame).
         let end_pending_midis: Vec<u8> = self
@@ -176,16 +192,17 @@ impl InputConditioner {
                             if let Some(PitchState::EndPending { carry, .. }) =
                                 self.pitches.remove(&old_m)
                             {
-                                let avg = if carry.frame_count > 0 {
+                                let raw_avg = if carry.frame_count > 0 {
                                     carry.cents_sum / carry.frame_count as f64
                                 } else {
                                     0.0
                                 };
+                                let (norm_midi, norm_cents) = normalize_pitch(old_m, raw_avg);
                                 events.push(ConditionerEvent::Ended(TrackedNoteEnd {
                                     seq: carry.seq,
-                                    midi_note: old_m,
+                                    midi_note: norm_midi,
                                     end_beat: pivot_beat,
-                                    avg_cents: avg,
+                                    avg_cents: norm_cents,
                                     frame_count: carry.frame_count,
                                 }));
                             }
@@ -265,14 +282,15 @@ impl InputConditioner {
                 } => {
                     let new_count = absent_frames + 1;
                     if new_count >= END_FRAMES {
-                        let avg_cents = if carry.frame_count > 0 {
+                        let raw_avg = if carry.frame_count > 0 {
                             carry.cents_sum / carry.frame_count as f64
                         } else {
                             0.0
                         };
+                        let (norm_midi, avg_cents) = normalize_pitch(m, raw_avg);
                         events.push(ConditionerEvent::Ended(TrackedNoteEnd {
                             seq: carry.seq,
-                            midi_note: m,
+                            midi_note: norm_midi,
                             end_beat: first_absence_beat,
                             avg_cents,
                             frame_count: carry.frame_count,

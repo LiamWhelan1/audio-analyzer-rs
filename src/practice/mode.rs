@@ -9,12 +9,12 @@ use crate::audio_io::timing::{MusicalTransport, OnsetEvent};
 use crate::practice::buffer::{MeasureBuffer, SlotStatus};
 use crate::practice::clock::{ClockConfig, ClockManager};
 use crate::practice::conditioner::InputConditioner;
-use crate::practice::matcher;
 use crate::practice::metrics::{DynamicsEvent, MeasureData, NoteEvent};
 use crate::practice::types::{
     ClockAction, ConditionerEvent, MatchOutcome, PracticeMode, TrackedNoteEnd, TrackedNoteStart,
     TunerFrame,
 };
+use crate::practice::{AbilityLevel, matcher};
 
 #[derive(Clone, Debug)]
 pub struct MatchedSnapshot {
@@ -26,6 +26,7 @@ pub struct MatchedSnapshot {
 
 pub struct ModeController {
     pub mode: PracticeMode,
+    pub ability: AbilityLevel,
     pub transport: Arc<MusicalTransport>,
     pub conditioner: InputConditioner,
     pub buffer: MeasureBuffer,
@@ -61,6 +62,7 @@ pub struct TickOutputs {
 impl ModeController {
     pub fn new(
         mode: PracticeMode,
+        ability: AbilityLevel,
         transport: Arc<MusicalTransport>,
         conditioner: InputConditioner,
         buffer: MeasureBuffer,
@@ -69,6 +71,7 @@ impl ModeController {
     ) -> Self {
         Self {
             mode,
+            ability,
             transport,
             conditioner,
             buffer,
@@ -250,7 +253,8 @@ impl ModeController {
                 self.feedback.push(prim);
                 let timing_threshold = exp.duration_beats
                     * self.clock.cfg().seek_threshold_pct
-                    * mode_tol_scale(self.mode);
+                    * mode_tol_scale(self.mode)
+                    * self.ability.tolerance_scale();
                 if timing_err.abs() > timing_threshold {
                     self.feedback
                         .push(timing_send_info(*key, &exp, t, *timing_err));
@@ -315,8 +319,10 @@ impl ModeController {
                         received: format!("held for {:.2}", actual_duration),
                     });
                 }
-                const INTONATION_THRESHOLD: f64 = 25.0;
-                let intonation_threshold = INTONATION_THRESHOLD * mode_tol_scale(self.mode);
+                const INTONATION_THRESHOLD: f64 = 15.0;
+                let intonation_threshold = INTONATION_THRESHOLD
+                    * mode_tol_scale(self.mode)
+                    * self.ability.tolerance_scale();
                 if t.avg_cents.abs() > intonation_threshold {
                     self.feedback.push(crate::practice::SendInfo {
                         measure: mi as u32,
@@ -548,7 +554,15 @@ mod tests {
         let buffer = MeasureBuffer::new(measures, 0, 0);
         let conditioner = InputConditioner::new(transport.clone());
         let clock = ClockManager::new(transport.clone(), ClockConfig::default(), 120.0);
-        ModeController::new(mode, transport, conditioner, buffer, clock, 0)
+        ModeController::new(
+            mode,
+            AbilityLevel::Beginner,
+            transport,
+            conditioner,
+            buffer,
+            clock,
+            0,
+        )
     }
 
     fn frame_with(midis: Vec<(u8, f64)>, beat: f64) -> TunerFrame {
@@ -642,8 +656,9 @@ mod tests {
         let buffer = MeasureBuffer::new(measures.clone(), 0, 1);
         let conditioner = InputConditioner::new(transport.clone());
         let clock = ClockManager::new(transport.clone(), ClockConfig::default(), 120.0);
-        let mut mc = ModeController::new(
+        let mc = ModeController::new(
             PracticeMode::Performance,
+            AbilityLevel::Beginner,
             transport,
             conditioner,
             buffer,

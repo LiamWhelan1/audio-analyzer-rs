@@ -15,11 +15,13 @@ pub fn resolve(
 
     // Rule 1: any Pending slot whose duration window contains tracked.start_beat
     // → match (regardless of pitch). Pick the closest.
-    let in_window_pending: Vec<&Candidate> = cands.iter()
+    let in_window_pending: Vec<&Candidate> = cands
+        .iter()
         .filter(|c| matches!(c.kind, CandidateKind::InWindow) && c.status == SlotStatus::Pending)
         .collect();
     if !in_window_pending.is_empty() {
-        let best = in_window_pending.iter()
+        let best = in_window_pending
+            .iter()
             .min_by(|a, b| {
                 let da = (tracked.start_beat - a.expected.beat_position).abs();
                 let db = (tracked.start_beat - b.expected.beat_position).abs();
@@ -40,7 +42,12 @@ pub fn resolve(
     // AND pitch is exact → upgrade.
     let upgrade_target = cands.iter().find(|c| {
         matches!(c.kind, CandidateKind::InWindow)
-            && matches!(c.status, SlotStatus::Matched { pitch_correct: false })
+            && matches!(
+                c.status,
+                SlotStatus::Matched {
+                    pitch_correct: false
+                }
+            )
             && tracked.midi_note == c.expected.midi_note
     });
     if let Some(c) = upgrade_target {
@@ -56,11 +63,19 @@ pub fn resolve(
     // Rule 3: Matched(true) slot, exact pitch, within freshness → DoubledNote.
     let doubled_target = cands.iter().find(|c| {
         matches!(c.kind, CandidateKind::InWindow)
-            && matches!(c.status, SlotStatus::Matched { pitch_correct: true })
+            && matches!(
+                c.status,
+                SlotStatus::Matched {
+                    pitch_correct: true
+                }
+            )
             && tracked.midi_note == c.expected.midi_note
-            && buf.slot(c.key).and_then(|s| s.matched_start_beat).map_or(false, |msb| {
-                tracked.start_beat - msb <= DOUBLED_NOTE_FRESHNESS
-            })
+            && buf
+                .slot(c.key)
+                .and_then(|s| s.matched_start_beat)
+                .map_or(false, |msb| {
+                    tracked.start_beat - msb <= DOUBLED_NOTE_FRESHNESS
+                })
     });
     if let Some(c) = doubled_target {
         return MatchOutcome::DoubledNote { key: c.key };
@@ -69,7 +84,12 @@ pub fn resolve(
     // Rule 4: score Lookahead and Lookbehind candidates.
     fn pitch_score(played: u8, expected: u8) -> i32 {
         let d = (played as i32 - expected as i32).abs();
-        match d { 0 => 100, 1 => 30, 2 => 10, _ => 0 }
+        match d {
+            0 => 100,
+            1 => 30,
+            2 => 10,
+            _ => 0,
+        }
     }
     fn timing_score(beat: f64, exp: &crate::practice::metrics::ExpectedNote) -> i32 {
         if beat >= exp.beat_position && beat < exp.beat_position + exp.duration_beats {
@@ -82,7 +102,9 @@ pub fn resolve(
 
     let mut best: Option<(&Candidate, i32)> = None;
     for c in &cands {
-        if !matches!(c.status, SlotStatus::Pending) { continue; }
+        if !matches!(c.status, SlotStatus::Pending) {
+            continue;
+        }
         let kind_penalty = match c.kind {
             CandidateKind::InWindow => 0,
             CandidateKind::Lookahead(1) => -10,
@@ -91,8 +113,8 @@ pub fn resolve(
             _ => -50,
         };
         let score = pitch_score(tracked.midi_note, c.expected.midi_note)
-                  + timing_score(tracked.start_beat, &c.expected)
-                  + kind_penalty;
+            + timing_score(tracked.start_beat, &c.expected)
+            + kind_penalty;
         if score >= MIN_MATCH_SCORE
             && tracked.midi_note == c.expected.midi_note
             && best.map_or(true, |(_, bs)| score > bs)
@@ -113,13 +135,18 @@ pub fn resolve(
     }
 
     // Rule 5: extra note. `during` = any in-window slot (Pending or Matched).
-    let during = cands.iter()
+    let during = cands
+        .iter()
         .find(|c| matches!(c.kind, CandidateKind::InWindow))
         .map(|c| c.key);
     MatchOutcome::ExtraNote { during }
 }
 
-fn walk_skipped(buf: &MeasureBuffer, frontier: (usize, usize), target: (usize, usize)) -> Vec<(usize, usize)> {
+fn walk_skipped(
+    buf: &MeasureBuffer,
+    frontier: (usize, usize),
+    target: (usize, usize),
+) -> Vec<(usize, usize)> {
     let mut skipped = Vec::new();
     let mut walker = frontier;
     let mut steps = 0;
@@ -142,28 +169,34 @@ fn step_forward(buf: &MeasureBuffer, key: (usize, usize)) -> (usize, usize) {
     // closest slot one note ahead by sequential numbering within the measure,
     // then walk into the next measure if needed.
     let next = (key.0, key.1 + 1);
-    if buf.slot(next).is_some() { next }
-    else { (key.0 + 1, 0) }
+    if buf.slot(next).is_some() {
+        next
+    } else {
+        (key.0 + 1, 0)
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::generators::{Instrument, Measure, SynthNote};
     use crate::practice::buffer::MeasureBuffer;
     use crate::practice::types::{StartSource, TrackedNoteStart};
-    use crate::generators::{Instrument, Measure, SynthNote};
     use std::sync::Arc;
 
     fn measure_with_notes(notes: Vec<(f32, f32, f32)>, start: f64) -> Measure {
         // notes: (start_beat_in_measure, duration, freq)
         Measure {
-            notes: notes.iter().map(|&(s, d, f)| SynthNote {
-                freq: f,
-                start_beat_in_measure: s,
-                duration_beats: d,
-                velocity: 0.5,
-                instrument: Instrument::Piano,
-            }).collect(),
+            notes: notes
+                .iter()
+                .map(|&(s, d, f)| SynthNote {
+                    freq: f,
+                    start_beat_in_measure: s,
+                    duration_beats: d,
+                    velocity: 0.5,
+                    instrument: Instrument::Piano,
+                })
+                .collect(),
             time_signature: (4, 4),
             bpm: 120.0,
             global_start_beat: start,
@@ -187,7 +220,9 @@ mod tests {
         let buf = MeasureBuffer::new(measures, 0, 0);
         let out = resolve(&ts(60, 0.05), &buf, (0, 0));
         match out {
-            MatchOutcome::Matched { key, pitch_correct, .. } => {
+            MatchOutcome::Matched {
+                key, pitch_correct, ..
+            } => {
                 assert_eq!(key, (0, 0));
                 assert!(pitch_correct);
             }
@@ -200,11 +235,14 @@ mod tests {
         // Notes at 0, 1, 2 (each 1 beat). Student plays at beat 1.05 with pitch
         // matching note 2 (E4 = midi 64). Frontier is (0, 1). Note 1 (D4) gets
         // skipped, note 2 matched.
-        let measures = Arc::new(vec![measure_with_notes(vec![
-            (0.0, 1.0, 261.626),    // C4
-            (1.0, 1.0, 293.665),    // D4
-            (2.0, 1.0, 329.628),    // E4
-        ], 0.0)]);
+        let measures = Arc::new(vec![measure_with_notes(
+            vec![
+                (0.0, 1.0, 261.626), // C4
+                (1.0, 1.0, 293.665), // D4
+                (2.0, 1.0, 329.628), // E4
+            ],
+            0.0,
+        )]);
         let mut buf = MeasureBuffer::new(measures, 0, 0);
         buf.record_match((0, 0), &ts(60, 0.0), true);
 
@@ -214,7 +252,12 @@ mod tests {
         // instead so we cleanly hit lookahead).
         let out = resolve(&ts(64, 2.05), &buf, (0, 1));
         match out {
-            MatchOutcome::Matched { key, skipped_keys, pitch_correct, .. } => {
+            MatchOutcome::Matched {
+                key,
+                skipped_keys,
+                pitch_correct,
+                ..
+            } => {
                 assert_eq!(key, (0, 2));
                 assert_eq!(skipped_keys, vec![(0, 1)]);
                 assert!(pitch_correct);
@@ -260,7 +303,12 @@ mod tests {
 
         let out = resolve(&ts(60, 0.10), &buf, (0, 0));
         match out {
-            MatchOutcome::Matched { key, pitch_correct, upgrade, .. } => {
+            MatchOutcome::Matched {
+                key,
+                pitch_correct,
+                upgrade,
+                ..
+            } => {
                 assert_eq!(key, (0, 0));
                 assert!(pitch_correct);
                 assert!(upgrade);
@@ -275,7 +323,9 @@ mod tests {
         let buf = MeasureBuffer::new(measures, 0, 0);
         let out = resolve(&ts(62, 0.05), &buf, (0, 0));
         match out {
-            MatchOutcome::Matched { key, pitch_correct, .. } => {
+            MatchOutcome::Matched {
+                key, pitch_correct, ..
+            } => {
                 assert_eq!(key, (0, 0));
                 assert!(!pitch_correct);
             }

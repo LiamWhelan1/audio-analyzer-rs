@@ -23,6 +23,7 @@ const MAX_MIDI_VELOCITY: f32 = 127.0;
 pub enum Instrument {
     Piano,
     Violin,
+    Voice,
 }
 
 impl Instrument {
@@ -31,6 +32,7 @@ impl Instrument {
         match instrument.as_str() {
             "piano" => Ok(Self::Piano),
             "violin" => Ok(Self::Violin),
+            "voice" => Ok(Self::Voice),
             _ => Err(AudioEngineError::Internal {
                 msg: format!("Instrument '{instrument}' is unavailable"),
             }),

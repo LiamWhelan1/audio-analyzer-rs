@@ -9,10 +9,10 @@ use super::{MIN_ENVELOPE, TWO_PI};
 
 /// One-shot click used to measure end-to-end audio round-trip latency.
 ///
-/// Schedules a brief sinusoidal click at a future output frame, publishes
-/// the actual frame number on a shared atomic, and finishes once the
-/// envelope decays.  The `OnsetDetector` reads the atomic to learn the
-/// expected frame and stores the residual on the transport as
+/// Schedules a brief sinusoidal click + white noise burst at a future output
+/// frame, publishes the actual frame number on a shared atomic, and finishes
+/// once the envelope decays.  The `OnsetDetector` reads the atomic to learn
+/// the expected frame and stores the residual on the transport as
 /// `calibration_offset_samples`.
 ///
 /// Unlike the `Metronome`, this source deliberately does **not** call
@@ -29,6 +29,9 @@ pub struct CalibrationClick {
     envelope: f32,
     decay_rate: f32,
     volume: f32,
+    noise_envelope: f32,
+    noise_decay_rate: f32,
+    noise_seed: u32,
 }
 
 impl CalibrationClick {
@@ -46,6 +49,8 @@ impl CalibrationClick {
         // 50 ms decay — sharp attack, brief tail, easy onset target.
         let decay_samples_count = sample_rate * 0.05;
         let decay_rate = MIN_ENVELOPE.powf(1.0 / decay_samples_count);
+        // Noise burst: 15 ms — same short transient the metronome uses.
+        let noise_decay_rate = MIN_ENVELOPE.powf(1.0 / (sample_rate * 0.015));
         Self {
             transport,
             sample_rate,
@@ -57,6 +62,9 @@ impl CalibrationClick {
             envelope: 1.0,
             decay_rate,
             volume,
+            noise_envelope: 1.0,
+            noise_decay_rate,
+            noise_seed: 12345,
         }
     }
 }
@@ -97,9 +105,22 @@ impl AudioSource for CalibrationClick {
         const FREQ: f32 = 2500.0;
         let phase_inc = (FREQ * TWO_PI) / self.sample_rate;
         for f in start_offset..(total_frames as usize) {
-            let s = (self.phase * phase_inc).sin() * self.volume * self.envelope;
+            let sine = (self.phase * phase_inc).sin() * self.volume * self.envelope;
             self.phase += 1.0;
             self.envelope *= self.decay_rate;
+
+            self.noise_seed = self
+                .noise_seed
+                .wrapping_mul(1103515245)
+                .wrapping_add(12345)
+                & 0x7FFFFFFF;
+            let noise = (self.noise_seed as f32 / 2147483648.0 - 1.0)
+                * self.volume
+                * 0.5
+                * self.noise_envelope;
+            self.noise_envelope *= self.noise_decay_rate;
+
+            let s = sine + noise;
             let base = f * channels;
             for ch in 0..channels {
                 buffer[base + ch] += s;

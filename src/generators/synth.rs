@@ -61,6 +61,13 @@ impl Voice {
                 release_sec: 0.5,
                 timbre_mix: 0.4,
             },
+            Instrument::Voice => InstrumentParams {
+                attack_sec: 0.3,
+                decay_sec: 0.1,
+                sustain_level: 0.9,
+                release_sec: 0.5,
+                timbre_mix: 0.4,
+            },
         }
     }
 
@@ -69,7 +76,13 @@ impl Voice {
     /// When `bpm` is provided and `duration_beats` is `Some`, the ADSR params are
     /// scaled so the entire envelope (attack + decay + sustain + release) completes
     /// exactly at `duration_beats`, eliminating overlap with subsequent notes.
-    fn new(freq: f32, velocity: f32, duration_beats: Option<f32>, instrument: Instrument, bpm: Option<f32>) -> Self {
+    fn new(
+        freq: f32,
+        velocity: f32,
+        duration_beats: Option<f32>,
+        instrument: Instrument,
+        bpm: Option<f32>,
+    ) -> Self {
         let mut params = Self::get_instrument_params(&instrument);
 
         let remaining_beats = match (duration_beats, bpm) {
@@ -123,6 +136,11 @@ impl Voice {
                     fund * (1.0 - self.params.timbre_mix) + bright_comp * self.params.timbre_mix;
             }
             Instrument::Violin => {
+                let t = self.phase / TWO_PI;
+                let tri = 4.0 * (t - 0.5).abs() - 1.0;
+                raw_sig = fund * (1.0 - self.params.timbre_mix) + tri * self.params.timbre_mix;
+            }
+            Instrument::Voice => {
                 let t = self.phase / TWO_PI;
                 let tri = 4.0 * (t - 0.5).abs() - 1.0;
                 raw_sig = fund * (1.0 - self.params.timbre_mix) + tri * self.params.timbre_mix;
