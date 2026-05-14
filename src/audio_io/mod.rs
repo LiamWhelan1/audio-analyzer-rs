@@ -341,9 +341,9 @@ impl AudioPipeline {
             let mut dynamics = DynamicsTracker::new(
                 sample_rate,
                 slot_len_reducer,
-                -14.0, // target dBFS (measured against p95 of active-frame RMS)
+                -18.0, // target dBFS (measured against p95 of active-frame RMS)
                 100.0, // max boost dB
-                30.0,  // gain smoothing TC (seconds) — long TC keeps gain
+                240.0, // gain smoothing TC (seconds) — long TC keeps gain
                 // session-stable rather than phrase-by-phrase
                 dynamics_output_reducer,
             );

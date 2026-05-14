@@ -39,6 +39,9 @@ struct ActiveBody {
     start_source: StartSource,
     cents_sum: f64,
     frame_count: u32,
+    /// Last cents value from the confirmation buffer; used as avg when the note
+    /// ends before accumulating any post-confirmation frames.
+    fallback_cents: f64,
 }
 
 #[derive(Clone, Debug)]
@@ -124,36 +127,6 @@ impl InputConditioner {
             self.transient_log.pop_front();
         }
 
-        //  rato glide folding: for each EndPending pitch P_old, if any other
-        // pitch P_new is in StartPending (or about to enter it) this frame,
-        // fold P_new's cents into P_old (translated to P_old's frame).
-        let end_pending_midis: Vec<u8> = self
-            .pitches
-            .iter()
-            .filter_map(|(m, s)| matches!(s, PitchState::EndPending { .. }).then_some(*m))
-            .collect();
-        for old_m in &end_pending_midis {
-            for &(new_m, new_cents) in &frame.notes {
-                if new_m == *old_m {
-                    continue;
-                }
-                // Only fold if new_m is currently StartPending (or not yet present
-                // in the map — meaning this frame will create a fresh StartPending).
-                let new_is_start_pending = matches!(
-                    self.pitches.get(&new_m),
-                    Some(PitchState::StartPending { .. })
-                ) || !self.pitches.contains_key(&new_m);
-                if !new_is_start_pending {
-                    continue;
-                }
-                let folded = (new_m as f64 - *old_m as f64) * 100.0 + new_cents;
-                if let Some(PitchState::EndPending { carry, .. }) = self.pitches.get_mut(old_m) {
-                    carry.cents_sum += folded;
-                    carry.frame_count += 1;
-                }
-            }
-        }
-
         let mut events = Vec::new();
         let present: std::collections::HashSet<u8> = frame.notes.iter().map(|(m, _)| *m).collect();
         let cents_by_midi: HashMap<u8, f64> = frame.notes.iter().copied().collect();
@@ -195,7 +168,7 @@ impl InputConditioner {
                                 let raw_avg = if carry.frame_count > 0 {
                                     carry.cents_sum / carry.frame_count as f64
                                 } else {
-                                    0.0
+                                    carry.fallback_cents
                                 };
                                 let (norm_midi, norm_cents) = normalize_pitch(old_m, raw_avg);
                                 events.push(ConditionerEvent::Ended(TrackedNoteEnd {
@@ -213,7 +186,7 @@ impl InputConditioner {
                         let seq = self.next_event_seq;
                         self.next_event_seq += 1;
                         let avg = cents_buffer.iter().sum::<f64>() / cents_buffer.len() as f64;
-                        let cents_sum = cents_buffer.iter().sum::<f64>();
+                        let fallback_cents = cents_buffer.last().copied().unwrap_or(0.0);
                         events.push(ConditionerEvent::Started(TrackedNoteStart {
                             seq,
                             midi_note: m,
@@ -221,12 +194,17 @@ impl InputConditioner {
                             start_source,
                             initial_cents: avg,
                         }));
+                        // Skip the STABLE_FRAMES confirmation window from avg_cents —
+                        // those readings are unstable. Start accumulating fresh from
+                        // Active frames only; fallback_cents is the last stable reading
+                        // for notes that end before any Active frames are added.
                         PitchState::Active(ActiveBody {
                             seq,
                             start_beat,
                             start_source,
-                            cents_sum,
-                            frame_count: STABLE_FRAMES,
+                            cents_sum: 0.0,
+                            frame_count: 0,
+                            fallback_cents,
                         })
                     } else {
                         PitchState::StartPending {
@@ -285,7 +263,7 @@ impl InputConditioner {
                         let raw_avg = if carry.frame_count > 0 {
                             carry.cents_sum / carry.frame_count as f64
                         } else {
-                            0.0
+                            carry.fallback_cents
                         };
                         let (norm_midi, avg_cents) = normalize_pitch(m, raw_avg);
                         events.push(ConditionerEvent::Ended(TrackedNoteEnd {
@@ -459,36 +437,36 @@ mod tests {
     }
 
     #[test]
-    fn vibrato_glide_folds_cents_into_outgoing_note() {
+    fn glide_pivot_ends_outgoing_note_with_its_own_avg_cents() {
         let mut c = InputConditioner::new(mk_transport());
-        // C4 stable for 5 frames at avg +30 cents.
+        // C4 stable for 5 frames at +30 cents, then glides to C#4.
         for i in 0..5 {
             let f = frame(vec![(60, 30.0)], i as f64 * 0.02);
             let _ = c.ingest(Some(&f), &[]);
         }
-        // Now glide upward: 4 frames where C4 disappears and C#4 appears with progressively higher cents.
-        // C#4 cents -50 → -40 → -30 → -20 (rising → folded into C4 as +50, +60, +70, +80).
+        // Glide: C4 absent, C#4 appears for 4 frames (still StartPending).
         for (i, c_sharp_cents) in [(0, -50.0), (1, -40.0), (2, -30.0), (3, -20.0)].iter() {
             let f = frame(vec![(61, *c_sharp_cents)], 5.0 * 0.02 + *i as f64 * 0.02);
             let _ = c.ingest(Some(&f), &[]);
         }
-        // 5th frame of C#4 → confirms; C4 must be Ended at this pivot.
+        // 5th frame of C#4 → confirms; C4 pivot-ends here.
         let evs = c.ingest(Some(&frame(vec![(61, -10.0)], 9.0 * 0.02)), &[]);
         let mut got_end_c4 = false;
         let mut got_start_csharp = false;
         for e in evs {
             match e {
                 ConditionerEvent::Ended(t) if t.midi_note == 60 => {
-                    // avg_cents should be > 30 because we folded the climbing C#4 cents into it.
+                    // C4 had no Active frames beyond confirmation (it lasted exactly
+                    // STABLE_FRAMES). avg_cents uses fallback_cents = last stable
+                    // frame value (30c). The glide frames no longer inflate this.
                     assert!(
-                        t.avg_cents > 30.0,
-                        "expected folded glide to raise avg, got {}",
+                        (t.avg_cents - 30.0).abs() < 1.0,
+                        "expected avg_cents ~30 (own stable value), got {}",
                         t.avg_cents
                     );
                     got_end_c4 = true;
                 }
                 ConditionerEvent::Started(t) if t.midi_note == 61 => {
-                    // C#4's own cents start fresh — they should NOT include the high folded values.
                     got_start_csharp = true;
                 }
                 _ => {}
